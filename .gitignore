@@ -9,6 +9,9 @@ mnt/
 target-data/
 config.yaml
 
+# QEMU Test Image
+test/
+
 # Temporary files
 *.tmp
 *.swp

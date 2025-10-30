@@ -33,9 +33,9 @@ done < <(mount | grep "$MOUNT_DIR" | awk '{print $3}' | sort -r)
 if [[ ${#mounted_paths[@]} -gt 0 ]]; then
     log_info "Unmounting filesystems..."
     for mount_path in "${mounted_paths[@]}"; do
-        log_info "  Unmounting $mount_path"
+        log_info "  Unmounting $(relative_path "$mount_path")"
         if ! umount "$mount_path" 2>/dev/null; then
-            log_warn "  Failed to unmount $mount_path - trying lazy unmount"
+            log_warn "  Failed to unmount $(relative_path "$mount_path") - trying lazy unmount"
             umount -l "$mount_path" 2>/dev/null || true
         fi
     done

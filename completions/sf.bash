@@ -26,7 +26,7 @@ _sf_completion() {
                 COMPREPLY=($(compgen -W "$devices" -- "$cur"))
             fi
             ;;
-        use|delete|run|run-graphical)
+        use|delete|run|run-serial)
             # Complete with target names from config.yaml
             if [[ $cword -eq 2 ]]; then
                 if [[ -f "$config_file" ]] && command -v yq >/dev/null 2>&1; then

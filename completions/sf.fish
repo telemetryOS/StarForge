@@ -55,8 +55,8 @@ complete -c sf -f -n '__fish_use_subcommand' -a '(__sf_commands)'
 # write-installer: complete with block devices
 complete -c sf -f -n '__fish_seen_subcommand_from write-installer' -a '(__sf_devices)'
 
-# use, delete, run, run-graphical: complete with target names
-complete -c sf -f -n '__fish_seen_subcommand_from use delete run run-graphical' -a '(__sf_targets)'
+# use, delete, run, run-serial: complete with target names
+complete -c sf -f -n '__fish_seen_subcommand_from use delete run run-serial' -a '(__sf_targets)'
 
 # export: first arg is target name, second arg is output path
 complete -c sf -f -n '__fish_seen_subcommand_from export; and test (count (commandline -opc)) -eq 2' -a '(__sf_targets)'
@@ -101,5 +101,5 @@ complete -c sf -f -n '__fish_use_subcommand' -a 'import' -d 'Import target from 
 complete -c sf -f -n '__fish_use_subcommand' -a 'write-installer' -d 'Write installer to USB drive'
 complete -c sf -f -n '__fish_use_subcommand' -a 'load-installer' -d 'Load installer images'
 complete -c sf -f -n '__fish_use_subcommand' -a 'resize-partition-image' -d 'Resize a partition image'
-complete -c sf -f -n '__fish_use_subcommand' -a 'run' -d 'Run a target in QEMU (console mode)'
-complete -c sf -f -n '__fish_use_subcommand' -a 'run-graphical' -d 'Run a target in QEMU (graphical mode)'
+complete -c sf -f -n '__fish_use_subcommand' -a 'run' -d 'Run a target in QEMU (graphical mode)'
+complete -c sf -f -n '__fish_use_subcommand' -a 'run-serial' -d 'Run a target in QEMU (serial console mode)'

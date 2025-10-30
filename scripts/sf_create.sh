@@ -54,8 +54,33 @@ while true; do
 done
 
 echo ""
+
+# Prompt for target type
+log_info "Target Type"
+echo "  1. distribution - Operating system for use on hardware"
+echo "  2. installer    - Bootable installer for flashing distribution images"
+echo ""
+while true; do
+    TARGET_TYPE=$(prompt_input "Target type" "1")
+    case "$TARGET_TYPE" in
+        1|distribution)
+            TARGET_TYPE="distribution"
+            break
+            ;;
+        2|installer)
+            TARGET_TYPE="installer"
+            break
+            ;;
+        *)
+            log_error "Invalid choice. Enter 1 or 2"
+            ;;
+    esac
+done
+
+echo ""
 log_info "Creating target: $TARGET_NAME"
 log_info "Description: $DESCRIPTION"
+log_info "Type: $TARGET_TYPE"
 echo ""
 
 # Step 1: Ask for root partition size
@@ -73,79 +98,93 @@ done
 
 echo ""
 
-# Step 2: Ask for advanced partition options
+# Step 2: Partition Layout
 log_info "Step 2: Partition Layout"
-prompt_yesno "Use advanced partition options?" && ADVANCED="y" || ADVANCED="n"
 
 declare -a PARTITIONS
 
-if [[ $ADVANCED =~ ^[Yy]$ ]]; then
-    echo ""
-    log_info "Advanced partition configuration"
+# Boot partition
+while true; do
+    BOOT_SIZE=$(prompt_input "Boot partition size" "1G")
+    BOOT_SIZE="${BOOT_SIZE^^}"
 
+    if numfmt --from=iec "$BOOT_SIZE" &>/dev/null; then
+        break
+    fi
+    log_error "Invalid size format: $BOOT_SIZE (use format like 1G, 2G)"
+done
+
+PARTITIONS+=("boot|$BOOT_SIZE|vfat|boot|efi")
+
+# Root partition
+PARTITIONS+=("root|$ROOT_SIZE|ext4|.|linux")
+
+# Images partition (for installer targets only)
+if [[ "$TARGET_TYPE" == "installer" ]]; then
     while true; do
-        BOOT_SIZE=$(prompt_input "Boot partition size" "1G")
-        BOOT_SIZE="${BOOT_SIZE^^}"
+        IMAGES_SIZE=$(prompt_input "Images partition size" "12G")
+        IMAGES_SIZE="${IMAGES_SIZE^^}"
 
-        if numfmt --from=iec "$BOOT_SIZE" &>/dev/null; then
+        if numfmt --from=iec "$IMAGES_SIZE" &>/dev/null; then
             break
         fi
-        log_error "Invalid size format: $BOOT_SIZE"
+        log_error "Invalid size format: $IMAGES_SIZE (use format like 12G, 20G)"
     done
 
-    PARTITIONS+=("boot|$BOOT_SIZE|vfat|boot|efi")
-
-    PARTITIONS+=("root|$ROOT_SIZE|ext4|.|linux")
-
-    echo ""
-    log_info "Additional partitions (optional)"
-    while true; do
-        if ! prompt_yesno "Add additional partition?"; then
-            break
-        fi
-
-        PART_NAME=$(prompt_input "  Partition name")
-        if [[ -z "$PART_NAME" ]]; then
-            log_error "Partition name is required"
-            continue
-        fi
-
-        PART_SIZE=$(prompt_input "  Partition size (e.g., 50G)")
-        if [[ -z "$PART_SIZE" ]]; then
-            log_error "Partition size is required"
-            continue
-        fi
-
-        PART_SIZE="${PART_SIZE^^}"
-        if ! numfmt --from=iec "$PART_SIZE" &>/dev/null; then
-            log_error "Invalid size format: $PART_SIZE"
-            continue
-        fi
-
-        PART_MOUNT=$(prompt_input "  Mount point (e.g., home, var/log)")
-        if [[ -z "$PART_MOUNT" ]]; then
-            log_error "Mount point is required"
-            continue
-        fi
-
-        PART_FS="ext4"
-        PART_TYPE="linux"
-
-        PARTITIONS+=("$PART_NAME|$PART_SIZE|$PART_FS|$PART_MOUNT|$PART_TYPE")
-        log_info "  Added partition: $PART_NAME (ext4)"
-    done
-else
-    PARTITIONS+=("boot|1G|vfat|boot|efi")
-    PARTITIONS+=("root|$ROOT_SIZE|ext4|.|linux")
+    PARTITIONS+=("images|$IMAGES_SIZE|ext4|images|linux")
+    log_info "Added images partition: $IMAGES_SIZE"
 fi
+
+# Additional partitions
+echo ""
+log_info "Additional partitions (optional)"
+while true; do
+    if ! prompt_yesno "Add additional partition?"; then
+        break
+    fi
+
+    PART_NAME=$(prompt_input "  Partition name")
+    if [[ -z "$PART_NAME" ]]; then
+        log_error "Partition name is required"
+        continue
+    fi
+
+    PART_SIZE=$(prompt_input "  Partition size")
+    if [[ -z "$PART_SIZE" ]]; then
+        log_error "Partition size is required"
+        continue
+    fi
+
+    PART_SIZE="${PART_SIZE^^}"
+    if ! numfmt --from=iec "$PART_SIZE" &>/dev/null; then
+        log_error "Invalid size format: $PART_SIZE (use format like 20G, 50G)"
+        continue
+    fi
+
+    PART_MOUNT=$(prompt_input "  Mount point")
+    if [[ -z "$PART_MOUNT" ]]; then
+        log_error "Mount point is required"
+        continue
+    fi
+
+    PART_FS="ext4"
+    PART_TYPE="linux"
+
+    PARTITIONS+=("$PART_NAME|$PART_SIZE|$PART_FS|$PART_MOUNT|$PART_TYPE")
+    log_info "  Added partition: $PART_NAME (ext4)"
+done
 
 echo ""
 log_info "Partition layout:"
+partition_count=0
 for partition in "${PARTITIONS[@]}"; do
     IFS='|' read -r name size fs mount type <<< "$partition"
+    partition_count=$((partition_count + 1))
     echo "  - $name: $size [$fs] -> $mount (type: $type)"
 done
 
+echo ""
+log_info "Note: When written to a device, the last partition will expand to fill available space"
 echo ""
 
 # Step 3: System Configuration
@@ -230,6 +269,17 @@ log_info "  Timezone: $TIMEZONE"
 log_info "  User: $USERNAME"
 
 echo ""
+log_info "Step 4: Additional Packages"
+EXTRA_PACKAGES=$(prompt_input "Additional packages for pacstrap (space-separated)" "sudo networkmanager")
+echo ""
+
+log_info "Summary:"
+log_info "  Base packages: base linux linux-firmware"
+if [[ -n "$EXTRA_PACKAGES" ]]; then
+    log_info "  Extra packages: $EXTRA_PACKAGES"
+fi
+
+echo ""
 confirm_or_exit "Create target with this configuration?"
 
 # Create partition directory
@@ -291,12 +341,22 @@ done
 partition_json+="]"
 
 # Add target using yq
-update_config ".targets += [{
-    \"name\": \"$TARGET_NAME\",
-    \"description\": \"$DESCRIPTION\",
-    \"type\": \"distribution\",
-    \"partitions\": $partition_json
-}]"
+if [[ "$TARGET_TYPE" == "installer" ]]; then
+    update_config ".targets += [{
+        \"name\": \"$TARGET_NAME\",
+        \"description\": \"$DESCRIPTION\",
+        \"type\": \"$TARGET_TYPE\",
+        \"images_partition\": \"images\",
+        \"partitions\": $partition_json
+    }]"
+else
+    update_config ".targets += [{
+        \"name\": \"$TARGET_NAME\",
+        \"description\": \"$DESCRIPTION\",
+        \"type\": \"$TARGET_TYPE\",
+        \"partitions\": $partition_json
+    }]"
+fi
 
 log_info "Target configuration added"
 
@@ -318,7 +378,14 @@ log_info "Bootstrapping Arch Linux..."
 
 # Bootstrap with pacstrap
 log_info "Installing base system (this may take a few minutes)..."
-if ! pacstrap "$MOUNT_DIR" base linux linux-firmware; then
+
+# Build package list
+PACKAGES="base linux linux-firmware"
+if [[ -n "$EXTRA_PACKAGES" ]]; then
+    PACKAGES="$PACKAGES $EXTRA_PACKAGES"
+fi
+
+if ! pacstrap "$MOUNT_DIR" $PACKAGES; then
     log_error "pacstrap failed"
     log_warn "Partitions remain mounted at $(relative_path "$MOUNT_DIR")"
     exit 1
@@ -326,7 +393,8 @@ fi
 
 # Generate fstab
 log_info "Generating fstab..."
-genfstab -U "$MOUNT_DIR" >> "$MOUNT_DIR/etc/fstab"
+# Generate fstab, filtering out swap entries (they come from host system)
+genfstab -U "$MOUNT_DIR" | grep -v "swap" > "$MOUNT_DIR/etc/fstab"
 
 # Set hostname
 log_info "Setting hostname to: $HOSTNAME"
@@ -365,23 +433,56 @@ chmod 440 "$MOUNT_DIR/etc/sudoers.d/wheel"
 # Configure systemd-boot
 if mountpoint -q "$MOUNT_DIR/boot" 2>/dev/null; then
     log_info "Installing systemd-boot..."
-    arch-chroot "$MOUNT_DIR" bootctl install >/dev/null 2>&1 || log_warn "Failed to install bootloader"
+
+    # Install bootloader
+    if ! arch-chroot "$MOUNT_DIR" bootctl install; then
+        log_warn "Failed to install systemd-boot"
+    else
+        # Create loader configuration from templates
+        log_info "Configuring boot loader..."
+        mkdir -p "$MOUNT_DIR/boot/loader"
+        mkdir -p "$MOUNT_DIR/boot/loader/entries"
+
+        # Get the root partition UUID
+        ROOT_PARTITION_IMAGE=$(yq -r ".targets[] | select(.name == \"$TARGET_NAME\") | .partitions[] | select(.mount_point == \".\") | .image" "$CONFIG_FILE")
+        ROOT_UUID=$(blkid -s UUID -o value "$TARGET_DIR/$ROOT_PARTITION_IMAGE" 2>/dev/null || echo "UUID_NOT_FOUND")
+
+        # Copy loader.conf template
+        cp "$PROJECT_DIR/lib/bootd/default/loader.conf" "$MOUNT_DIR/boot/loader/loader.conf"
+
+        # Copy and substitute arch.conf template
+        sed "s/{{ROOT_UUID}}/$ROOT_UUID/g" "$PROJECT_DIR/lib/bootd/default/entries/arch.conf" > "$MOUNT_DIR/boot/loader/entries/arch.conf"
+
+        log_info "Boot loader configured successfully"
+    fi
 fi
 
 echo ""
 log_info "Bootstrap complete!"
 log_info ""
 log_info "Target '$TARGET_NAME' has been created and bootstrapped"
+log_info "Type: $TARGET_TYPE"
 log_info "Partitions are currently mounted at: $(relative_path "$MOUNT_DIR")"
 echo ""
 log_info "System details:"
 log_info "  User: $USERNAME (with sudo access)"
 log_info "  Root and user password: (as configured)"
 log_info ""
-log_info "Next steps:"
-log_info "  1. Enter chroot: sf chroot"
-log_info "  2. Install additional packages: pacman -S ..."
-log_info "  3. Configure system as needed"
-log_info "  4. Exit chroot: exit"
-log_info "  5. Unmount: sf unmount"
+
+if [[ "$TARGET_TYPE" == "installer" ]]; then
+    log_info "Next steps (installer target):"
+    log_info "  1. Enter chroot: sf chroot"
+    log_info "  2. Install installer packages and scripts"
+    log_info "  3. Exit chroot: exit"
+    log_info "  4. Unmount: sf unmount"
+    log_info "  5. Load distribution images: sf load-installer <distribution> $TARGET_NAME"
+    log_info "  6. Write to USB: sf write-installer /dev/sdX"
+else
+    log_info "Next steps:"
+    log_info "  1. Enter chroot: sf chroot"
+    log_info "  2. Install additional packages: pacman -S ..."
+    log_info "  3. Configure system as needed"
+    log_info "  4. Exit chroot: exit"
+    log_info "  5. Unmount: sf unmount"
+fi
 echo ""

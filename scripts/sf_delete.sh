@@ -49,7 +49,11 @@ if [[ "$TARGET_NAME" == "$current_target" ]]; then
         break
     done
 
-    log_info "Will switch to target: $new_target"
+    if [[ -n "$new_target" ]]; then
+        log_info "Will switch to target: $new_target"
+    else
+        log_info "This is the last target - no target will be active after deletion"
+    fi
 fi
 
 TARGET_DIR="$TARGET_DATA_DIR/$TARGET_NAME"
@@ -81,8 +85,13 @@ if [[ "$is_current" == true ]]; then
         sf unmount
     fi
 
-    log_info "Switching to target: $new_target"
-    update_config ".current_target = \"$new_target\""
+    if [[ -n "$new_target" ]]; then
+        log_info "Switching to target: $new_target"
+        update_config ".current_target = \"$new_target\""
+    else
+        log_info "Clearing current target..."
+        update_config ".current_target = null"
+    fi
 fi
 
 # Remove partition directory if it exists
@@ -99,5 +108,10 @@ log_info ""
 log_info "Removal complete!"
 log_info "Target '$TARGET_NAME' has been removed"
 if [[ "$is_current" == true ]]; then
-    log_info "Current target is now: $new_target"
+    if [[ -n "$new_target" ]]; then
+        log_info "Current target is now: $new_target"
+    else
+        log_info "No targets remaining"
+        log_info "Create a new target with: sf create"
+    fi
 fi

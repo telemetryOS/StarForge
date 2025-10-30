@@ -29,7 +29,7 @@ _sf() {
                 write-installer)
                     _arguments '1:device:_files -g "/dev/*"'
                     ;;
-                use|delete|run|run-graphical)
+                use|delete|run|run-serial)
                     local -a targets
                     if [[ -f "$config_file" ]] && (( $+commands[yq] )); then
                         targets=(${(f)"$(yq -r '.targets[].name' "$config_file" 2>/dev/null)"})

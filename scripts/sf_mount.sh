@@ -112,7 +112,7 @@ for key in "${sorted_keys[@]}"; do
         mkdir -p "$full_mount_path"
     fi
 
-    log_info "  Mounting $name ($fs) to $full_mount_path"
+    log_info "  Mounting $name ($fs) to $(relative_path "$full_mount_path")"
     if ! mount -o loop -t "$fs" "$image_path" "$full_mount_path"; then
         log_error "Failed to mount $name"
     fi

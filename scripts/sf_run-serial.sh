@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Star Forge
-# Usage: sf run [target_name]
-# Runs a target in QEMU (graphical mode)
+# Usage: sf run-serial [target_name]
+# Runs a target in QEMU (console mode with serial output)
 
 set -e
 
@@ -12,7 +12,7 @@ source "$SCRIPT_DIR/common.sh"
 # Parse arguments
 TARGET_NAME="$1"
 
-print_header "Run Target (Graphical)"
+print_header "Run Target (Console)"
 
 check_root
 
@@ -49,11 +49,12 @@ log_info "Target: $TARGET_NAME"
 log_info "Directory: $(relative_path "$target_dir")"
 
 # Set up cleanup trap before creating virtual disk
-dm_name="sf-run-$TARGET_NAME"
+dm_name="sf-run-serial-$TARGET_NAME"
 
 # Enhanced cleanup function that also remounts if needed
 cleanup_and_remount() {
     local exit_code=$?
+    restore_boot_overlay
     cleanup_virtual_disk "$dm_name"
 
     if [[ "$WAS_MOUNTED" == "true" ]]; then
@@ -67,6 +68,9 @@ cleanup_and_remount() {
 
 trap cleanup_and_remount EXIT
 trap cleanup_and_remount INT TERM
+
+# Apply QEMU-specific boot configuration overlay
+setup_boot_overlay "$TARGET_NAME"
 
 # Create virtual disk from partition images
 create_virtual_disk "$TARGET_NAME" "$dm_name"
@@ -82,6 +86,8 @@ virtual_disk="$DM_DEVICE"
 qemu_cmd="qemu-system-x86_64"
 qemu_cmd="$qemu_cmd -m 2G"
 qemu_cmd="$qemu_cmd -smp 2"
+qemu_cmd="$qemu_cmd -nographic"
+qemu_cmd="$qemu_cmd -serial mon:stdio"
 
 # Add EFI firmware
 ovmf_path=$(get_ovmf_firmware_path)
@@ -120,16 +126,19 @@ else
 fi
 
 echo ""
-log_info "Starting QEMU (graphical mode)..."
-log_info "Close the QEMU window to exit"
+log_info "Starting QEMU (console mode)..."
+log_info "Press Ctrl+A then X to exit QEMU"
 echo ""
 
 # Wait for user to be ready
 read -p "Press Enter to start..."
 
-# Run QEMU
+# Save terminal state and run QEMU
+stty_save=$(stty -g)
 eval $qemu_cmd
 
-# Clean output after QEMU exits
+# Restore terminal after QEMU exits
+stty "$stty_save" 2>/dev/null || true
+reset
 echo ""
 log_info "QEMU exited"
