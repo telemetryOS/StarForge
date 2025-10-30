@@ -1,0 +1,23 @@
+# Mount directory - runtime only
+mnt/
+
+# Vendored tools (downloaded on first run)
+.tools/*
+!.tools/.gitignore
+
+# Target images and configuration (user-specific)
+target-data/
+config.yaml
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~
+
+# Log files
+*.log
+
+# OS-specific files
+.DS_Store
+Thumbs.db
