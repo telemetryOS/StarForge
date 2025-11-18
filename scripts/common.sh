@@ -764,6 +764,9 @@ setup_boot_overlay() {
     # Create temporary mount point
     BOOT_OVERLAY_MOUNT=$(mktemp -d /tmp/sf-boot-overlay.XXXXXX)
 
+    # Save boot image path for restore
+    BOOT_OVERLAY_IMAGE_PATH="$boot_image_path"
+
     # Mount boot partition
     BOOT_OVERLAY_LOOP=$(losetup -f --show "$boot_image_path")
     if ! mount "$BOOT_OVERLAY_LOOP" "$BOOT_OVERLAY_MOUNT" 2>/dev/null; then
@@ -836,9 +839,16 @@ restore_boot_overlay() {
         return 0
     fi
 
+    # Check if we have the boot image path saved
+    if [[ -z "$BOOT_OVERLAY_IMAGE_PATH" ]] || [[ ! -f "$BOOT_OVERLAY_IMAGE_PATH" ]]; then
+        log_warn "Boot overlay image path not found, skipping restore"
+        rm -rf "$BOOT_OVERLAY_BACKUP_DIR" 2>/dev/null || true
+        return 0
+    fi
+
     # Re-mount boot partition
     local boot_mount=$(mktemp -d /tmp/sf-boot-restore.XXXXXX)
-    local boot_loop=$(losetup -f --show "$(find "$TARGET_DATA_DIR" -name "boot.img" -type f | head -1)")
+    local boot_loop=$(losetup -f --show "$BOOT_OVERLAY_IMAGE_PATH")
 
     if ! mount "$boot_loop" "$boot_mount" 2>/dev/null; then
         log_warn "Failed to mount boot partition for restore"

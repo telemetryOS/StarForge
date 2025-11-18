@@ -54,8 +54,13 @@ dm_name="sf-run-serial-$TARGET_NAME"
 # Enhanced cleanup function that also remounts if needed
 cleanup_and_remount() {
     local exit_code=$?
-    restore_boot_overlay
+
+    # CRITICAL: Clean up virtual disk FIRST to release all loop devices
+    # This ensures the boot partition image is no longer in use before we try to restore it
     cleanup_virtual_disk "$dm_name"
+
+    # Now that all devices are released, we can safely restore boot overlay
+    restore_boot_overlay
 
     if [[ "$WAS_MOUNTED" == "true" ]]; then
         echo ""
@@ -114,8 +119,6 @@ if [[ "$target_type" == "installer" ]]; then
     fi
     log_info "Adding test target disk for installer"
     qemu_cmd="$qemu_cmd -drive file=$PROJECT_DIR/test/target-disk.img,format=raw,if=virtio"
-    # Set boot order: try target disk first (index 1), then installer (index 0)
-    qemu_cmd="$qemu_cmd -boot order=dc"
 fi
 
 # Enable KVM if available
@@ -124,6 +127,10 @@ if [[ -w /dev/kvm ]]; then
 else
     log_warn "KVM not available, using emulation (will be slower)"
 fi
+
+# Add user-mode networking (built-in DHCP)
+qemu_cmd="$qemu_cmd -netdev user,id=net0,hostfwd=tcp::2222-:22"
+qemu_cmd="$qemu_cmd -device virtio-net-pci,netdev=net0"
 
 echo ""
 log_info "Starting QEMU (console mode)..."

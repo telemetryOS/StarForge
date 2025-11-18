@@ -1,7 +1,7 @@
 # Star Forge Project
 
 ## Overview
-This project manages Arch-based OS partition images for TelemetryTV. It provides tools to mount, chroot, resize, and manage multiple OS variants (development, production, staging, etc.) as partition image files.
+This project manages Arch-based OS partition images for TelemetryOS. It provides tools to mount, chroot, resize, and manage multiple OS variants (development, production, staging, etc.) as partition image files.
 
 The main command-line interface is `sf` (Star Forge), which dispatches to various management scripts.
 

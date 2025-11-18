@@ -114,13 +114,10 @@ log_info "All images copied successfully"
 
 # Extract source target configuration
 log_info "Adding target to configuration..."
-source_config=$(yq ".targets[$source_index]" "$CONFIG_FILE")
 
-# Create new target config with updated name and description
-new_config=$(echo "$source_config" | yq ".name = \"$NEW_TARGET\" | .description = \"$NEW_DESCRIPTION\"")
-
-# Append to config file
-update_config ".targets += [$new_config]"
+# Create new target by modifying the source target in-place in the config
+# This uses yq to duplicate the source target and update its name/description
+update_config ".targets += [.targets[$source_index] | .name = \"$NEW_TARGET\" | .description = \"$NEW_DESCRIPTION\"]"
 
 log_info ""
 log_info "Clone complete!"
