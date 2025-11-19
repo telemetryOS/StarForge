@@ -80,8 +80,24 @@ virtual_disk="$DM_DEVICE"
 
 # Build QEMU command
 qemu_cmd="qemu-system-x86_64"
-qemu_cmd="$qemu_cmd -m 2G"
-qemu_cmd="$qemu_cmd -smp 2"
+
+# Detect host resources and allocate reasonable amounts
+# Memory: allocate 1/2 of host memory (min 2G, max 16G)
+host_memory_mb=$(free -m | awk '/^Mem:/{print $2}')
+guest_memory_mb=$((host_memory_mb / 2))
+[[ $guest_memory_mb -lt 2048 ]] && guest_memory_mb=2048
+[[ $guest_memory_mb -gt 16384 ]] && guest_memory_mb=16384
+qemu_cmd="$qemu_cmd -m ${guest_memory_mb}M"
+log_info "Allocating ${guest_memory_mb}MB RAM (host has ${host_memory_mb}MB)"
+
+# CPUs: allocate half of host cores (min 2, max 8)
+host_cpus=$(nproc)
+guest_cpus=$((host_cpus / 2))
+[[ $guest_cpus -lt 2 ]] && guest_cpus=2
+[[ $guest_cpus -gt 8 ]] && guest_cpus=8
+qemu_cmd="$qemu_cmd -smp $guest_cpus"
+qemu_cmd="$qemu_cmd -cpu host"
+log_info "Allocating $guest_cpus CPU cores (host has $host_cpus)"
 
 # Add EFI firmware
 ovmf_path=$(get_ovmf_firmware_path)
@@ -94,7 +110,8 @@ else
 fi
 
 # Add virtual disk (use virtio for better performance)
-qemu_cmd="$qemu_cmd -drive file=$virtual_disk,format=raw,if=virtio"
+# cache=writeback for better performance, aio=threads for async I/O
+qemu_cmd="$qemu_cmd -drive file=$virtual_disk,format=raw,if=virtio,cache=writeback,aio=threads"
 
 # If running installer target, prepare and add test target disk
 target_type=$(get_target_type "$target_index")
@@ -107,7 +124,7 @@ if [[ "$target_type" == "installer" ]]; then
         truncate -s 50G "$PROJECT_DIR/test/target-disk.img"
     fi
     log_info "Adding test target disk for installer"
-    qemu_cmd="$qemu_cmd -drive file=$PROJECT_DIR/test/target-disk.img,format=raw,if=virtio"
+    qemu_cmd="$qemu_cmd -drive file=$PROJECT_DIR/test/target-disk.img,format=raw,if=virtio,cache=writeback,aio=threads"
 fi
 
 # Enable KVM if available
@@ -116,6 +133,22 @@ if [[ -w /dev/kvm ]]; then
 else
     log_warn "KVM not available, using emulation (will be slower)"
 fi
+
+# Graphics related
+# Dynamically allocate GPU memory: 1/6 of host RAM (min 256M, max 2G)
+gpu_memory_mb=$((host_memory_mb / 4))
+[[ $gpu_memory_mb -lt 256 ]] && gpu_memory_mb=256
+[[ $gpu_memory_mb -gt 2048 ]] && gpu_memory_mb=2048
+qemu_cmd="$qemu_cmd -device virtio-vga-gl,max_hostmem=${gpu_memory_mb}M"
+qemu_cmd="$qemu_cmd -display gtk,gl=on,show-cursor=off"
+log_info "Allocating ${gpu_memory_mb}MB GPU memory"
+
+# Performance devices
+qemu_cmd="$qemu_cmd -device virtio-rng-pci"        # Hardware RNG for better entropy
+qemu_cmd="$qemu_cmd -device virtio-balloon-pci"    # Dynamic memory management
+
+# Add USB tablet for absolute pointer positioning
+qemu_cmd="$qemu_cmd -usb -device usb-tablet"
 
 # Add user-mode networking (built-in DHCP)
 qemu_cmd="$qemu_cmd -netdev user,id=net0,hostfwd=tcp::2222-:22"
