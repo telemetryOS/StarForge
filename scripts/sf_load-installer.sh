@@ -100,7 +100,31 @@ done
 
 total_size_human=$(numfmt --to=iec-i --suffix=B $total_size)
 echo ""
-log_info "Total size to copy: $total_size_human"
+log_info "Total uncompressed size: $total_size_human"
+
+# Create temporary directory for compressed images
+COMPRESS_TEMP=$(mktemp -d)
+trap "rm -rf '$COMPRESS_TEMP'" EXIT
+
+echo ""
+log_info "Compressing images..."
+compressed_total_size=0
+
+for image_path in "${IMAGES_TO_COPY[@]}"; do
+    image_name=$(basename "$image_path")
+    log_info "  Compressing $image_name..."
+    zstd -10 -q -T0 "$image_path" -o "$COMPRESS_TEMP/$image_name.zst"
+
+    compressed_size=$(stat -c%s "$COMPRESS_TEMP/$image_name.zst")
+    compressed_total_size=$((compressed_total_size + compressed_size))
+    compressed_size_human=$(numfmt --to=iec-i --suffix=B $compressed_size)
+    log_info "    Compressed to $compressed_size_human"
+done
+
+compressed_total_human=$(numfmt --to=iec-i --suffix=B $compressed_total_size)
+compression_ratio=$(echo "scale=1; $compressed_total_size * 100 / $total_size" | bc)
+echo ""
+log_info "Total compressed size: $compressed_total_human ($compression_ratio% of original)"
 
 # Find the images partition in installer config
 installer_partition_count=$(get_partition_count "$installer_index")
@@ -135,26 +159,12 @@ images_partition_size_human=$(numfmt --to=iec-i --suffix=B $images_partition_siz
 
 # Mount the images partition to check available space
 TEMP_MOUNT=$(mktemp -d)
-trap "umount '$TEMP_MOUNT' 2>/dev/null || true; rmdir '$TEMP_MOUNT' 2>/dev/null || true" EXIT
+trap "rm -rf '$COMPRESS_TEMP'; umount '$TEMP_MOUNT' 2>/dev/null || true; rmdir '$TEMP_MOUNT' 2>/dev/null || true" EXIT
 
 log_info "Temporarily mounting images partition..."
 mount -o loop -t "$images_partition_fs" "$images_partition_path" "$TEMP_MOUNT"
 
-available_space=$(df --output=avail "$TEMP_MOUNT" | tail -1)
-available_space=$((available_space * 1024))  # Convert KB to bytes
-available_space_human=$(numfmt --to=iec-i --suffix=B $available_space)
-
-log_info "Images partition: $images_partition_size_human total, $available_space_human available"
-
-if [[ $total_size -gt $available_space ]]; then
-    umount "$TEMP_MOUNT"
-    log_error "Not enough space on images partition"
-    log_info "Required: $total_size_human"
-    log_info "Available: $available_space_human"
-    exit 1
-fi
-
-# Clean out old files from images partition
+# Clean out old files from images partition FIRST
 log_info "Cleaning images partition..."
 if [[ $(ls -A "$TEMP_MOUNT" 2>/dev/null | wc -l) -gt 0 ]]; then
     rm -rf "$TEMP_MOUNT"/*
@@ -163,14 +173,29 @@ else
     log_info "  Already empty"
 fi
 
-echo ""
-log_info "Copying images to $TEMP_MOUNT..."
+# NOW check available space (after cleaning)
+available_space=$(df --output=avail "$TEMP_MOUNT" | tail -1)
+available_space=$((available_space * 1024))  # Convert KB to bytes
+available_space_human=$(numfmt --to=iec-i --suffix=B $available_space)
 
-# Copy each image
+log_info "Images partition: $images_partition_size_human total, $available_space_human available"
+
+if [[ $compressed_total_size -gt $available_space ]]; then
+    umount "$TEMP_MOUNT"
+    log_error "Not enough space on images partition"
+    log_info "Required: $compressed_total_human"
+    log_info "Available: $available_space_human"
+    exit 1
+fi
+
+echo ""
+log_info "Copying compressed images to $TEMP_MOUNT..."
+
+# Copy already-compressed images from temp directory
 for image_path in "${IMAGES_TO_COPY[@]}"; do
     image_name=$(basename "$image_path")
-    log_info "  Copying $image_name..."
-    cp "$image_path" "$TEMP_MOUNT/$image_name"
+    log_info "  Copying $image_name.zst..."
+    cp "$COMPRESS_TEMP/$image_name.zst" "$TEMP_MOUNT/$image_name.zst"
 done
 
 # Export partition configuration for installer
@@ -197,7 +222,7 @@ for i in $(seq 0 $((distro_partition_count - 1))); do
 
     yq -i ".partitions += [{
         \"name\": \"$name\",
-        \"image\": \"$image\",
+        \"image\": \"$image.zst\",
         \"filesystem\": \"$filesystem\",
         \"mount_point\": \"$mount_point\",
         \"type\": \"$part_type\",
@@ -207,10 +232,12 @@ done
 
 log_info "  Created partitions.yaml"
 
-# Unmount
+# Unmount and cleanup
 log_info "Unmounting images partition..."
 umount "$TEMP_MOUNT"
 rmdir "$TEMP_MOUNT"
+log_info "Cleaning up temporary files..."
+rm -rf "$COMPRESS_TEMP"
 trap - EXIT
 
 echo ""

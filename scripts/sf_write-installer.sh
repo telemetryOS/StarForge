@@ -175,34 +175,9 @@ log_info "Waiting for kernel to recognize partitions..."
 partprobe "$DEVICE"
 sleep 2
 
-# Determine optimal block size for device
-log_info "Determining optimal block size..."
-if [[ -f "/sys/block/$(basename $DEVICE)/queue/optimal_io_size" ]]; then
-    optimal_io=$(cat "/sys/block/$(basename $DEVICE)/queue/optimal_io_size")
-    physical_block=$(cat "/sys/block/$(basename $DEVICE)/queue/physical_block_size")
-
-    # Use optimal_io_size if available and non-zero, otherwise use physical block size
-    if [[ $optimal_io -gt 0 ]]; then
-        block_size=$optimal_io
-    else
-        block_size=$physical_block
-    fi
-
-    # Ensure minimum of 4K and maximum of 1M
-    # USB devices often perform better with 1M than larger blocks
-    if [[ $block_size -lt 4096 ]]; then
-        block_size=4096
-    elif [[ $block_size -gt 1048576 ]]; then
-        block_size=1048576
-    fi
-else
-    # Fallback to 1M if we can't determine optimal size
-    # This is typically optimal for USB flash drives
-    block_size=1048576
-fi
-
-block_size_human=$(numfmt --to=iec-i --suffix=B $block_size)
-log_info "Using block size: $block_size_human ($block_size bytes)"
+# Use 32M block size for optimal throughput
+block_size=33554432  # 32MB
+log_info "Using block size: 32MiB"
 
 # Write images to partitions
 log_info "Writing partition images..."
@@ -221,8 +196,17 @@ for i in "${!PARTITIONS[@]}"; do
 
     # Use pv with dd and direct I/O for accurate progress and optimal speed
     # oflag=direct bypasses kernel buffer cache for honest progress display
-    # and can be faster on some USB devices by avoiding buffer flush stalls
-    pv "$image_path" | dd bs="$block_size" of="$partition_device" oflag=direct status=none 2>&1
+    # conv=fsync ensures proper data flushing
+    pv "$image_path" | dd bs="$block_size" of="$partition_device" oflag=direct conv=fsync status=none 2>&1
+
+    # Check for errors in pipeline
+    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+        log_error "Failed to read image: $image_path"
+        exit 1
+    elif [[ ${PIPESTATUS[1]} -ne 0 ]]; then
+        log_error "Failed to write to partition: $partition_device"
+        exit 1
+    fi
 
     # If this is the last partition, expand the filesystem to fill the partition
     if [[ $i -eq $last_partition_index ]]; then
