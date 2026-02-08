@@ -133,3 +133,5 @@ sf unmount
 ```
 
 Files are checked into git as the source of truth for target-specific OS configuration.
+
+Each target's contrib folder may contain a `CLAUDE.md` with target-specific documentation (users, boot chain, hardware, deployment workflow, etc.).

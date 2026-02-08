@@ -1,0 +1,2 @@
+# Increase readahead for eMMC/MMC block devices — helps sequential video reads
+ACTION=="add|change", KERNEL=="mmcblk[0-9]", ATTR{queue/read_ahead_kb}="1024"

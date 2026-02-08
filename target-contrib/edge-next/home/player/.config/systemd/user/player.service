@@ -1,0 +1,22 @@
+[Unit]
+Description=TelemetryOS Player
+After=hyprland-session.target
+BindsTo=hyprland-session.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+WatchdogSec=30
+Restart=always
+RestartSec=3
+
+ExecStart=/home/player/.local/share/player/tos-player \
+  --platform node-pro \
+  --enable-features=UseOzonePlatform \
+  --ozone-platform=wayland
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=hyprland-session.target
