@@ -66,6 +66,14 @@ if [[ -d "$OLD_DIR" ]]; then
     mv "$OLD_DIR" "$NEW_DIR"
 fi
 
+# Rename target-contrib directory if it exists
+OLD_CONTRIB="$PROJECT_DIR/target-contrib/$OLD_NAME"
+NEW_CONTRIB="$PROJECT_DIR/target-contrib/$NEW_NAME"
+if [[ -d "$OLD_CONTRIB" ]]; then
+    log_info "Renaming contrib directory..."
+    mv "$OLD_CONTRIB" "$NEW_CONTRIB"
+fi
+
 # Update configuration
 log_info "Updating configuration..."
 update_config ".targets[$old_index].name = \"$NEW_NAME\""

@@ -33,12 +33,12 @@ if [[ "$target_index" == "-1" ]]; then
     exit 1
 fi
 
-# Only prevent export if THIS specific target is currently mounted
+# Unmount if exporting the currently mounted target
 current_target=$(get_current_target)
 if [[ "$TARGET_NAME" == "$current_target" ]] && check_is_mounted; then
-    log_error "Cannot export '$TARGET_NAME' while it is currently mounted"
-    log_info "Unmount first with: sf unmount"
-    exit 1
+    log_info "Target is mounted, unmounting first..."
+    sf unmount
+    echo ""
 fi
 
 TARGET_DIR="$TARGET_DATA_DIR/$TARGET_NAME"

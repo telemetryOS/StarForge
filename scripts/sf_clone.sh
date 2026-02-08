@@ -23,13 +23,8 @@ print_header "Cloning Target"
 
 check_config
 
-# Check if partitions are currently mounted - safety check
-# Cloning while mounted could copy inconsistent data
-if check_is_mounted; then
-    log_error "Cannot clone targets while partitions are mounted"
-    log_info "Unmount first with: sf unmount"
-    exit 1
-fi
+# Unmount if needed - cloning while mounted could copy inconsistent data
+check_not_mounted
 
 # Find source target
 log_info "Looking for source target: $SOURCE_TARGET"
@@ -99,6 +94,17 @@ confirm_or_exit
 # Create new directory
 log_info "Creating directory: $NEW_DIR"
 mkdir -p "$NEW_DIR"
+
+# Copy target-contrib directory if it exists
+SOURCE_CONTRIB="$PROJECT_DIR/target-contrib/$SOURCE_TARGET"
+NEW_CONTRIB="$PROJECT_DIR/target-contrib/$NEW_TARGET"
+if [[ -d "$SOURCE_CONTRIB" ]]; then
+    log_info "Copying contrib directory..."
+    cp -r "$SOURCE_CONTRIB" "$NEW_CONTRIB"
+else
+    log_info "Creating contrib directory: $(relative_path "$NEW_CONTRIB")"
+    mkdir -p "$NEW_CONTRIB"
+fi
 
 # Copy partition images
 log_info "Copying partition images..."

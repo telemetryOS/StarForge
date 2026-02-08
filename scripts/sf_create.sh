@@ -286,6 +286,11 @@ confirm_or_exit "Create target with this configuration?"
 log_info "Creating partition directory: $(relative_path "$TARGET_DIR")"
 mkdir -p "$TARGET_DIR"
 
+# Create target-contrib directory for scripts and files to be added to the target
+CONTRIB_DIR="$PROJECT_DIR/target-contrib/$TARGET_NAME"
+log_info "Creating contrib directory: $(relative_path "$CONTRIB_DIR")"
+mkdir -p "$CONTRIB_DIR"
+
 # Create partition images and format filesystems
 log_info "Creating and formatting partition images..."
 declare -a PARTITION_CONFIG

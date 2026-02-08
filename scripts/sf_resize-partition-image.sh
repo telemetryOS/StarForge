@@ -54,13 +54,8 @@ print_header "Resizing Partition"
 check_root
 check_config
 
-# Check if partitions are currently mounted - critical safety check
-# Resizing a mounted image could corrupt the filesystem
-if check_is_mounted; then
-    log_error "Cannot resize partition images while partitions are mounted"
-    log_info "Unmount first with: sf unmount"
-    exit 1
-fi
+# Unmount if needed - resizing a mounted image could corrupt the filesystem
+check_not_mounted
 
 # Try to resolve IMAGE_FILE as a partition name first
 if [[ ! -f "$IMAGE_FILE" ]]; then

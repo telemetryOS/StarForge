@@ -290,12 +290,12 @@ check_is_mounted() {
 }
 
 # Usage: check_not_mounted [custom_message]
+# Auto-unmounts if currently mounted
 check_not_mounted() {
-    local message="${1:-Partitions are currently mounted}"
     if check_is_mounted; then
-        log_error "$message at $MOUNT_DIR"
-        log_info "Unmount first with: sf unmount"
-        exit 1
+        log_info "Partitions are mounted, unmounting first..."
+        sf unmount
+        echo ""
     fi
 }
 

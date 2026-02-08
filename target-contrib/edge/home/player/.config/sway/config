@@ -1,0 +1,36 @@
+# TelemetryOS Edge - Sway kiosk configuration
+
+# No window decorations
+default_border none
+default_floating_border none
+titlebar_border_thickness 0
+
+# Disable mouse focus and warping
+focus_follows_mouse no
+mouse_warping none
+
+# Hide cursor after 2 seconds of inactivity
+seat * hide_cursor 2000
+
+# Hide status bar
+bar {
+    mode invisible
+}
+
+# Auto-fullscreen all windows
+for_window [app_id=".*"] fullscreen enable
+for_window [class=".*"] fullscreen enable
+
+# Prevent screen blanking
+output * dpms on
+exec_always swaymsg output '*' dpms on
+
+# Wayland only - no X11
+xwayland disable
+
+# Propagate environment to systemd user session (required for player.service)
+exec /usr/libexec/sway-systemd/session.sh
+exec /usr/libexec/sway-systemd/assign-cgroups.py
+
+# Background splash
+exec_always swaybg -i /home/player/.wallpaper-logo.png -m center -c '#000000'

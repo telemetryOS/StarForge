@@ -26,13 +26,8 @@ print_header "Writing Installer"
 check_root
 check_config
 
-# Check if partitions are currently mounted - safety check
-# Writing while mounted could read inconsistent data
-if check_is_mounted; then
-    log_error "Cannot write installer while partitions are mounted"
-    log_info "Unmount first with: sf unmount"
-    exit 1
-fi
+# Unmount if needed - writing while mounted could read inconsistent data
+check_not_mounted
 
 # Validate device exists and is a block device
 if [[ ! -b "$DEVICE" ]]; then

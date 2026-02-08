@@ -100,6 +100,13 @@ if [[ -d "$TARGET_DIR" ]]; then
     rm -rf "$TARGET_DIR"
 fi
 
+# Remove target-contrib directory if it exists
+CONTRIB_DIR="$PROJECT_DIR/target-contrib/$TARGET_NAME"
+if [[ -d "$CONTRIB_DIR" ]]; then
+    log_info "Removing contrib directory..."
+    rm -rf "$CONTRIB_DIR"
+fi
+
 # Remove from configuration
 log_info "Updating configuration..."
 update_config "del(.targets[$target_index])"
