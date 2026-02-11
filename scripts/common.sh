@@ -410,6 +410,33 @@ is_root_partition() {
     fi
 }
 
+# Usage: resolve_image_path <target_name> <image_filename>
+# Resolves the full path to a partition image, checking both main directory and qemu/ subfolder
+# Returns the resolved path, or empty string if not found
+resolve_image_path() {
+    local target_name="$1"
+    local image_filename="$2"
+    local target_dir="$TARGET_DATA_DIR/$target_name"
+
+    # Check main directory first (distribution images)
+    local main_path="$target_dir/$image_filename"
+    if [[ -f "$main_path" ]]; then
+        echo "$main_path"
+        return 0
+    fi
+
+    # Check qemu/ subfolder (QEMU-only images)
+    local qemu_path="$target_dir/qemu/$image_filename"
+    if [[ -f "$qemu_path" ]]; then
+        echo "$qemu_path"
+        return 0
+    fi
+
+    # Not found in either location
+    echo ""
+    return 1
+}
+
 # Usage: create_virtual_disk <target_name> <dm_name>
 # Creates a virtual disk device from individual partition images using device-mapper
 #
@@ -570,12 +597,54 @@ create_virtual_disk() {
         local name=$(yq -r ".targets[$target_index].partitions[$i].name" "$CONFIG_FILE")
         local image=$(yq -r ".targets[$target_index].partitions[$i].image" "$CONFIG_FILE")
         local mount=$(yq -r ".targets[$target_index].partitions[$i].mount_point" "$CONFIG_FILE")
-        local image_path="$target_dir/$image"
+        local filesystem=$(yq -r ".targets[$target_index].partitions[$i].filesystem" "$CONFIG_FILE")
+        local image_path=$(resolve_image_path "$target_name" "$image")
 
-        if [[ ! -f "$image_path" ]]; then
-            log_error "Partition image not found: $image_path"
-            cleanup_virtual_disk "$dm_name"
-            return 1
+        # If image not found, check if it should be auto-created in qemu/
+        if [[ -z "$image_path" ]]; then
+            local qemu_path="$target_dir/qemu/$image"
+
+            # Auto-create QEMU-only images (data, recovery, fallback-recovery)
+            if [[ "$name" == "data" || "$name" == "recovery" || "$name" == "fallback-recovery" ]]; then
+                log_info "Creating missing QEMU image: $image"
+                mkdir -p "$target_dir/qemu"
+
+                # Determine size based on partition type
+                local size
+                case "$name" in
+                    data)
+                        size="256M"
+                        ;;
+                    recovery|fallback-recovery)
+                        # Match root partition size
+                        local root_path=$(resolve_image_path "$target_name" "root.img")
+                        if [[ -n "$root_path" ]]; then
+                            size=$(stat -c%s "$root_path")
+                        else
+                            size="6G"
+                        fi
+                        ;;
+                esac
+
+                # Create and format the image
+                truncate -s "$size" "$qemu_path"
+
+                case "$filesystem" in
+                    ext4)
+                        mkfs.ext4 -q -F "$qemu_path" >/dev/null
+                        ;;
+                    vfat)
+                        mkfs.vfat "$qemu_path" >/dev/null
+                        ;;
+                esac
+
+                image_path="$qemu_path"
+                log_info "Created $image ($size, $filesystem)"
+            else
+                log_error "Partition image not found: $image (checked $target_dir/ and $target_dir/qemu/)"
+                cleanup_virtual_disk "$dm_name"
+                return 1
+            fi
         fi
 
         # Get image size in sectors

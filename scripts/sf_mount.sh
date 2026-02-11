@@ -1,14 +1,32 @@
 #!/bin/bash
 
 # Star Forge
-# Usage: sf mount
+# Usage: sf mount [--include-qemu-volumes]
 # Mounts partition images to ./mnt using config.yaml config
+# By default, only mounts distribution images (skips qemu/ subfolder images)
+# Use --include-qemu-volumes to also mount QEMU-only volumes
 # Requires: yq (https://github.com/mikefarah/yq)
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
+
+# Parse arguments
+INCLUDE_QEMU=false
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --include-qemu-volumes)
+            INCLUDE_QEMU=true
+            shift
+            ;;
+        *)
+            log_error "Unknown option: $1"
+            log_info "Usage: sf mount [--include-qemu-volumes]"
+            exit 1
+            ;;
+    esac
+done
 
 check_already_mounted() {
     if mountpoint -q "$MOUNT_DIR" 2>/dev/null; then
@@ -64,11 +82,16 @@ fi
 log_info "Verifying image files..."
 for i in $(seq 0 $((partition_count - 1))); do
     image=$(yq -r ".targets[$target_index].partitions[$i].image" "$CONFIG_FILE")
-    image_path="$TARGET_DATA_DIR/$TARGET/$image"
+    image_path=$(resolve_image_path "$TARGET" "$image")
 
-    if [[ ! -f "$image_path" ]]; then
-        log_error "Image file not found: $image_path"
+    if [[ -z "$image_path" ]]; then
+        log_error "Image file not found: $image (checked $TARGET_DATA_DIR/$TARGET/ and $TARGET_DATA_DIR/$TARGET/qemu/)"
         exit 1
+    fi
+
+    # Skip QEMU-only volumes unless flag is set
+    if [[ "$image_path" == *"/qemu/"* && "$INCLUDE_QEMU" == "false" ]]; then
+        continue
     fi
 done
 
@@ -82,7 +105,12 @@ for i in $(seq 0 $((partition_count - 1))); do
     fs=$(yq -r ".targets[$target_index].partitions[$i].filesystem" "$CONFIG_FILE")
     mount_point=$(yq -r ".targets[$target_index].partitions[$i].mount_point" "$CONFIG_FILE")
 
-    image_path="$TARGET_DATA_DIR/$TARGET/$image"
+    image_path=$(resolve_image_path "$TARGET" "$image")
+
+    # Skip QEMU-only volumes unless flag is set
+    if [[ "$image_path" == *"/qemu/"* && "$INCLUDE_QEMU" == "false" ]]; then
+        continue
+    fi
 
     depth=$(count_path_chunks "$mount_point")
     MOUNT_INFO["$depth:$mount_point"]="$image_path:$fs:$name"

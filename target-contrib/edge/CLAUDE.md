@@ -30,11 +30,6 @@ sudo chown -R 1001:1001 mnt/home/player/
 ```
 `cp -a` as root sets ownership to root — always fix player home ownership after copying.
 
-## Performance Tuning
-- `/etc/sysctl.d/90-signage.conf`: min_free_kbytes=131072, vfs_cache_pressure=100, dirty_ratio=5, dirty_background_ratio=2, BBR congestion control
-- `/etc/udev/rules.d/60-readahead.rules`: eMMC read_ahead_kb=1024
-- `/etc/systemd/zram-generator.conf`: zram swap = ram/2, zstd compression (`zram-generator` package installed in image)
-
 ## Key Config Files
 - `etc/systemd/system/getty@tty1.service.d/autologin.conf` — player autologin
 - `home/player/.profile` — `exec sway` on tty1

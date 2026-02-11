@@ -43,7 +43,8 @@ completions/              # Shell completions (bash, zsh, fish)
 | `use` | Switch the active target |
 | `list` | List all targets |
 | `status` | Show current target status |
-| `mount` | Mount partition images to `./mnt/` via loopback |
+| `mount` | Mount partition images to `./mnt/` via loopback (distribution images only) |
+| `mount --include-qemu-volumes` | Mount all images including QEMU-only volumes |
 | `unmount` | Unmount all partitions (reverse depth order) |
 | `chroot` | Enter arch-chroot in mounted target |
 | `run` | Test target in QEMU (graphical, UEFI) |
@@ -86,6 +87,8 @@ update_config ".current_target = \"$name\""     # Modify config atomically
 
 ### Mount ordering
 Partitions are mounted by path depth (`.` first, then `boot`, then `var/log`). Unmounting is in reverse order.
+
+By default, `sf mount` only mounts distribution images (boot, root, logs) and skips QEMU-only images (data, recovery, fallback-recovery). Use `--include-qemu-volumes` flag to mount all partitions.
 
 ### Virtual disk for QEMU
 `create_virtual_disk()` in common.sh uses device-mapper to assemble partition images into a single bootable disk:
