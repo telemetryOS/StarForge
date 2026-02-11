@@ -764,7 +764,7 @@ func (b *Builder) phaseUsers(ctx *actions.BuildContext, rootfs string) error {
 
 func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 	// 1. Create directories (file-mkdir)
-	for _, m := range ctx.Mkdirs {
+	for _, m := range ctx.FileMkdirs {
 		target := filepath.Join(rootfs, m.Path)
 		fmt.Printf("    mkdir %s%s\n", m.Path, labelSuffix(m.Label))
 		mode := parseMode(m.Mode, 0o755)
@@ -783,7 +783,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 	}
 
 	// 2. Layer copies (file-create with dir layer_path, systemd-unit, systemd-config)
-	for _, cp := range ctx.Copies {
+	for _, cp := range ctx.LayerCopies {
 		src := filepath.Join(cp.LayerDir, cp.FromPath)
 		dest := filepath.Join(rootfs, cp.ToPath)
 		fmt.Printf("    %s -> %s%s\n", cp.FromPath, cp.ToPath, labelSuffix(cp.Label))
@@ -859,7 +859,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 	}
 
 	// 5. Internal copies (file-copy, within target)
-	for _, ic := range ctx.InternalCopies {
+	for _, ic := range ctx.FileCopies {
 		fmt.Printf("    copy %s -> %s%s\n", ic.FromPath, ic.ToPath, labelSuffix(ic.Label))
 		src := filepath.Join(rootfs, ic.FromPath)
 		dest := filepath.Join(rootfs, ic.ToPath)
@@ -872,7 +872,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 	}
 
 	// 6. Moves (file-move)
-	for _, mv := range ctx.Moves {
+	for _, mv := range ctx.FileMoves {
 		fmt.Printf("    move %s -> %s%s\n", mv.FromPath, mv.ToPath, labelSuffix(mv.Label))
 		src := filepath.Join(rootfs, mv.FromPath)
 		dest := filepath.Join(rootfs, mv.ToPath)
@@ -885,7 +885,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 	}
 
 	// 7. Links (file-link)
-	for _, ln := range ctx.Links {
+	for _, ln := range ctx.FileLinks {
 		fmt.Printf("    %s %s -> %s%s\n", ln.Type, ln.ToPath, ln.FromPath, labelSuffix(ln.Label))
 		dest := filepath.Join(rootfs, ln.ToPath)
 		if err := mkdirAllInherit(filepath.Dir(dest), 0o755); err != nil {
@@ -906,7 +906,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 	}
 
 	// 8. Deletes (file-delete, runs last)
-	for _, r := range ctx.Removes {
+	for _, r := range ctx.FileDeletes {
 		fmt.Printf("    delete %s%s\n", r.Path, labelSuffix(r.Label))
 		target := filepath.Join(rootfs, r.Path)
 		if r.Recursive {
@@ -985,7 +985,7 @@ func filesystemForPath(path string, parts []actions.PartitionDef) string {
 
 func (b *Builder) phasePermissions(ctx *actions.BuildContext, rootfs string) error {
 	// Ownership changes (file-ownership / chown)
-	for _, own := range ctx.Ownerships {
+	for _, own := range ctx.FileOwnerships {
 		target := filepath.Join(rootfs, own.Path)
 		os.MkdirAll(target, 0o755)
 
@@ -1002,7 +1002,7 @@ func (b *Builder) phasePermissions(ctx *actions.BuildContext, rootfs string) err
 	}
 
 	// Mode changes (file-permissions / chmod)
-	for _, perm := range ctx.Permissions {
+	for _, perm := range ctx.FilePermissions {
 		target := filepath.Join(rootfs, perm.Path)
 		os.MkdirAll(target, 0o755)
 

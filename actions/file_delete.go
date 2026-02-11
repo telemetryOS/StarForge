@@ -15,7 +15,7 @@ func (a *FileDelete) Execute(step config.Step, layerDir string, ctx *BuildContex
 	if s.Path == "" {
 		return fmt.Errorf("file-delete: path is required")
 	}
-	ctx.Removes = append(ctx.Removes, RemoveOp{
+	ctx.FileDeletes = append(ctx.FileDeletes, FileDeleteOp{
 		Path:      s.Path,
 		Recursive: s.Recursive,
 		Layer:     ctx.CurrentLayer,

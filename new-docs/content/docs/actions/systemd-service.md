@@ -115,7 +115,7 @@ Field names in section maps use `snake_case` and are automatically converted to 
 
 Known acronyms are preserved as uppercase: `CPUWeight`, `IODeviceWeight`, `IPAddressAllow`, `OOMScoreAdjust`, `TTYPath`, etc.
 
-See the [YAML Reference](../yaml-reference.md#systemd-ini-field-names) for the complete conversion table.
+See the [YAML Reference](../yaml-reference/#systemd-ini-field-names) for the complete conversion table.
 
 ## Drop-in Overrides
 

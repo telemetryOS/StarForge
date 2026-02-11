@@ -15,7 +15,7 @@ func (a *FileMkdir) Execute(step config.Step, layerDir string, ctx *BuildContext
 	if s.Path == "" {
 		return fmt.Errorf("file-mkdir: path is required")
 	}
-	ctx.Mkdirs = append(ctx.Mkdirs, MkdirOp{
+	ctx.FileMkdirs = append(ctx.FileMkdirs, FileMkdirOp{
 		Path:  s.Path,
 		Owner: s.Owner,
 		Group: s.Group,

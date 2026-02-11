@@ -18,7 +18,7 @@ func (a *FileMove) Execute(step config.Step, layerDir string, ctx *BuildContext)
 	if s.ToPath == "" {
 		return fmt.Errorf("file-move: to_path is required")
 	}
-	ctx.Moves = append(ctx.Moves, MoveOp{
+	ctx.FileMoves = append(ctx.FileMoves, FileMoveOp{
 		FromPath: s.FromPath,
 		ToPath:   s.ToPath,
 		Layer:    ctx.CurrentLayer,

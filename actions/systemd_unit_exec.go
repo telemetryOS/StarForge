@@ -94,8 +94,8 @@ func executeSystemdUnit(
 
 	// Write the unit file
 	if extends != nil && layerPath != "" && !config.IsURL(layerPath) {
-		// Local file with extends: use CopyOp for the drop-in
-		ctx.Copies = append(ctx.Copies, CopyOp{
+		// Local file with extends: use LayerCopyOp for the drop-in
+		ctx.LayerCopies = append(ctx.LayerCopies, LayerCopyOp{
 			FromPath: layerPath,
 			ToPath:   dest,
 			LayerDir: layerDir,

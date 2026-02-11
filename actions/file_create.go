@@ -28,7 +28,7 @@ func (a *FileCreate) Execute(step config.Step, layerDir string, ctx *BuildContex
 
 	if s.LayerPath == "" && s.Content == "" && step.LayerSource != "" {
 		// layer_source without layer_path — copy entire source directory
-		ctx.Copies = append(ctx.Copies, CopyOp{
+		ctx.LayerCopies = append(ctx.LayerCopies, LayerCopyOp{
 			FromPath: ".",
 			ToPath:   s.Path,
 			LayerDir: layerDir,
@@ -54,8 +54,8 @@ func (a *FileCreate) Execute(step config.Step, layerDir string, ctx *BuildContex
 			}
 
 			if info.IsDir() {
-				// Directory copy — store as CopyOp
-				ctx.Copies = append(ctx.Copies, CopyOp{
+				// Directory copy — store as LayerCopyOp
+				ctx.LayerCopies = append(ctx.LayerCopies, LayerCopyOp{
 					FromPath: s.LayerPath,
 					ToPath:   s.Path,
 					LayerDir: layerDir,

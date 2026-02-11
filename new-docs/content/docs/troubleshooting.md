@@ -91,7 +91,7 @@ mode: 0755
 mode: "0755"
 ```
 
-Always quote octal mode values. See the [YAML Reference](yaml-reference.md#octal-numbers--always-quote-file-modes) for details.
+Always quote octal mode values. See the [YAML Reference](../yaml-reference/#octal-numbers--always-quote-file-modes) for details.
 
 ### "layer_script requires layer_source" error
 

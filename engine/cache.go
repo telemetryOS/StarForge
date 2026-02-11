@@ -116,10 +116,10 @@ func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 		}
 
 	case 4: // files
-		for _, m := range ctx.Mkdirs {
+		for _, m := range ctx.FileMkdirs {
 			fmt.Fprintf(h, "mkdir=%s,mode=%s,owner=%s,group=%s\n", m.Path, m.Mode, m.Owner, m.Group)
 		}
-		for _, cp := range ctx.Copies {
+		for _, cp := range ctx.LayerCopies {
 			fmt.Fprintf(h, "copy=%s->%s\n", cp.FromPath, cp.ToPath)
 			srcPath := filepath.Join(cp.LayerDir, cp.FromPath)
 			fileHash, err := hashPath(srcPath)
@@ -139,25 +139,25 @@ func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 				fmt.Fprintf(h, "econtent=%x\n", sha256.Sum256([]byte(fe.Content)))
 			}
 		}
-		for _, ic := range ctx.InternalCopies {
+		for _, ic := range ctx.FileCopies {
 			fmt.Fprintf(h, "icopy=%s->%s\n", ic.FromPath, ic.ToPath)
 		}
-		for _, mv := range ctx.Moves {
+		for _, mv := range ctx.FileMoves {
 			fmt.Fprintf(h, "move=%s->%s\n", mv.FromPath, mv.ToPath)
 		}
-		for _, ln := range ctx.Links {
+		for _, ln := range ctx.FileLinks {
 			fmt.Fprintf(h, "link=%s->%s,type=%s\n", ln.ToPath, ln.FromPath, ln.Type)
 		}
-		for _, r := range ctx.Removes {
+		for _, r := range ctx.FileDeletes {
 			fmt.Fprintf(h, "remove=%s,recursive=%v\n", r.Path, r.Recursive)
 		}
 
 	case 5: // permissions
-		for _, o := range ctx.Ownerships {
+		for _, o := range ctx.FileOwnerships {
 			fmt.Fprintf(h, "own=%s,owner=%s,group=%s,recursive=%v\n",
 				o.Path, o.Owner, o.Group, o.Recursive)
 		}
-		for _, p := range ctx.Permissions {
+		for _, p := range ctx.FilePermissions {
 			fmt.Fprintf(h, "perm=%s,mode=%s,recursive=%v\n",
 				p.Path, p.Mode, p.Recursive)
 		}

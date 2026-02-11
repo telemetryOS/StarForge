@@ -95,4 +95,4 @@ Runs during Collect (before any Execute phases). Not assigned a build phase numb
 - The script runs via `bash` and inherits the host's environment.
 - If the script exits with a non-zero status, the build fails immediately.
 - Variable output is captured through a temporary file. Each `sf_set` call appends a `KEY=VALUE` line that is parsed after the script completes.
-- See [Variables](../concepts/variables/) for the full variable system documentation.
+- See [Variables](../guide/variables/) for the full variable system documentation.

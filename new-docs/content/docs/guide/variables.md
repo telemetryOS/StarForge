@@ -1,8 +1,7 @@
 ---
 title: "Variables"
-weight: 4
+weight: 11
 ---
-
 
 StarForge has a variable system that lets you parameterize layers so the same layer can be reused across targets with different values. Variables flow through the build in a well-defined scope chain and are substituted into YAML values before each step is decoded.
 
@@ -23,15 +22,17 @@ Use `${{ var_name }}` in any scalar string value in `layer.yaml`:
 
 The `${{ }}` syntax is chosen to avoid conflicts with shell variable syntax (`$VAR`, `${VAR}`) that frequently appears in scripts and configuration files.
 
-Variable names must match `[a-zA-Z_][a-zA-Z0-9_]*`. Whitespace inside the braces is ignored (`${{ version }}` and `${{version}}` are equivalent).
+Variable names must match `[a-zA-Z_][a-zA-Z0-9_]*`. Whitespace inside the braces is ignored -- `${{ version }}` and `${{version}}` are equivalent.
 
-If a referenced variable is not defined, the build fails immediately with an error.
+If a referenced variable is not defined in the current scope, the build fails immediately with an error identifying the undefined variable and the step that referenced it.
 
-## Variable Scope
+## Variable Scope Chain
+
+Variables flow through four mechanisms, evaluated in a specific order for each layer.
 
 ### Target `args`
 
-The `args` field in `starforge.yaml` seeds the initial variable scope for a target. These values are available to all layers in the target.
+The `args` field in `starforge.yaml` seeds the initial variable scope for a target. These values are available to all layers.
 
 ```yaml
 # starforge.yaml
@@ -84,7 +85,7 @@ steps:
     hostname: ${{ hostname }}
 ```
 
-Use `imports` to document a layer's requirements and catch missing variables early.
+Use `imports` to document a layer's requirements and catch missing variables early. This is especially valuable for reusable layers that will be consumed by multiple projects or targets.
 
 ### Layer `exports`
 
@@ -105,7 +106,7 @@ steps:
       sf_set commit_hash "$hash"
 ```
 
-In this example, `commit_hash` is exported to subsequent layers, but any internal variables the layer may have defined (like `repo_url` from imports or `vars`) are filtered out unless explicitly listed in `exports`.
+In this example, `commit_hash` is exported to subsequent layers, but `repo_url` and any internal variables the layer may have defined are filtered out.
 
 ## Scoping Flow
 
@@ -144,40 +145,33 @@ Target args: { version: "2.1.0", channel: "stable" }
 
 Note that `channel`, `locale`, and `log_level` are filtered out by Layer 2's `exports`. Layer 3 only sees `version` and `app_id`.
 
-## `layer-run` Action
+## Dynamic Variables with `layer-run`
 
-The `layer-run` action executes a script on the host during the Collect phase. It can capture output as variables using the `sf_set` function.
+The `layer-run` action executes a script on the host during the Collect phase. It can compute values at build time and inject them into the variable scope using `sf_set`.
 
 ```yaml
 - action: layer-run
   script: |
-    # Compute a value on the host
     hash=$(git -C /path/to/repo rev-parse --short HEAD)
     sf_set git_hash "$hash"
 
-    # Read existing variables
     version=$(sf_get version)
     sf_set full_version "${version}-${hash}"
 ```
 
-### `sf_set` and `sf_get` in `layer-run`
+Variables set by `sf_set` update the layer-scoped variable map. They are subject to the same `exports` filtering as `vars` -- if the layer has an `exports` field, only listed variables propagate.
 
-| Function | Purpose |
-|----------|---------|
-| `sf_set key value` | Set a variable in the build scope. The value is available to all subsequent steps and layers (subject to `exports`). |
-| `sf_get key` | Read a variable from the current scope. Returns the value via `printf`. |
+The `sf_get` function reads variables from the current scope. Both functions are injected automatically into every `layer-run` script.
 
-Variables set by `sf_set` are written to a temporary file and read back by the build engine after the script completes. They update the layer-scoped variable map, so they are subject to the same `exports` filtering as `vars`.
-
-The `layer-run` action also receives all current variables as `STARFORGE_VAR_<NAME>` environment variables (uppercased), plus any `env` values from the target and step.
+For more on the `layer-run` action, see [Scripts](../scripts/).
 
 ## Environment Variables
 
-Environment variables are separate from build variables. They are passed to scripts (`run` and `layer-run`) as actual environment variables, not substituted into YAML.
+Environment variables are separate from build variables. They are passed to scripts (`run` and `layer-run`) as actual process environment variables, not substituted into YAML.
 
-### Target-level `env`
+### Target-Level `env`
 
-Defined in `starforge.yaml` on the target. Supports `${{ var }}` substitution (resolved against `args`).
+Defined in `starforge.yaml` on the target. Values support `${{ var }}` substitution, resolved against the current scope at the time the script runs.
 
 ```yaml
 targets:
@@ -191,9 +185,9 @@ targets:
       - ./layers/base
 ```
 
-### Step-level `env`
+### Step-Level `env`
 
-Defined on `run` and `layer-run` steps. Step-level values override target-level values. Also supports `${{ var }}` substitution.
+Defined on `run` and `layer-run` steps. Step-level values override target-level values for the same key. Also supports `${{ var }}` substitution.
 
 ```yaml
 - action: run
@@ -204,9 +198,13 @@ Defined on `run` and `layer-run` steps. Step-level values override target-level 
     echo "Installing to $INSTALL_DIR version $APP_VERSION"
 ```
 
+### `STARFORGE_VAR_*` Environment Variables
+
+In `layer-run` scripts, all current build variables are also available as `STARFORGE_VAR_<NAME>` environment variables, with names uppercased. For example, a variable named `version` is available as `STARFORGE_VAR_VERSION`. This provides an alternative to `sf_get` for reading variables.
+
 ## Using Variables in `run` Scripts
 
-Scripts executed by the `run` action run inside the target chroot during the [Execute](build-pipeline/) phase (phase 8). They have access to variables through the `sf_get` function:
+Scripts executed by the `run` action run inside the target chroot during phase 8. They have access to build variables through the `sf_get` function:
 
 ```yaml
 - action: run
@@ -216,7 +214,7 @@ Scripts executed by the `run` action run inside the target chroot during the [Ex
     echo "Finalizing $hostname at version $version"
 ```
 
-The build engine injects a bash prelude into every script that defines `sf_get`, `sf_set`, and a `__sf_vars` associative array. In chroot scripts, `sf_set` is a no-op -- variable output only works in `layer-run` scripts that execute on the host during Collect.
+The build engine injects a bash prelude into every script that defines `sf_get`, `sf_set`, and a `__sf_vars` associative array containing all collected variables. In chroot scripts, `sf_set` is a no-op -- variable output only works in `layer-run` scripts that execute on the host during Collect.
 
 ## Practical Examples
 
@@ -301,5 +299,8 @@ The target provides `server_name` and `document_root` through `args`. The layer 
 
 ## See Also
 
-- [Actions Reference](../actions/) -- all actions and their fields
-- [run](../actions/run/) -- `run` action details and `sf_get` usage
+- [Scripts](../scripts/) -- The `run` and `layer-run` actions in detail.
+- [run reference](../../actions/run/) -- Complete field reference for chroot scripts and `sf_get` usage.
+- [layer-run reference](../../actions/layer-run/) -- Complete field reference for host-side scripts and `sf_set` usage.
+- [Writing Layers](../writing-layers/) -- Layer anatomy, including `vars`, `imports`, and `exports` fields.
+- [YAML Reference](../../yaml-reference/) -- Full YAML syntax and substitution details.

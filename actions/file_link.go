@@ -22,7 +22,7 @@ func (a *FileLink) Execute(step config.Step, layerDir string, ctx *BuildContext)
 	if linkType == "" {
 		linkType = "symbolic"
 	}
-	ctx.Links = append(ctx.Links, LinkOp{
+	ctx.FileLinks = append(ctx.FileLinks, FileLinkOp{
 		FromPath: s.FromPath,
 		ToPath:   s.ToPath,
 		Type:     linkType,

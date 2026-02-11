@@ -18,7 +18,7 @@ func (a *FilePermissions) Execute(step config.Step, layerDir string, ctx *BuildC
 	if s.Mode == "" {
 		return fmt.Errorf("file-permissions: mode is required")
 	}
-	ctx.Permissions = append(ctx.Permissions, PermissionOp{
+	ctx.FilePermissions = append(ctx.FilePermissions, FilePermissionOp{
 		Path:      s.Path,
 		Mode:      s.Mode,
 		Recursive: s.Recursive,

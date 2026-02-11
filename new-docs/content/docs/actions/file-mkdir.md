@@ -41,5 +41,5 @@ Phase 4 (`files`). Directory creation runs first within the files phase, before 
 ## Notes
 
 - Parent directories are created automatically (like `mkdir -p`).
-- The `mode` field must be a **quoted string** (e.g., `"0755"`). Unquoted octal numbers are interpreted by YAML as integers. See the [YAML Reference](../yaml-reference.md#octal-numbers--always-quote-file-modes).
+- The `mode` field must be a **quoted string** (e.g., `"0755"`). Unquoted octal numbers are interpreted by YAML as integers. See the [YAML Reference](../yaml-reference/#octal-numbers--always-quote-file-modes).
 - If `owner` or `group` is specified, the user/group must exist (i.e., created by a `system-user` or `system-group` action in an earlier or same layer).

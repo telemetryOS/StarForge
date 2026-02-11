@@ -25,18 +25,18 @@ type BuildContext struct {
 	Groups []GroupDef
 
 	// File operations (accumulate)
-	Mkdirs         []MkdirOp
-	Copies         []CopyOp
-	FileCreates    []FileCreateOp
-	FileEdits      []FileEditOp
-	InternalCopies []InternalCopyOp
-	Moves          []MoveOp
-	Links          []LinkOp
-	Removes        []RemoveOp
+	FileMkdirs      []FileMkdirOp
+	LayerCopies     []LayerCopyOp
+	FileCreates     []FileCreateOp
+	FileEdits       []FileEditOp
+	FileCopies      []FileCopyOp
+	FileMoves       []FileMoveOp
+	FileLinks       []FileLinkOp
+	FileDeletes     []FileDeleteOp
 
 	// Permissions (accumulate)
-	Ownerships  []OwnershipOp
-	Permissions []PermissionOp
+	FileOwnerships  []FileOwnershipOp
+	FilePermissions []FilePermissionOp
 
 	// Services
 	Services      ServiceOps
@@ -103,8 +103,8 @@ type FileCreateOp struct {
 	Label   string
 }
 
-// CopyOp copies a file or directory from the layer to the target.
-type CopyOp struct {
+// LayerCopyOp copies a file or directory from the layer to the target.
+type LayerCopyOp struct {
 	FromPath string
 	ToPath   string
 	LayerDir string
@@ -124,24 +124,24 @@ type FileEditOp struct {
 	Label    string
 }
 
-// InternalCopyOp copies within the target filesystem.
-type InternalCopyOp struct {
+// FileCopyOp copies within the target filesystem.
+type FileCopyOp struct {
 	FromPath string
 	ToPath   string
 	Layer    string
 	Label    string
 }
 
-// MoveOp moves a file within the target filesystem.
-type MoveOp struct {
+// FileMoveOp moves a file within the target filesystem.
+type FileMoveOp struct {
 	FromPath string
 	ToPath   string
 	Layer    string
 	Label    string
 }
 
-// LinkOp creates a symlink or hard link.
-type LinkOp struct {
+// FileLinkOp creates a symlink or hard link.
+type FileLinkOp struct {
 	FromPath string // link target (what it points to)
 	ToPath   string // link path (where the link is created)
 	Type     string // "symbolic" or "hard"
@@ -149,16 +149,16 @@ type LinkOp struct {
 	Label    string
 }
 
-// RemoveOp deletes a file or directory.
-type RemoveOp struct {
+// FileDeleteOp deletes a file or directory.
+type FileDeleteOp struct {
 	Path      string
 	Recursive bool
 	Layer     string
 	Label     string
 }
 
-// OwnershipOp changes ownership of a path.
-type OwnershipOp struct {
+// FileOwnershipOp changes ownership of a path.
+type FileOwnershipOp struct {
 	Path      string
 	Owner     string
 	Group     string
@@ -167,8 +167,8 @@ type OwnershipOp struct {
 	Label     string
 }
 
-// PermissionOp changes permissions of a path.
-type PermissionOp struct {
+// FilePermissionOp changes permissions of a path.
+type FilePermissionOp struct {
 	Path      string
 	Mode      string
 	Recursive bool
@@ -176,8 +176,8 @@ type PermissionOp struct {
 	Label     string
 }
 
-// MkdirOp creates a directory.
-type MkdirOp struct {
+// FileMkdirOp creates a directory.
+type FileMkdirOp struct {
 	Path  string
 	Owner string
 	Group string

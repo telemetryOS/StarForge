@@ -13,15 +13,18 @@ menu:
     - name: Documentation
       pageRef: /docs
       weight: 1
+    - name: Guide
+      pageRef: /docs/guide
+      weight: 2
     - name: Actions
       pageRef: /docs/actions
-      weight: 2
+      weight: 3
     - name: Commands
       pageRef: /docs/commands
-      weight: 3
+      weight: 4
     - name: GitHub
       url: "https://github.com/telemetryos/starforge"
-      weight: 4
+      weight: 5
       params:
         icon: github
 

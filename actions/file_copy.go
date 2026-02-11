@@ -18,7 +18,7 @@ func (a *FileCopy) Execute(step config.Step, layerDir string, ctx *BuildContext)
 	if s.ToPath == "" {
 		return fmt.Errorf("file-copy: to_path is required")
 	}
-	ctx.InternalCopies = append(ctx.InternalCopies, InternalCopyOp{
+	ctx.FileCopies = append(ctx.FileCopies, FileCopyOp{
 		FromPath: s.FromPath,
 		ToPath:   s.ToPath,
 		Layer:    ctx.CurrentLayer,

@@ -1,8 +1,9 @@
 ---
 title: "YAML Reference"
-weight: 7
+weight: 8
 ---
 
+This page is the authoritative reference for all YAML features in StarForge.
 
 StarForge layers are written in YAML with several custom tags for file inclusion, merge control, file editing, and systemd overrides. This page is a centralized reference for all YAML features, quoting rules, and common patterns.
 
@@ -318,7 +319,7 @@ In practice, most StarForge fields handle this correctly because simple values w
 
 ## Systemd INI Field Names
 
-All systemd unit actions (`systemd-service`, `systemd-mount`, `systemd-timer`, `systemd-socket`, `systemd-slice`, `systemd-target`) use `snake_case` field names in YAML, which are automatically converted to systemd's `CamelCase` in the generated INI files.
+All systemd unit actions (`systemd-service`, `systemd-mount`, `systemd-timer`, `systemd-socket`, `systemd-slice`, `systemd-target`) accept both `snake_case` and CamelCase field names in YAML. The `snake_case` form is automatically converted to systemd's `CamelCase` in the generated INI files; CamelCase names pass through unchanged.
 
 ### Conversion rules
 

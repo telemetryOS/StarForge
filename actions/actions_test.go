@@ -660,8 +660,8 @@ func TestFileCopy(t *testing.T) {
 		Action:   "file-copy",
 		FileCopy: &config.FileCopyStep{FromPath: "/src", ToPath: "/dst"},
 	}, ctx)
-	if len(ctx.InternalCopies) != 1 {
-		t.Fatalf("InternalCopies = %d", len(ctx.InternalCopies))
+	if len(ctx.FileCopies) != 1 {
+		t.Fatalf("InternalCopies = %d", len(ctx.FileCopies))
 	}
 }
 
@@ -690,8 +690,8 @@ func TestFileMove(t *testing.T) {
 		Action:   "file-move",
 		FileMove: &config.FileMoveStep{FromPath: "/old", ToPath: "/new"},
 	}, ctx)
-	if len(ctx.Moves) != 1 {
-		t.Errorf("Moves = %d", len(ctx.Moves))
+	if len(ctx.FileMoves) != 1 {
+		t.Errorf("Moves = %d", len(ctx.FileMoves))
 	}
 }
 
@@ -702,10 +702,10 @@ func TestFileDelete(t *testing.T) {
 		Action:     "file-delete",
 		FileDelete: &config.FileDeleteStep{Path: "/tmp/old", Recursive: true},
 	}, ctx)
-	if len(ctx.Removes) != 1 {
-		t.Fatalf("Removes = %d", len(ctx.Removes))
+	if len(ctx.FileDeletes) != 1 {
+		t.Fatalf("Removes = %d", len(ctx.FileDeletes))
 	}
-	if !ctx.Removes[0].Recursive {
+	if !ctx.FileDeletes[0].Recursive {
 		t.Error("Recursive should be true")
 	}
 }
@@ -717,11 +717,11 @@ func TestFileLink(t *testing.T) {
 		Action:   "file-link",
 		FileLink: &config.FileLinkStep{FromPath: "/usr/bin/target", ToPath: "/usr/local/bin/link"},
 	}, ctx)
-	if len(ctx.Links) != 1 {
-		t.Fatalf("Links = %d", len(ctx.Links))
+	if len(ctx.FileLinks) != 1 {
+		t.Fatalf("Links = %d", len(ctx.FileLinks))
 	}
-	if ctx.Links[0].Type != "symbolic" {
-		t.Errorf("default link type = %q, want 'symbolic'", ctx.Links[0].Type)
+	if ctx.FileLinks[0].Type != "symbolic" {
+		t.Errorf("default link type = %q, want 'symbolic'", ctx.FileLinks[0].Type)
 	}
 }
 
@@ -732,8 +732,8 @@ func TestFileLink_Hard(t *testing.T) {
 		Action:   "file-link",
 		FileLink: &config.FileLinkStep{FromPath: "/a", ToPath: "/b", Type: "hard"},
 	}, ctx)
-	if ctx.Links[0].Type != "hard" {
-		t.Errorf("link type = %q, want 'hard'", ctx.Links[0].Type)
+	if ctx.FileLinks[0].Type != "hard" {
+		t.Errorf("link type = %q, want 'hard'", ctx.FileLinks[0].Type)
 	}
 }
 
@@ -744,11 +744,11 @@ func TestFileMkdir(t *testing.T) {
 		Action:    "file-mkdir",
 		FileMkdir: &config.FileMkdirStep{Path: "/data", Owner: "data", Group: "data", Mode: "2775"},
 	}, ctx)
-	if len(ctx.Mkdirs) != 1 {
-		t.Fatalf("Mkdirs = %d", len(ctx.Mkdirs))
+	if len(ctx.FileMkdirs) != 1 {
+		t.Fatalf("Mkdirs = %d", len(ctx.FileMkdirs))
 	}
-	if ctx.Mkdirs[0].Mode != "2775" {
-		t.Errorf("Mode = %q", ctx.Mkdirs[0].Mode)
+	if ctx.FileMkdirs[0].Mode != "2775" {
+		t.Errorf("Mode = %q", ctx.FileMkdirs[0].Mode)
 	}
 }
 
@@ -760,11 +760,11 @@ func TestFilePermissions(t *testing.T) {
 		Action:          "file-permissions",
 		FilePermissions: &config.FilePermissionsStep{Path: "/data", Mode: "2775"},
 	}, ctx)
-	if len(ctx.Permissions) != 1 {
-		t.Fatalf("Permissions = %d", len(ctx.Permissions))
+	if len(ctx.FilePermissions) != 1 {
+		t.Fatalf("Permissions = %d", len(ctx.FilePermissions))
 	}
-	if ctx.Permissions[0].Mode != "2775" {
-		t.Errorf("Mode = %q", ctx.Permissions[0].Mode)
+	if ctx.FilePermissions[0].Mode != "2775" {
+		t.Errorf("Mode = %q", ctx.FilePermissions[0].Mode)
 	}
 }
 
@@ -787,8 +787,8 @@ func TestFileOwnership(t *testing.T) {
 		Action:        "file-ownership",
 		FileOwnership: &config.FileOwnershipStep{Path: "/data", Owner: "data", Group: "data"},
 	}, ctx)
-	if len(ctx.Ownerships) != 1 {
-		t.Fatalf("Ownerships = %d", len(ctx.Ownerships))
+	if len(ctx.FileOwnerships) != 1 {
+		t.Fatalf("Ownerships = %d", len(ctx.FileOwnerships))
 	}
 }
 
@@ -800,7 +800,7 @@ func TestFileOwnership_Recursive(t *testing.T) {
 		Action:        "file-ownership",
 		FileOwnership: &config.FileOwnershipStep{Path: "/home/staff", Owner: "staff", Group: "staff", Recursive: true},
 	}, ctx)
-	if !ctx.Ownerships[0].Recursive {
+	if !ctx.FileOwnerships[0].Recursive {
 		t.Error("Recursive should be true")
 	}
 }
@@ -1596,11 +1596,11 @@ func TestEdgeOS_BaseLayer(t *testing.T) {
 	}
 
 	// Ownership + permissions
-	if len(ctx.Ownerships) != 1 || ctx.Ownerships[0].Owner != "data" {
-		t.Errorf("Ownerships = %+v", ctx.Ownerships)
+	if len(ctx.FileOwnerships) != 1 || ctx.FileOwnerships[0].Owner != "data" {
+		t.Errorf("Ownerships = %+v", ctx.FileOwnerships)
 	}
-	if len(ctx.Permissions) != 1 || ctx.Permissions[0].Mode != "2775" {
-		t.Errorf("Permissions = %+v", ctx.Permissions)
+	if len(ctx.FilePermissions) != 1 || ctx.FilePermissions[0].Mode != "2775" {
+		t.Errorf("Permissions = %+v", ctx.FilePermissions)
 	}
 }
 
@@ -1701,10 +1701,10 @@ func TestEdgeOS_DevelopmentLayerOverrides(t *testing.T) {
 	}
 
 	// Ownership: /home/staff recursive
-	if len(ctx.Ownerships) != 1 {
-		t.Fatalf("Ownerships = %d", len(ctx.Ownerships))
+	if len(ctx.FileOwnerships) != 1 {
+		t.Fatalf("Ownerships = %d", len(ctx.FileOwnerships))
 	}
-	if !ctx.Ownerships[0].Recursive {
+	if !ctx.FileOwnerships[0].Recursive {
 		t.Error("staff home ownership should be recursive")
 	}
 }

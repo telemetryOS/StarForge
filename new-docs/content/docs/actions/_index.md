@@ -121,6 +121,15 @@ Runs a host-side build script in the resolved source directory before the action
 | Action | Description | Page |
 |--------|-------------|------|
 | [run](run/) | Execute a script in chroot during build | Accumulate |
+| [layer-run](layer-run/) | Execute a host-side script during Collect | Accumulate |
+
+### Installer
+
+| Action | Description | Page |
+|--------|-------------|------|
+| [install-payload](install-payload/) | Bundle a built target as a compressed payload | -- |
+| [install-server](install-server/) | Configure the installer REST API server | -- |
+| [install-client](install-client/) | Configure the installer TUI client | -- |
 
 ## `!include` -- File Inclusion
 
@@ -195,125 +204,7 @@ When the same action appears in multiple layers, StarForge uses these rules to c
 
 ## Custom YAML Tags
 
-StarForge defines 10 custom YAML tags. Each tag is scoped to specific fields.
-
-| Tag | Scope | Purpose |
-|-----|-------|---------|
-| `!include` | Anywhere in layer YAML | Inline external files |
-| `!add` | `system-user` `groups` | Append to existing list |
-| `!remove` | `system-user` `groups` | Remove from existing list |
-| `!append` | `file-edit` `content` | Insert content at end of file |
-| `!prepend` | `file-edit` `content` | Insert content at beginning of file |
-| `!before` | `file-edit` `content` | Insert content before regex match |
-| `!after` | `file-edit` `content` | Insert content after regex match |
-| `!truncate_before` | `file-edit` `content` | Remove content before match |
-| `!truncate_after` | `file-edit` `content` | Remove content after match |
-| `!replace` | Systemd unit section values | Clear directive before setting |
-
-### `!add` / `!remove`
-
-Control how list fields merge across layers. Currently supported on the `groups` field of `system-user`.
-
-```yaml
-# Base layer
-- action: system-user
-  name: admin
-  groups: [wheel, video, audio]
-
-# Later layer -- add without replacing
-- action: system-user
-  name: admin
-  groups: !add [docker, render]
-
-# Another layer -- remove specific groups
-- action: system-user
-  name: admin
-  groups: !remove [audio]
-
-# Result: [wheel, video, docker, render]
-```
-
-### `!append` / `!prepend`
-
-Insert content at the end or beginning of a file. Used on the `content` field of `file-edit`.
-
-```yaml
-- action: file-edit
-  path: /etc/hosts
-  content: !append |
-    192.168.1.100  myserver
-
-- action: file-edit
-  path: /etc/hosts
-  content: !prepend |
-    # Custom hosts
-```
-
-### `!before` / `!after`
-
-Insert content before or after lines matching a regex pattern. Used on the `content` field of `file-edit`.
-
-```yaml
-- action: file-edit
-  path: /etc/pacman.conf
-  content: !before
-    pattern: "^\\[extra\\]"
-    value: |
-      [custom]
-      Server = https://repo.example.com/$arch
-
-- action: file-edit
-  path: /etc/config
-  content: !after
-    pattern: "^\\[section\\]"
-    match: 2
-    value: |
-      key = value
-```
-
-Fields: `pattern` (required, Go regex), `value` (required, content to insert), `match` (optional, which occurrence; default `0` means all).
-
-### `!truncate_before` / `!truncate_after`
-
-Remove content before or after a matching line. The matched line itself is always kept.
-
-```yaml
-- action: file-edit
-  path: /etc/config
-  content: !truncate_before
-    pattern: "^\\[main\\]"
-
-- action: file-edit
-  path: /etc/config
-  content: !truncate_after
-    pattern: "^# END"
-    match: 2
-```
-
-Fields: `pattern` (required, Go regex), `match` (optional, which occurrence; default `1`).
-
-### `!replace`
-
-In systemd unit section maps, `!replace` generates a clear-then-set pattern for drop-in overrides:
-
-```yaml
-- action: systemd-service
-  name: override.conf
-  extends:
-    service: getty@tty1
-  service:
-    exec_start: !replace "-/sbin/agetty --autologin player"
-```
-
-Renders as:
-
-```ini
-[Service]
-ExecStart=
-ExecStart=-/sbin/agetty --autologin player
-```
-
-See the [YAML Reference](../yaml-reference/#replace) for full details.
+StarForge defines 10 custom YAML tags for merge control, file editing, and systemd overrides. See the [YAML Reference](../yaml-reference/) for the complete tag documentation.
 
 ## Build Phase Order
 

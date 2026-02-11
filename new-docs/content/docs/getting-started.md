@@ -4,17 +4,16 @@ weight: 2
 ---
 
 
-This guide walks you through building your first custom Arch Linux image with StarForge, from installation to a running virtual machine.
+This tutorial walks you from zero to a running virtual machine with StarForge. By the end, you will have built a bootable Arch Linux image and tested it in QEMU.
 
 ## Prerequisites
 
-StarForge runs on **any Linux distribution**. Build tools (pacstrap, pacman, mkfs, sgdisk) are vendored automatically on first use.
+StarForge runs on **any Linux distribution**. Build tools like pacstrap, pacman, mkfs, and sgdisk are vendored automatically on first use --- you do not need an Arch Linux host.
 
 - **Linux** with overlayfs support (standard on all modern kernels)
 - **Root access** for build operations
-- **Go 1.21+** to build StarForge from source
 - **Internet access** on first run to download vendored dependencies
-- **QEMU** for `starforge run` -- the only host-installed dependency
+- **QEMU** for testing --- the only host-installed dependency
 
 ```bash
 sudo pacman -S qemu-full            # Arch Linux
@@ -22,55 +21,66 @@ sudo apt install qemu-system-x86    # Ubuntu/Debian
 sudo dnf install qemu-system-x86    # Fedora
 ```
 
-## Building StarForge
+## Install StarForge
+
+Download the latest release and install:
 
 ```bash
-cd StarForgeNext
-go build -o starforge ./cmd/starforge
-sudo cp starforge /usr/local/bin/
+curl -Lo starforge https://github.com/telemetryos/starforge/releases/latest/download/starforge-linux-amd64
+chmod +x starforge
+sudo mv starforge /usr/local/bin/
 ```
 
-## Creating a Project
+## Create a Project
+
+Use `starforge init` to scaffold a new project:
 
 ```bash
 starforge init my-os
 cd my-os
 ```
 
-This creates a `starforge.yaml` project file, a `.gitignore`, and a `layers/base/layer.yaml` starter layer.
+You will be prompted for an optional description and a target name (press Enter to accept the default `distribution`). This creates:
 
-The `starforge.yaml` defines your build targets -- each target references an ordered list of layers. See [Projects](concepts/projects/) for details.
+```
+my-os/
+├── starforge.yaml          # Project definition with one target
+├── .gitignore              # Excludes .starforge/ build directory
+└── layers/
+    └── base/
+        └── layer.yaml      # Starter base layer
+```
+
+The generated `starforge.yaml` defines a single target that references the base layer:
 
 ```yaml
-name: my-os
+name: "my-os"
 targets:
   distribution:
     layers:
       - ./layers/base
-      - ./layers/desktop
 ```
 
-Each layer is a directory containing a `layer.yaml` file, plus any files that actions reference (configs, scripts, etc.). See [Layers](concepts/layers/) for the full reference.
+## Customize the Base Layer
 
-## Minimal Layer Example
-
-Here is a base layer that produces a bootable system with partitions, packages, system configuration, a bootloader, a user account, and basic services:
+Replace the generated `layers/base/layer.yaml` with a more complete base layer. This example produces a bootable system with networking, SSH, a user account, and a bootloader:
 
 ```yaml
 steps:
+  # Disk layout: EFI boot partition + root filesystem
   - action: partition-add
     partitions:
       - name: boot
         filesystem: vfat
-        size: 1G
+        size: 512M
         mount_point: /boot
         type: efi
       - name: root
         filesystem: ext4
-        size: 12G
+        size: 8G
         mount_point: /
-        type: linux
 
+  # Packages installed via pacstrap
   - action: pacman-add
     packages:
       - base
@@ -80,11 +90,14 @@ steps:
       - networkmanager
       - openssh
 
+  # System identity
   - action: system-hostname
-    hostname: my-device
+    hostname: my-os
 
   - action: system-locale
     locale: en_US.UTF-8
+    locales:
+      - en_US.UTF-8 UTF-8
 
   - action: system-timezone
     timezone: UTC
@@ -92,6 +105,8 @@ steps:
   - action: system-keymap
     keymap: us
 
+  # Bootloader: systemd-boot with a single entry.
+  # The root=UUID=... kernel parameter is injected automatically.
   - action: systemd-boot-install
     loader:
       default: arch.conf
@@ -104,12 +119,14 @@ steps:
         initrd: /initramfs-linux.img
         options: rw quiet
 
+  # User account with sudo access via the wheel group
   - action: system-user
     name: admin
     groups: [wheel]
     shell: /bin/bash
     password: changeme
 
+  # Enable networking and SSH at boot
   - action: systemd-service
     name: NetworkManager
     enable: true
@@ -119,27 +136,44 @@ steps:
     enable: true
 ```
 
-## Building
+Each step maps to a StarForge action. The `partition-add` step defines the disk layout. The `pacman-add` step lists packages to install via pacstrap. The four system steps (`system-hostname`, `system-locale`, `system-timezone`, `system-keymap`) configure the OS identity. The `systemd-boot-install` step sets up the bootloader --- the root partition UUID is injected automatically, so you do not need to specify it. The `system-user` step creates a user account, and the two `systemd-service` steps enable services at boot.
+
+For the full list of actions and their fields, see the [Actions Reference](actions/).
+
+## Build
+
+Build the `distribution` target:
 
 ```bash
 starforge build distribution
 ```
 
-The first build downloads vendored tools, installs all packages, and runs all build phases. Subsequent builds use the overlay cache -- only phases whose inputs changed are re-executed. Use `--clean` to force a full rebuild.
+The first build downloads vendored tools (pacstrap, pacman, mkfs, and others) and runs all 9 build phases. This takes several minutes depending on your internet connection and the number of packages. Subsequent builds use the overlay cache --- only phases whose inputs changed are re-executed.
 
-## Inspecting the Build
-
-Verify how your layers resolve before or after building:
+Use `--clean` to force a full rebuild:
 
 ```bash
-starforge inspect distribution                      # Show everything
-starforge inspect distribution packages             # Show the package list
-starforge inspect distribution partitions --layers  # Partition layout with provenance
+starforge build distribution --clean
 ```
 
-The `--layers` / `-l` flag shows which layer contributed each item. Available concerns: `partitions`, `packages`, `groups`, `users`, `services`, `files`, `permissions`, `boot`, `system`, `scripts`.
+## Inspect
 
-## Testing in QEMU
+Before or after building, use `starforge inspect` to verify how your layers resolve without running a full build:
+
+```bash
+# Show everything: partitions, packages, system config, users, services, boot, etc.
+starforge inspect distribution
+
+# Show just the resolved package list
+starforge inspect distribution packages
+
+# Show partition layout with which layer defined each partition
+starforge inspect distribution partitions --layers
+```
+
+The `--layers` (`-l`) flag shows which layer contributed each item, making it easy to trace override behavior in multi-layer projects. Available concerns: `partitions`, `packages`, `groups`, `users`, `services`, `files`, `permissions`, `boot`, `system`, `scripts`.
+
+## Test in QEMU
 
 Boot your build in a virtual machine:
 
@@ -147,44 +181,50 @@ Boot your build in a virtual machine:
 starforge run distribution
 ```
 
-SSH into the VM from another terminal with `ssh -p 2222 localhost`. Use `--serial` for a serial console, or `--overlay <name>` to persist VM changes across reboots:
+This launches QEMU with your built image, forwarding port 2222 on the host to port 22 in the VM. From another terminal, SSH into the running VM:
+
+```bash
+ssh -p 2222 admin@localhost
+```
+
+Use `--serial` to attach a serial console for kernel boot messages, or `--overlay` to persist VM changes across reboots:
 
 ```bash
 starforge run distribution --serial
 starforge run distribution --overlay testing
 ```
 
-## Deploying
+Named overlays are stored in `.starforge/distribution/overlays/` and can also be accessed with `starforge chroot distribution --overlay testing` for shell debugging.
+
+## Deploy
 
 Write directly to a USB drive or SD card:
 
 ```bash
-starforge write distribution /dev/sdb
+starforge write distribution /dev/sdX
 ```
 
-Export a single bootable disk image:
+You will be prompted to confirm before any data is written.
+
+Export a single bootable disk image for flashing or distribution:
 
 ```bash
 starforge export distribution disk --size 16G --output ./release/my-os.img
 ```
 
-Export individual partition images for OTA or custom deployment:
+Export individual partition images for OTA update systems or custom deployment workflows:
 
 ```bash
 starforge export distribution partitions --output ./release/
 ```
 
-## Cleaning Up
-
-```bash
-starforge clean distribution          # Remove all build artifacts for a target
-starforge clean distribution cache    # Remove only the cache
-starforge clean deps                  # Remove vendored dependencies
-```
-
 ## Next Steps
 
-- [Guide](guide/) -- In-depth walkthrough of layer writing, advanced features, and multi-target projects
-- [Concepts](concepts/) -- Architecture, build pipeline, caching, and override semantics
-- [Actions Reference](actions/) -- Complete reference for all actions
-- [Commands](commands/) -- CLI command reference
+This tutorial covered a single-layer, single-target project. StarForge supports much more:
+
+- **Adding layers** --- Split your configuration across base, feature, and variant layers. See the [Complete Guide](guide/) for layering strategy and multi-target projects.
+- **Systemd services** --- Create unit files, drop-in overrides, mounts, timers, sockets, and slices. See [Systemd Units](guide/systemd-units/).
+- **Variables** --- Parameterize layers with `${{ variables }}` for reuse across targets. See [Variables](guide/variables/).
+- **Multi-target projects** --- Build different OS variants (minimal, desktop, kiosk) from shared layers. See [Multi-Target Projects](guide/multi-target-projects/).
+- **Installer system** --- Build self-installing images with a REST API server and client UI. See the [Installer System](guide/installer/).
+- **Remote layers** --- Pull shared layers from git repositories, archives, or HTTP URLs. See [Remote Layers](guide/remote-layers/).

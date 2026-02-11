@@ -140,7 +140,7 @@ func printConcern(concern string, ctx *actions.BuildContext) error {
 		}
 		printFiles(ctx)
 	case "permissions":
-		if len(ctx.Ownerships) == 0 && len(ctx.Permissions) == 0 {
+		if len(ctx.FileOwnerships) == 0 && len(ctx.FilePermissions) == 0 {
 			return nil
 		}
 		printPermissions(ctx)
@@ -165,10 +165,10 @@ func printConcern(concern string, ctx *actions.BuildContext) error {
 
 func isConcernEmpty(concern string, ctx *actions.BuildContext) bool {
 	if concern == "files" {
-		return len(ctx.Mkdirs) == 0 && len(ctx.FileCreates) == 0 &&
-			len(ctx.FileEdits) == 0 && len(ctx.Copies) == 0 &&
-			len(ctx.Moves) == 0 && len(ctx.Links) == 0 &&
-			len(ctx.Removes) == 0 && len(ctx.InternalCopies) == 0
+		return len(ctx.FileMkdirs) == 0 && len(ctx.FileCreates) == 0 &&
+			len(ctx.FileEdits) == 0 && len(ctx.LayerCopies) == 0 &&
+			len(ctx.FileMoves) == 0 && len(ctx.FileLinks) == 0 &&
+			len(ctx.FileDeletes) == 0 && len(ctx.FileCopies) == 0
 	}
 	return false
 }
@@ -458,10 +458,10 @@ func printFiles(ctx *actions.BuildContext) {
 	fmt.Println(inspectHeader.Render("Files"))
 	defer fmt.Println()
 
-	empty := len(ctx.Mkdirs) == 0 && len(ctx.FileCreates) == 0 &&
-		len(ctx.FileEdits) == 0 && len(ctx.Copies) == 0 &&
-		len(ctx.Moves) == 0 && len(ctx.Links) == 0 &&
-		len(ctx.Removes) == 0 && len(ctx.InternalCopies) == 0
+	empty := len(ctx.FileMkdirs) == 0 && len(ctx.FileCreates) == 0 &&
+		len(ctx.FileEdits) == 0 && len(ctx.LayerCopies) == 0 &&
+		len(ctx.FileMoves) == 0 && len(ctx.FileLinks) == 0 &&
+		len(ctx.FileDeletes) == 0 && len(ctx.FileCopies) == 0
 
 	if empty {
 		fmt.Println("  (none)")
@@ -469,7 +469,7 @@ func printFiles(ctx *actions.BuildContext) {
 	}
 
 	// Copies (directory copies from layer_path/layer_source) are shown as "create ... (dir copy)"
-	for _, cp := range ctx.Copies {
+	for _, cp := range ctx.LayerCopies {
 		desc := fmt.Sprintf("%s -> %s  (dir copy)", cp.FromPath, cp.ToPath)
 		printFileLine("create", desc, cp.Label, cp.Layer)
 	}
@@ -494,19 +494,19 @@ func printFiles(ctx *actions.BuildContext) {
 		printFileLine("edit", fe.Path+extra, fe.Label, fe.Layer)
 	}
 
-	for _, ic := range ctx.InternalCopies {
+	for _, ic := range ctx.FileCopies {
 		printFileLine("icopy", fmt.Sprintf("%s -> %s", ic.FromPath, ic.ToPath), ic.Label, ic.Layer)
 	}
 
-	for _, mv := range ctx.Moves {
+	for _, mv := range ctx.FileMoves {
 		printFileLine("move", fmt.Sprintf("%s -> %s", mv.FromPath, mv.ToPath), mv.Label, mv.Layer)
 	}
 
-	for _, ln := range ctx.Links {
+	for _, ln := range ctx.FileLinks {
 		printFileLine("link", fmt.Sprintf("%s -> %s (%s)", ln.ToPath, ln.FromPath, ln.Type), ln.Label, ln.Layer)
 	}
 
-	for _, r := range ctx.Removes {
+	for _, r := range ctx.FileDeletes {
 		extra := ""
 		if r.Recursive {
 			extra = " (recursive)"
@@ -514,7 +514,7 @@ func printFiles(ctx *actions.BuildContext) {
 		printFileLine("delete", r.Path+extra, r.Label, r.Layer)
 	}
 
-	for _, m := range ctx.Mkdirs {
+	for _, m := range ctx.FileMkdirs {
 		extra := ""
 		if m.Mode != "" {
 			extra += " mode=" + m.Mode
@@ -544,12 +544,12 @@ func printPermissions(ctx *actions.BuildContext) {
 	fmt.Println(inspectHeader.Render("Permissions"))
 	defer fmt.Println()
 
-	if len(ctx.Ownerships) == 0 && len(ctx.Permissions) == 0 {
+	if len(ctx.FileOwnerships) == 0 && len(ctx.FilePermissions) == 0 {
 		fmt.Println("  (none)")
 		return
 	}
 
-	for _, o := range ctx.Ownerships {
+	for _, o := range ctx.FileOwnerships {
 		extra := ""
 		if o.Recursive {
 			extra = " (recursive)"
@@ -565,7 +565,7 @@ func printPermissions(ctx *actions.BuildContext) {
 		}
 	}
 
-	for _, p := range ctx.Permissions {
+	for _, p := range ctx.FilePermissions {
 		extra := ""
 		if p.Recursive {
 			extra = " (recursive)"

@@ -18,7 +18,7 @@ func (a *FileOwnership) Execute(step config.Step, layerDir string, ctx *BuildCon
 	if s.Owner == "" && s.Group == "" {
 		return fmt.Errorf("file-ownership: owner or group is required")
 	}
-	ctx.Ownerships = append(ctx.Ownerships, OwnershipOp{
+	ctx.FileOwnerships = append(ctx.FileOwnerships, FileOwnershipOp{
 		Path:      s.Path,
 		Owner:     s.Owner,
 		Group:     s.Group,

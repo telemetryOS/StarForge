@@ -27,8 +27,8 @@ starforge list
 ### Sample Output
 
 ```
-Edge-OS
-TelemetryOS Edge Player OS
+my-os
+My custom operating system
 
   device
     - ./layers/base
