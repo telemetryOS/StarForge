@@ -1,0 +1,64 @@
+package commands
+
+import (
+	"fmt"
+
+	"github.com/spf13/cobra"
+
+	"github.com/telemetryos/starforge/config"
+	"github.com/telemetryos/starforge/engine"
+)
+
+var cleanFlag bool
+
+var buildCmd = &cobra.Command{
+	Use:   "build [target]",
+	Short: "Build disk images for a target",
+	Long: `Resolve layers for a target, execute build phases, and produce partition images.
+
+Creates sparse image files in the .starforge/ build directory. Phases are
+cached using overlayfs — unchanged phases are skipped on subsequent builds.
+
+Use --clean to force a full rebuild, ignoring the cache.
+Use 'starforge write' to write a completed build to a storage device.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runBuild,
+}
+
+func init() {
+	buildCmd.Flags().BoolVar(&cleanFlag, "clean", false, "force a full rebuild, ignoring cache")
+}
+
+func runBuild(cmd *cobra.Command, args []string) error {
+	targetName := args[0]
+
+	proj, err := config.FindProject()
+	if err != nil {
+		return err
+	}
+
+	target, ok := proj.Targets[targetName]
+	if !ok {
+		return fmt.Errorf("unknown target %q", targetName)
+	}
+
+	// Validate config by collecting before elevating
+	builder := engine.NewBuilder(proj)
+	if _, err := builder.Collect(target, false); err != nil {
+		return err
+	}
+
+	// Elevate to root for the execute phase
+	if err := engine.EnsureRootExec(); err != nil {
+		return fmt.Errorf("failed to elevate privileges: %w", err)
+	}
+
+	if err := builder.Build(targetName, target, cleanFlag); err != nil {
+		return err
+	}
+
+	// Ensure build artifacts are owned by the invoking user, not root
+	engine.ChownToInvoker(proj.BuildDir())
+
+	return nil
+}
