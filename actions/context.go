@@ -210,12 +210,14 @@ type ServiceOps struct {
 type UserServiceOp struct {
 	User    string
 	Service string
+	Layer   string
 }
 
 // BootConfig holds systemd-boot configuration.
 type BootConfig struct {
 	Loader  config.BootLoader
 	Entries []config.BootEntry
+	Layer   string
 }
 
 // UserDef defines a user to create.

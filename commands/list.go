@@ -42,7 +42,6 @@ func runList(cmd *cobra.Command, args []string) error {
 		for _, layer := range target.Layers {
 			fmt.Printf("    - %s\n", layer)
 		}
-		fmt.Println()
 	}
 
 	return nil

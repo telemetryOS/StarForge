@@ -148,6 +148,7 @@ func (a *SystemdTarget) Execute(step config.Step, layerDir string, ctx *BuildCon
 			ctx.Services.UserEnable = append(ctx.Services.UserEnable, UserServiceOp{
 				User:    s.User,
 				Service: unitName,
+				Layer:   ctx.CurrentLayer,
 			})
 			ctx.UserEnableGroups = append(ctx.UserEnableGroups, UserServiceGroup{
 				Layer: ctx.CurrentLayer,
@@ -167,6 +168,7 @@ func (a *SystemdTarget) Execute(step config.Step, layerDir string, ctx *BuildCon
 			ctx.Services.UserDisable = append(ctx.Services.UserDisable, UserServiceOp{
 				User:    s.User,
 				Service: unitName,
+				Layer:   ctx.CurrentLayer,
 			})
 			ctx.UserDisableGroups = append(ctx.UserDisableGroups, UserServiceGroup{
 				Layer: ctx.CurrentLayer,

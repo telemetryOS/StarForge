@@ -11,9 +11,10 @@ func (a *InstallServer) Name() string { return "install-server" }
 // installerDeps are packages required at install time for partitioning,
 // formatting, and payload decompression.
 var installerDeps = []string{
-	"dosfstools", // mkfs.vfat
-	"e2fsprogs",  // mkfs.ext4
-	"zstd",       // zstd decompression
+	"dosfstools",           // mkfs.vfat
+	"e2fsprogs",            // mkfs.ext4
+	"arch-install-scripts", // genfstab, arch-chroot
+	"zstd",                 // zstd decompression
 }
 
 func (a *InstallServer) Execute(step config.Step, layerDir string, ctx *BuildContext) error {

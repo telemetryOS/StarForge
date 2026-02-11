@@ -1,0 +1,59 @@
+baseURL: https://starforge.telemetryos.com/
+languageCode: en-us
+title: StarForge
+
+enableGitInfo: true
+
+module:
+  imports:
+    - path: github.com/imfing/hextra
+
+menu:
+  main:
+    - name: Documentation
+      pageRef: /docs
+      weight: 1
+    - name: Actions
+      pageRef: /docs/actions
+      weight: 2
+    - name: Commands
+      pageRef: /docs/commands
+      weight: 3
+    - name: GitHub
+      url: "https://github.com/telemetryos/starforge"
+      weight: 4
+      params:
+        icon: github
+
+params:
+  theme:
+    default: system
+    displayToggle: true
+
+  navbar:
+    displayTitle: true
+    displayLogo: true
+
+  page:
+    width: wide
+
+  search:
+    enable: true
+    type: flexsearch
+    flexsearch:
+      index: content
+      tokenize: forward
+
+  editURL:
+    enable: true
+    base: "https://github.com/telemetryos/starforge/edit/main/new-docs/content"
+
+  displayUpdatedDate: true
+  dateFormat: "January 2, 2006"
+
+markup:
+  highlight:
+    noClasses: false
+  goldmark:
+    renderer:
+      unsafe: true

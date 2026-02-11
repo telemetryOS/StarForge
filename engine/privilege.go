@@ -19,7 +19,17 @@ func EnsureRootExec() error {
 		return fmt.Errorf("sudo not found: %w", err)
 	}
 
-	args := append([]string{sudo}, os.Args...)
+	// Resolve the absolute path of the current executable so sudo can find it
+	// even with a restricted PATH.
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("cannot resolve executable path: %w", err)
+	}
+
+	args := make([]string, len(os.Args)+1)
+	args[0] = sudo
+	args[1] = exe
+	copy(args[2:], os.Args[1:])
 	return syscall.Exec(sudo, args, os.Environ())
 }
 

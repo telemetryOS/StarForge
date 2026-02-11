@@ -144,6 +144,7 @@ func addEnable(ctx *BuildContext, user, unitName string) {
 		ctx.Services.UserEnable = append(ctx.Services.UserEnable, UserServiceOp{
 			User:    user,
 			Service: unitName,
+			Layer:   ctx.CurrentLayer,
 		})
 		ctx.UserEnableGroups = append(ctx.UserEnableGroups, UserServiceGroup{
 			Layer: ctx.CurrentLayer,
@@ -164,6 +165,7 @@ func addDisable(ctx *BuildContext, user, unitName string) {
 		ctx.Services.UserDisable = append(ctx.Services.UserDisable, UserServiceOp{
 			User:    user,
 			Service: unitName,
+			Layer:   ctx.CurrentLayer,
 		})
 		ctx.UserDisableGroups = append(ctx.UserDisableGroups, UserServiceGroup{
 			Layer: ctx.CurrentLayer,

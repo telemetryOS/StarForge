@@ -31,12 +31,17 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("%s      %s\n", statusLabel.Render("Name:"), proj.Name)
+	fmt.Println("StarForge Project")
+	fmt.Println()
+	fmt.Printf("  %-14s %s\n", "Name:", proj.Name)
 	if proj.Description != "" {
-		fmt.Printf("%s  %s\n", statusLabel.Render("Description:"), proj.Description)
+		fmt.Printf("  %-14s %s\n", "Description:", proj.Description)
 	}
-	fmt.Printf("%s %s\n", statusLabel.Render("Directory:"), proj.Dir)
-	fmt.Printf("%s %s\n", statusLabel.Render("Build dir:"), proj.BuildDir())
+	fmt.Printf("  %-14s %s\n", "Directory:", proj.Dir)
+	fmt.Printf("  %-14s %s\n", "Build dir:", proj.BuildDir())
+	fmt.Println()
+
+	fmt.Println("Targets")
 	fmt.Println()
 
 	names := make([]string, 0, len(proj.Targets))
@@ -55,11 +60,10 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		}
 
 		fmt.Printf("  %s %s\n", name, state)
-		fmt.Printf("    %d layers:\n", len(target.Layers))
+		fmt.Printf("    Layers: %d\n", len(target.Layers))
 		for _, layer := range target.Layers {
 			fmt.Printf("      - %s\n", layer)
 		}
-		fmt.Println()
 	}
 
 	return nil
