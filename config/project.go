@@ -23,6 +23,25 @@ type Target struct {
 	Args   map[string]string `yaml:"args,omitempty"`
 	Env    map[string]string `yaml:"env,omitempty"`
 	Layers []string          `yaml:"layers"`
+	QEMU   *QEMUConfig       `yaml:"qemu,omitempty"`
+}
+
+// QEMUConfig holds QEMU virtual machine configuration for a target.
+type QEMUConfig struct {
+	Memory    int        `yaml:"memory,omitempty"`
+	CPUs      int        `yaml:"cpus,omitempty"`
+	GPUMemory int        `yaml:"gpu_memory,omitempty"`
+	Display   string     `yaml:"display,omitempty"`
+	CPU       string     `yaml:"cpu,omitempty"`
+	SSHPort   int        `yaml:"ssh_port,omitempty"`
+	Disks     []QEMUDisk `yaml:"disks,omitempty"`
+	Args      []string   `yaml:"args,omitempty"`
+}
+
+// QEMUDisk defines an additional virtual disk for QEMU.
+type QEMUDisk struct {
+	Name string `yaml:"name"`
+	Size string `yaml:"size"`
 }
 
 const ProjectFile = "starforge.yaml"

@@ -1,0 +1,66 @@
+package commands
+
+import (
+	"fmt"
+	"os"
+	"sort"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/spf13/cobra"
+
+	"github.com/telemetryos/starforge/config"
+)
+
+var (
+	statusBuilt    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
+	statusNotBuilt = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	statusLabel    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+)
+
+var statusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show project and build status",
+	Long:  `Show project metadata and the build state of each target.`,
+	Args:  cobra.NoArgs,
+	RunE:  runStatus,
+}
+
+func runStatus(cmd *cobra.Command, args []string) error {
+	proj, err := config.FindProject()
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%s      %s\n", statusLabel.Render("Name:"), proj.Name)
+	if proj.Description != "" {
+		fmt.Printf("%s  %s\n", statusLabel.Render("Description:"), proj.Description)
+	}
+	fmt.Printf("%s %s\n", statusLabel.Render("Directory:"), proj.Dir)
+	fmt.Printf("%s %s\n", statusLabel.Render("Build dir:"), proj.BuildDir())
+	fmt.Println()
+
+	names := make([]string, 0, len(proj.Targets))
+	for name := range proj.Targets {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		target := proj.Targets[name]
+		buildDir := proj.TargetBuildDir(name)
+
+		state := statusNotBuilt.Render("[not built]")
+		if _, err := os.Stat(buildDir); err == nil {
+			state = statusBuilt.Render("[built]")
+		}
+
+		fmt.Printf("  %s %s\n", name, state)
+		fmt.Printf("    %d layers:\n", len(target.Layers))
+		for _, layer := range target.Layers {
+			fmt.Printf("      - %s\n", layer)
+		}
+		fmt.Println()
+	}
+
+	return nil
+}

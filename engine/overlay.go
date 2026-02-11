@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/telemetryos/starforge/actions"
 )
 
 // OverlayManager manages overlayfs mounts for incremental builds.
@@ -293,6 +295,62 @@ func (om *OverlayManager) unmountOverlay() error {
 	// unmount to detach immediately. The mount is cleaned up once
 	// the holding process exits.
 	return run("umount", "-Rl", om.mergedDir)
+}
+
+// EnsureNamedOverlay creates or reuses a named overlay directory with copies
+// of the build cache partition images. Returns the overlay directory path.
+func EnsureNamedOverlay(buildDir, overlayName string, parts []actions.PartitionDef) (string, error) {
+	overlayDir := filepath.Join(buildDir, "overlays", overlayName)
+	if err := os.MkdirAll(overlayDir, 0o755); err != nil {
+		return "", fmt.Errorf("creating overlay directory: %w", err)
+	}
+
+	// Find the latest cache upper directory containing partition images
+	om := NewOverlayManager(buildDir)
+	var sourceDir string
+	for i := len(PhaseNames) - 1; i >= 0; i-- {
+		upper := om.PhaseUpperDir(i)
+		if _, err := os.Stat(upper); err == nil {
+			sourceDir = upper
+			break
+		}
+	}
+	if sourceDir == "" {
+		return "", fmt.Errorf("no cached build layers found — run build first")
+	}
+
+	// Copy partition images that don't already exist in the overlay
+	for _, part := range parts {
+		imgName := fmt.Sprintf("%s.img", part.Name)
+		dest := filepath.Join(overlayDir, imgName)
+		if _, err := os.Stat(dest); err == nil {
+			continue // already exists
+		}
+
+		src := filepath.Join(sourceDir, imgName)
+		if _, err := os.Stat(src); os.IsNotExist(err) {
+			// Try build dir directly
+			src = filepath.Join(buildDir, imgName)
+			if _, err := os.Stat(src); os.IsNotExist(err) {
+				continue
+			}
+		}
+
+		if err := CopyFile(src, dest); err != nil {
+			return "", fmt.Errorf("copying %s to overlay: %w", imgName, err)
+		}
+	}
+
+	return overlayDir, nil
+}
+
+// InvalidateOverlays removes all named overlays for a target.
+func InvalidateOverlays(buildDir string) error {
+	overlaysDir := filepath.Join(buildDir, "overlays")
+	if _, err := os.Stat(overlaysDir); os.IsNotExist(err) {
+		return nil
+	}
+	return os.RemoveAll(overlaysDir)
 }
 
 // CleanCache removes the entire cache directory for a fresh rebuild.

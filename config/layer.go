@@ -278,6 +278,11 @@ type Step struct {
 	SystemdTimer   *SystemdTimerStep   `yaml:"-"`
 	SystemdSocket  *SystemdSocketStep  `yaml:"-"`
 	SystemdSlice   *SystemdSliceStep   `yaml:"-"`
+
+	InstallServer  *InstallServerStep  `yaml:"-"`
+	InstallClient  *InstallClientStep  `yaml:"-"`
+	InstallPayload *InstallPayloadStep `yaml:"-"`
+	LayerRun       *LayerRunStep       `yaml:"-"`
 }
 
 // UnmarshalYAML routes YAML fields to the correct typed sub-struct based on action.
@@ -394,6 +399,18 @@ func (s *Step) UnmarshalYAML(value *yaml.Node) error {
 	case "systemd-slice":
 		s.SystemdSlice = &SystemdSliceStep{}
 		return value.Decode(s.SystemdSlice)
+	case "install-server":
+		s.InstallServer = &InstallServerStep{}
+		return value.Decode(s.InstallServer)
+	case "install-client":
+		s.InstallClient = &InstallClientStep{}
+		return value.Decode(s.InstallClient)
+	case "install-payload":
+		s.InstallPayload = &InstallPayloadStep{}
+		return value.Decode(s.InstallPayload)
+	case "layer-run":
+		s.LayerRun = &LayerRunStep{}
+		return value.Decode(s.LayerRun)
 	default:
 		return fmt.Errorf("unknown action: %q", raw.Action)
 	}
@@ -479,13 +496,14 @@ type FileMkdirStep struct {
 }
 
 type SystemUserStep struct {
-	Action   string              `yaml:"action"`
-	Name     string              `yaml:"name"`
-	Groups   Mergeable[[]string] `yaml:"groups,omitempty"`
-	Shell    string              `yaml:"shell,omitempty"`
-	Password string              `yaml:"password,omitempty"`
-	System   bool                `yaml:"system,omitempty"`
-	UID      int                 `yaml:"uid,omitempty"`
+	Action     string              `yaml:"action"`
+	Name       string              `yaml:"name"`
+	Groups     Mergeable[[]string] `yaml:"groups,omitempty"`
+	Shell      string              `yaml:"shell,omitempty"`
+	Password   string              `yaml:"password,omitempty"`
+	NoPassword bool                `yaml:"no_password,omitempty"`
+	System     bool                `yaml:"system,omitempty"`
+	UID        int                 `yaml:"uid,omitempty"`
 }
 
 type SystemGroupStep struct {
@@ -558,10 +576,11 @@ type PartitionChangeStep struct {
 }
 
 type RunStep struct {
-	Action     string `yaml:"action"`
-	Script     string `yaml:"script,omitempty"`      // inline script content
-	ScriptPath string `yaml:"script_path,omitempty"` // file path (relative to layer dir) or URL
-	User       string `yaml:"user,omitempty"`
+	Action     string            `yaml:"action"`
+	Script     string            `yaml:"script,omitempty"`      // inline script content
+	ScriptPath string            `yaml:"script_path,omitempty"` // file path (relative to layer dir) or URL
+	User       string            `yaml:"user,omitempty"`
+	Env        map[string]string `yaml:"env,omitempty"`
 }
 
 type SystemdServiceStep struct {
@@ -634,6 +653,30 @@ type SystemdSliceStep struct {
 	Install   UnitSection `yaml:"install,omitempty"`
 }
 
+type InstallServerStep struct {
+	Action string `yaml:"action"`
+	Port   int    `yaml:"port,omitempty"`
+	Path   string `yaml:"path,omitempty"`
+}
+
+type InstallClientStep struct {
+	Action    string `yaml:"action"`
+	AutoLogin string `yaml:"auto_login,omitempty"`
+}
+
+type InstallPayloadStep struct {
+	Action string `yaml:"action"`
+	Target string `yaml:"target"`
+	Path   string `yaml:"path,omitempty"`
+}
+
+type LayerRunStep struct {
+	Action     string            `yaml:"action"`
+	Script     string            `yaml:"script,omitempty"`
+	ScriptPath string            `yaml:"script_path,omitempty"`
+	Env        map[string]string `yaml:"env,omitempty"`
+}
+
 // BootLoader represents systemd-boot loader configuration.
 type BootLoader struct {
 	Default string `yaml:"default"`
@@ -690,4 +733,86 @@ func LoadLayer(dir string, cacheDir ...string) (*Layer, error) {
 	layer.Dir = absDir
 
 	return &layer, nil
+}
+
+// RawLayer represents a layer loaded from layer.yaml with unprocessed step
+// nodes. This supports variable substitution before steps are decoded.
+type RawLayer struct {
+	Dir       string            `yaml:"-"`
+	Vars      map[string]string `yaml:"vars,omitempty"`
+	Imports   []string          `yaml:"imports,omitempty"`
+	Exports   []string          `yaml:"exports,omitempty"`
+	StepNodes []*yaml.Node      `yaml:"-"`
+}
+
+// LoadLayerRaw reads a layer.yaml and returns it with raw step nodes.
+// The raw nodes allow variable substitution before type-specific decoding.
+func LoadLayerRaw(dir string, cacheDir string) (*RawLayer, error) {
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("resolving layer path: %w", err)
+	}
+
+	path := filepath.Join(absDir, LayerFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s in %s: %w", LayerFile, absDir, err)
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parsing %s in %s: %w", LayerFile, absDir, err)
+	}
+
+	if err := ResolveIncludes(&doc, absDir, cacheDir); err != nil {
+		return nil, fmt.Errorf("resolving includes in %s: %w", absDir, err)
+	}
+
+	// Extract top-level fields from the document node
+	raw := &RawLayer{Dir: absDir}
+
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return raw, nil
+	}
+
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return raw, nil
+	}
+
+	for i := 0; i < len(root.Content)-1; i += 2 {
+		key := root.Content[i].Value
+		val := root.Content[i+1]
+
+		switch key {
+		case "vars":
+			raw.Vars = make(map[string]string)
+			if err := val.Decode(&raw.Vars); err != nil {
+				return nil, fmt.Errorf("decoding vars: %w", err)
+			}
+		case "imports":
+			if err := val.Decode(&raw.Imports); err != nil {
+				return nil, fmt.Errorf("decoding imports: %w", err)
+			}
+		case "exports":
+			if err := val.Decode(&raw.Exports); err != nil {
+				return nil, fmt.Errorf("decoding exports: %w", err)
+			}
+		case "steps":
+			if val.Kind == yaml.SequenceNode {
+				raw.StepNodes = val.Content
+			}
+		}
+	}
+
+	return raw, nil
+}
+
+// DecodeStep decodes a single yaml.Node into a typed Step struct.
+func DecodeStep(node *yaml.Node) (Step, error) {
+	var step Step
+	if err := node.Decode(&step); err != nil {
+		return Step{}, err
+	}
+	return step, nil
 }
