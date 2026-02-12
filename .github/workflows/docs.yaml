@@ -4,7 +4,7 @@ on:
   push:
     branches: [master]
     paths:
-      - "new-docs/**"
+      - "docs/**"
       - ".github/workflows/docs.yaml"
   workflow_dispatch:
 
@@ -30,8 +30,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: new-docs/go.mod
-          cache-dependency-path: new-docs/go.sum
+          go-version-file: docs/go.mod
+          cache-dependency-path: docs/go.sum
 
       - name: Setup Hugo
         run: |
@@ -43,7 +43,7 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Build
-        working-directory: new-docs
+        working-directory: docs
         env:
           HUGO_ENVIRONMENT: production
         run: hugo --minify --baseURL "${{ steps.pages.outputs.base_url }}/"
@@ -51,7 +51,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: new-docs/public
+          path: docs/public
 
   deploy:
     runs-on: ubuntu-latest
