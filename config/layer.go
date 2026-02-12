@@ -656,7 +656,7 @@ type SystemdSliceStep struct {
 type InstallServerStep struct {
 	Action string `yaml:"action"`
 	Port   int    `yaml:"port,omitempty"`
-	Path   string `yaml:"path,omitempty"`
+	Path   string `yaml:"path"`
 }
 
 type InstallClientStep struct {
@@ -667,7 +667,7 @@ type InstallClientStep struct {
 type InstallPayloadStep struct {
 	Action string `yaml:"action"`
 	Target string `yaml:"target"`
-	Path   string `yaml:"path,omitempty"`
+	Path   string `yaml:"path"`
 }
 
 type LayerRunStep struct {

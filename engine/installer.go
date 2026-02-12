@@ -71,7 +71,7 @@ func (b *Builder) BundleInstallerToRootfs(ctx *actions.BuildContext, rootfs stri
 
 	// Bundle client binary and autologin
 	if ctx.InstallerClient != nil {
-		if err := bundleClient(ctx.InstallerClient, rootfs); err != nil {
+		if err := bundleClient(ctx.InstallerClient, ctx.InstallerServer, rootfs); err != nil {
 			return err
 		}
 	}
@@ -188,7 +188,6 @@ func bundleServer(server *actions.InstallerServerDef, rootfs string) error {
 	// Create systemd service
 	unitContent := fmt.Sprintf(`[Unit]
 Description=StarForge Installer Daemon
-After=network.target
 
 [Service]
 Type=simple
@@ -222,7 +221,7 @@ WantedBy=multi-user.target
 
 // bundleClient copies the starforge-install binary into the rootfs and
 // creates an autologin getty override to run it on the configured tty.
-func bundleClient(client *actions.InstallerClientDef, rootfs string) error {
+func bundleClient(client *actions.InstallerClientDef, server *actions.InstallerServerDef, rootfs string) error {
 	fmt.Printf("    client (auto_login: %s)\n", client.AutoLogin)
 
 	// Find the client binary
@@ -266,11 +265,15 @@ ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
 	}
 
 	// Only run the TUI on the configured tty, not on serial or SSH
+	port := 8100
+	if server != nil {
+		port = server.Port
+	}
 	bashProfile := fmt.Sprintf(`# StarForge installer auto-start
 if [ "$(tty)" = "/dev/%s" ]; then
-    exec /usr/bin/starforge-install
+    exec /usr/bin/starforge-install --server http://localhost:%d
 fi
-`, client.AutoLogin)
+`, client.AutoLogin, port)
 
 	profilePath := filepath.Join(bashProfileDir, ".bash_profile")
 	if err := os.WriteFile(profilePath, []byte(bashProfile), 0o644); err != nil {

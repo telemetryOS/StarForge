@@ -22,7 +22,7 @@ import (
 )
 
 func main() {
-	port := flag.Int("port", 8080, "HTTP listen port")
+	port := flag.Int("port", 8100, "HTTP listen port")
 	payloadDir := flag.String("payload-dir", "/payloads", "directory containing payload images")
 	flag.Parse()
 

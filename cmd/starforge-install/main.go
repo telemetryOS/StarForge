@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	server := flag.String("server", "http://localhost:8080", "installer server URL")
+	server := flag.String("server", "http://localhost:8100", "installer server URL")
 	flag.Parse()
 
 	if err := client.RunTUI(*server); err != nil {

@@ -11,21 +11,21 @@ Configure the installer REST API server. The server provides endpoints for paylo
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `port` | integer | No | Port the server listens on. Defaults to `8100`. |
-| `path` | string | No | Directory where payload images are stored inside the target. Defaults to `/usr/lib/starforge/payloads`. |
+| `path` | string | Yes | Directory where payload images are stored inside the target. Must match the directory structure used by `install-payload`. |
 
 ## Example
 
 ```yaml
 - action: install-server
-  port: 8100
+  path: /images
 ```
 
-### With custom payload path
+### With custom port
 
 ```yaml
 - action: install-server
   port: 9000
-  path: /opt/payloads
+  path: /images
 ```
 
 ## Semantics

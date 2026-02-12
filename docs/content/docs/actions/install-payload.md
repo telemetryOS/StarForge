@@ -11,12 +11,14 @@ Bundle a built target's partition images into the installer image as a payload. 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `target` | string | Yes | Name of a target defined in the same `starforge.yaml` project. |
+| `path` | string | Yes | Directory inside the installer image where compressed partition images are stored. Must be under the `install-server` path so the server can find them at runtime. |
 
 ## Example
 
 ```yaml
 - action: install-payload
   target: device
+  path: /images/device
   label: Bundle device images
 ```
 
@@ -25,10 +27,12 @@ Bundle a built target's partition images into the installer image as a payload. 
 ```yaml
 - action: install-payload
   target: device
+  path: /images/device
   label: Production device image
 
 - action: install-payload
   target: kiosk
+  path: /images/kiosk
   label: Kiosk device image
 ```
 
@@ -43,7 +47,7 @@ Collected during Collect. Bundled during the Package phase, after partition imag
 ## Notes
 
 - The payload target must be built before the installer target. If the payload has not been built, the build will fail with an error directing you to run `starforge build <target>` first.
-- Partition images are copied to `/usr/lib/starforge/payloads/<target>/` inside the installer image, alongside a `manifest.json` describing each partition's name, filesystem, size, mount point, type, and image filename.
+- Partition images are copied to the specified `path` inside the installer image, alongside a `manifest.json` describing each partition's name, filesystem, size, mount point, type, and image filename.
 - Images are compressed using `zstd -T0 -9` (multi-threaded, high compression) and stored as `<partition>.img.zst`.
 - The `manifest.json` includes a `description` field populated from the step's `label`.
 - The installer runtime packages (`dosfstools`, `e2fsprogs`, `zstd`) are automatically added to the package list when any installer action is present.
