@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -14,6 +12,7 @@ import (
 	"runtime"
 
 	"github.com/RobertWHurst/navaros"
+	navarosjson "github.com/RobertWHurst/navaros/middleware/json"
 
 	"github.com/telemetryos/starforge/installer"
 	"github.com/telemetryos/starforge/installer/diskutil"
@@ -34,21 +33,13 @@ func main() {
 
 	router := navaros.NewRouter()
 
+	// JSON request/response middleware.
+	router.Use(navarosjson.Middleware(nil))
+
 	// Inject dependencies into request context.
 	router.Use(func(ctx *navaros.Context) {
 		ctx.Set("manager", manager)
 		ctx.Set("payloadDir", *payloadDir)
-
-		// JSON response marshaller.
-		ctx.SetResponseBodyMarshaller(func(from any) (io.Reader, error) {
-			data, err := json.Marshal(from)
-			if err != nil {
-				return nil, err
-			}
-			ctx.Headers.Set("Content-Type", "application/json")
-			return bytes.NewReader(data), nil
-		})
-
 		ctx.Next()
 	})
 
