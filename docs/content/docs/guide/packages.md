@@ -93,7 +93,7 @@ The `pacman-remove` action removes packages that were added by earlier layers. T
     - linux-firmware
 ```
 
-Packages not found in the accumulated list are silently skipped (a warning is printed during collection). The `pacman-remove` action does not uninstall packages from an existing system -- it removes them from the package list before `pacstrap` runs.
+Packages not found in the accumulated list are silently ignored. The `pacman-remove` action does not uninstall packages from an existing system -- it removes them from the package list before `pacstrap` runs.
 
 ### Practical Use Case
 
@@ -136,7 +136,7 @@ The installer target inherits all base packages, removes the ones it does not ne
 All package installation happens during **phase 1 (packages)** of the build pipeline. StarForge collects every `pacman-add` and `pacman-remove` step across all layers during the Collect phase, produces a final deduplicated package list, and passes it to `pacstrap` in a single operation.
 
 This means:
-- Package order does not matter. The final list is sorted and deduplicated regardless of the order packages were declared.
+- Package order does not matter. The final list is deduplicated regardless of the order packages were declared.
 - You cannot install packages at different build stages. All packages are available starting from phase 2 onward.
 - Package dependencies are resolved by pacman automatically, just as with a normal Arch Linux installation.
 

@@ -114,28 +114,13 @@ Partitions accumulate across layers. A later layer can add more partitions witho
 
 The resulting layout contains all three partitions in the order they were defined.
 
-### Replace-on-Name
-
-If a `partition-add` step declares a partition with the same name as one from an earlier layer, it replaces the earlier definition in place, preserving its position in the partition order:
+To modify an existing partition's fields without adding a duplicate, use `partition-change` instead:
 
 ```yaml
-# Base layer
-- action: partition-add
-  partitions:
-    - name: root
-      filesystem: ext4
-      size: 8G
-      mount_point: /
-      type: linux
-
-# Later layer -- replaces root with a larger size, keeps its position
-- action: partition-add
-  partitions:
-    - name: root
-      filesystem: ext4
-      size: 16G
-      mount_point: /
-      type: linux
+# Later layer -- increase root size without re-adding
+- action: partition-change
+  name: root
+  size: 16G
 ```
 
 ### Insertion Ordering with `after`
@@ -165,7 +150,7 @@ The `partition-remove` action removes a partition by name:
   name: recovery
 ```
 
-This is useful when a later layer needs to remove a partition defined by an earlier layer. If the named partition does not exist, the step is silently skipped.
+This is useful when a later layer needs to remove a partition defined by an earlier layer. If the named partition does not exist, the build fails with an error.
 
 ## Modifying Partitions with `partition-change`
 

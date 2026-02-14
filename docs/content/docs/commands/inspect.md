@@ -39,6 +39,7 @@ If no concern is specified, shows a summary of everything. Use a specific concer
 | `boot` | Bootloader configuration and entries |
 | `system` | Hostname, locale, timezone, keymap, additional locales |
 | `scripts` | Scripts to run during build (with labels and user context) |
+| `installer` | Installer configuration (payloads, server, client) |
 
 ## Flags
 
@@ -74,7 +75,7 @@ starforge inspect device boot --layers
 
 ## Notes
 
-- Does not require root access (no build is performed).
+- Requires root access (re-execs under `sudo` if needed).
 - Does not require a prior build.
 
 ## See Also

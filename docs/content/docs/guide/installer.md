@@ -88,15 +88,16 @@ Bundles a built target's partition images as compressed payloads. The `target` f
 ```yaml
 - action: install-payload
   target: device
+  path: /images/device
 ```
 
-StarForge reads the named target's partition images from the build directory, compresses them with zstd, and stores them at the configured path inside the installer's root filesystem. Each payload directory contains a `manifest.json` and compressed partition images (`*.img.zst`).
+StarForge reads the named target's partition images from the build directory, compresses them with zstd, and stores them at the specified `path` inside the installer's root filesystem. Both `target` and `path` are required. Each payload directory contains a `manifest.json` and compressed partition images (`*.img.zst`).
 
 See the [`install-payload` reference](../../actions/install-payload/) for all fields.
 
 ### install-server
 
-Configures the `starforge-install-server` daemon. Sets the listening port and payload directory. Also adds runtime dependencies (`dosfstools`, `e2fsprogs`, `zstd`) to the package list automatically.
+Configures the `starforge-install-server` daemon. Sets the listening port and payload directory. Also adds runtime dependencies (`dosfstools`, `e2fsprogs`, `arch-install-scripts`, `zstd`) to the package list automatically.
 
 ```yaml
 - action: install-server
@@ -163,9 +164,11 @@ steps:
 
   - action: install-payload
     target: device
+    path: /images/device
 
   - action: install-server
     port: 8100
+    path: /images
 
   - action: install-client
     auto_login: tty1

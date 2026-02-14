@@ -36,7 +36,7 @@ StarForge composes partitions, packages, users, files, services, and boot config
 
 ## Reference
 
-- [**Actions**](actions/) --- All 34 built-in actions with fields, override semantics, and examples.
+- [**Actions**](actions/) --- All 32 built-in actions with fields, override semantics, and examples.
 - [**Commands**](commands/) --- CLI reference for all 10 commands.
-- [**YAML Reference**](yaml-reference/) --- Custom tags (`!include`, `!add`, `!replace`, and more), quoting rules, and systemd field name conversion.
+- [**YAML Reference**](yaml-reference/) --- Custom tags (`!include`, `!add`, `!replace`, and more), quoting rules, and systemd INI field names.
 - [**Troubleshooting**](troubleshooting/) --- Common issues and solutions.

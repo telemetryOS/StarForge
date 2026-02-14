@@ -41,7 +41,7 @@ The Execute stage is divided into 9 phases that run in a fixed order:
 |-------|------|-----------|
 | 0 | `preinstall` | `system-keymap` (writes `vconsole.conf` before pacstrap so `mkinitcpio` picks it up) |
 | 1 | `packages` | `pacman-add` (runs pacstrap with deduplicated package list, initializes pacman keyring) |
-| 2 | `sysconfig` | `system-hostname`, `system-locale`, `system-timezone`, `system-keymap` |
+| 2 | `sysconfig` | `system-hostname`, `system-locale`, `system-timezone` (keymap already written in phase 0) |
 | 3 | `users` | `system-group` then `system-user` |
 | 4 | `files` | File operations in fixed sub-order: mkdir, layer copies, creates, edits, internal copies, moves, links, deletes. Systemd unit file creation also runs in this phase. |
 | 5 | `permissions` | `file-ownership` (chown) then `file-permissions` (chmod) |
@@ -234,8 +234,9 @@ All build artifacts are stored in `.starforge/` within the project root. This di
 │   ├── sources/                 # Cached git repos and archives
 │   ├── remote/                  # Cached remote HTTP layers
 │   └── downloads/               # Cached individual file downloads
-└── deps/                        # Vendored build tools (pacstrap, mkfs, etc.)
 ```
+
+Vendored build tools (pacstrap, mkfs, etc.) are stored separately in `~/.local/share/starforge/`, not inside the project directory.
 
 ## See Also
 

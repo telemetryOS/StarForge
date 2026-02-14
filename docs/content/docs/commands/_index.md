@@ -46,4 +46,4 @@ starforge write distribution /dev/sdX
 
 - **Project discovery.** StarForge looks for `starforge.yaml` by walking up from the current directory. All commands that operate on a project use this mechanism, so you can run them from any subdirectory.
 - **Root access.** Most commands require root privileges. Operations like overlayfs mounts, arch-chroot, and writing to block devices cannot run unprivileged. StarForge will re-exec itself under `sudo` when needed.
-- **Build tool vendoring.** Build tools (pacstrap, arch-chroot, etc.) are vendored automatically on first use and cached in the project's `.starforge/` directory.
+- **Build tool vendoring.** Build tools (pacstrap, arch-chroot, etc.) are vendored automatically on first use and cached in `~/.local/share/starforge/`.

@@ -16,7 +16,7 @@ A `systemd-boot-install` step has two sections: `loader` (global bootloader sett
     timeout: 0
     editor: false
   entries:
-    - name: arch
+    - name: arch.conf
       title: My OS
       linux: /vmlinuz-linux
       initrd: /initramfs-linux.img
@@ -56,7 +56,7 @@ Each entry in the `entries` list defines a boot menu item.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | string | Yes | Entry filename (e.g., `arch`). The `.conf` extension is added automatically. |
+| `name` | string | Yes | Entry filename including extension (e.g., `arch.conf`). Used as the filename in `loader/entries/`. |
 | `title` | string | Yes | Display title shown in the boot menu. |
 | `linux` | string | Yes | Path to the kernel image (e.g., `/vmlinuz-linux`). |
 | `initrd` | string | Yes | Path to the initramfs image (e.g., `/initramfs-linux.img`). |
@@ -77,19 +77,19 @@ You can define multiple entries for different boot modes. The `default` field in
     timeout: 5
     editor: true
   entries:
-    - name: arch
+    - name: arch.conf
       title: My OS
       linux: /vmlinuz-linux
       initrd: /initramfs-linux.img
       options: rw quiet splash
 
-    - name: arch-recovery
+    - name: arch-recovery.conf
       title: My OS (Recovery)
       linux: /vmlinuz-linux
       initrd: /initramfs-linux.img
       options: rw single
 
-    - name: arch-fallback
+    - name: arch-fallback.conf
       title: My OS (Fallback Initramfs)
       linux: /vmlinuz-linux
       initrd: /initramfs-linux-fallback.img
@@ -98,41 +98,42 @@ You can define multiple entries for different boot modes. The `default` field in
 
 This creates three entries in `loader/entries/`. The main entry boots normally, the recovery entry drops to single-user mode, and the fallback entry uses the fallback initramfs for hardware compatibility troubleshooting.
 
-## Replace Semantics
+## Override Semantics
 
-The `systemd-boot-install` action uses **replace** semantics. If multiple layers define this action, the last layer's configuration replaces any earlier one entirely. There is no merging of loader settings or entry lists across layers.
+The `systemd-boot-install` action uses **mixed** semantics:
 
-This means a later layer can completely redefine the bootloader configuration:
+- **Loader settings replace.** If multiple layers configure the loader, the last layer's `loader` configuration wins.
+- **Entries accumulate.** Each layer's entries are appended to the entry list. All entries from all layers are written to the final image.
 
 ```yaml
-# Base layer defines a simple boot entry
+# Base layer defines loader and a boot entry
 - action: systemd-boot-install
   loader:
     default: arch.conf
     timeout: 0
     editor: false
   entries:
-    - name: arch
+    - name: arch.conf
       title: Base OS
       linux: /vmlinuz-linux
       initrd: /initramfs-linux.img
       options: rw quiet
 
-# A later layer replaces the entire configuration
+# A later layer overrides loader settings and adds an entry
 - action: systemd-boot-install
   loader:
     default: kiosk.conf
     timeout: 0
     editor: false
   entries:
-    - name: kiosk
+    - name: kiosk.conf
       title: Kiosk OS
       linux: /vmlinuz-linux
       initrd: /initramfs-linux.img
       options: rw quiet splash loglevel=0
 ```
 
-In this example, the final image will have only the `kiosk.conf` entry. The base layer's `arch.conf` entry is discarded entirely.
+In this example, the final image will have both the `arch.conf` and `kiosk.conf` entries. The loader settings come from the later layer (defaulting to `kiosk.conf`).
 
 ## Prerequisites
 

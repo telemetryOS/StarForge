@@ -53,13 +53,15 @@ starforge run --overlay testing device
 
 ## QEMU Configuration
 
-Resources are automatically scaled based on the host system:
+Default resource allocation:
 
-| Resource | Allocation | Bounds |
-|----------|-----------|--------|
-| Memory | Half of host RAM | 2 GB -- 16 GB |
-| CPUs | Half of host cores | 2 -- 8 |
-| GPU memory | Quarter of host RAM | 256 MB -- 2 GB |
+| Resource | Default |
+|----------|---------|
+| Memory | 4 GB |
+| CPUs | 4 |
+| GPU memory | 512 MB |
+
+These can be overridden in the target's `qemu` configuration in `starforge.yaml`.
 
 Features:
 - UEFI boot via OVMF firmware

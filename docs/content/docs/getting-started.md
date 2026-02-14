@@ -48,7 +48,9 @@ my-os/
 ├── .gitignore              # Excludes .starforge/ build directory
 └── layers/
     └── base/
-        └── layer.yaml      # Starter base layer
+        ├── layer.yaml      # Starter base layer
+        └── files/
+            └── etc/        # Layer files directory
 ```
 
 The generated `starforge.yaml` defines a single target that references the base layer:
@@ -171,7 +173,7 @@ starforge inspect distribution packages
 starforge inspect distribution partitions --layers
 ```
 
-The `--layers` (`-l`) flag shows which layer contributed each item, making it easy to trace override behavior in multi-layer projects. Available concerns: `partitions`, `packages`, `groups`, `users`, `services`, `files`, `permissions`, `boot`, `system`, `scripts`.
+The `--layers` (`-l`) flag shows which layer contributed each item, making it easy to trace override behavior in multi-layer projects. Available concerns: `partitions`, `packages`, `groups`, `users`, `services`, `files`, `permissions`, `boot`, `system`, `scripts`, `installer`.
 
 ## Test in QEMU
 

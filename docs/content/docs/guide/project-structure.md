@@ -199,8 +199,9 @@ When you build a target, StarForge creates a `.starforge/` directory at the proj
 │   ├── sources/                # Cached git repos and archives
 │   ├── remote/                 # Cached remote HTTP layers
 │   └── downloads/              # Cached individual file downloads
-└── deps/                       # Vendored build tools (pacstrap, mkfs, etc.)
 ```
+
+Vendored build tools (pacstrap, mkfs, etc.) are stored separately in `~/.local/share/starforge/`, not inside the project directory.
 
 Build artifacts are separated by target, so building `device` and `device-dev` produces independent caches. Shared source caches (git repos, archives) are stored once and reused across targets.
 

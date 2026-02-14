@@ -174,9 +174,10 @@ When the same action type appears across multiple layers, StarForge uses specifi
 
 | Semantics | Actions | Behavior |
 |-----------|---------|----------|
-| **Replace** | `systemd-boot-install`, `systemd-target` (set-default), `system-hostname`, `system-locale` (locale), `system-timezone`, `system-keymap` | Last layer wins entirely. |
+| **Replace** | `systemd-target` (set-default), `system-hostname`, `system-locale` (locale), `system-timezone`, `system-keymap` | Last layer wins entirely. |
+| **Mixed** | `systemd-boot-install` | Loader config replaces; boot entries accumulate. |
 | **Replace-on-path** | `file-create` (single files) | Later layer replaces an earlier file at the same path. Directory copies always accumulate. |
-| **Accumulate + replace-on-name** | `partition-add` | Partitions accumulate; a later partition with the same name replaces the earlier definition in place. |
+| **Accumulate** | `partition-add` | Partitions accumulate across layers. |
 | **Remove** | `pacman-remove`, `partition-remove` | Removes matching items accumulated by earlier layers. |
 | **Merge-on-name** | `system-user` | Later layer referencing the same user modifies the existing definition. Supports `!add`/`!remove` on the `groups` field. |
 | **Accumulate** | Everything else | Values from all layers are combined in order. |
@@ -213,4 +214,4 @@ Layers are processed in the order listed in the target's `layers` field. Within 
 - [Partitions](../partitions/) -- Defining disk layout across layers.
 - [Packages](../packages/) -- Installing and removing packages across layers.
 - [YAML Reference](../../yaml-reference/) -- Full specification for custom YAML tags and field conventions.
-- [Actions Reference](../../actions/) -- Complete documentation for all 34 actions.
+- [Actions Reference](../../actions/) -- Complete documentation for all 32 actions.

@@ -263,7 +263,7 @@ The `systemd-target` action has two distinct modes.
     Requires: multi-user.target
     After: multi-user.target
   install:
-    Aliases: kiosk.target
+    Alias: kiosk.target
 ```
 
 Custom targets are useful for defining a boot goal that aggregates multiple services. You can then set the custom target as the default:
@@ -283,12 +283,12 @@ Systemd unit actions are split across two build phases:
 - **Phase 6 (services)** -- Enable, disable, and mask operations are executed. Within this phase, operations run in a fixed order:
   1. Mask
   2. Enable
-  3. User-enable
-  4. Disable
+  3. Disable
+  4. User-enable
   5. User-disable
   6. Set default target
 
-This ordering means that if multiple layers mask and then enable the same unit, the enable takes effect (it runs after the mask). The default target is always set last.
+This ordering means that if multiple layers mask and then enable the same unit, the enable takes effect (it runs after the mask). Disable runs after enable, so a later layer can disable a unit that an earlier layer enabled. The default target is always set last.
 
 ## See Also
 

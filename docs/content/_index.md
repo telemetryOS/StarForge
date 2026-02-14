@@ -39,7 +39,7 @@ layout: hextra-home
     style="background: radial-gradient(ellipse at 50% 80%,rgba(45,175,105,0.15),hsla(0,0%,100%,0));"
   >}}
   {{< hextra/feature-card
-    title="34 Built-in Actions"
+    title="32 Built-in Actions"
     subtitle="Partitions, packages, users, files, systemd units, bootloader, scripts, and more. Everything to define a complete OS without writing shell scripts."
     style="background: radial-gradient(ellipse at 50% 80%,rgba(221,128,54,0.15),hsla(0,0%,100%,0));"
   >}}

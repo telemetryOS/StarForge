@@ -41,7 +41,7 @@ Either `target` (set-default mode) or `name` (create/manage mode) is required.
     Requires: multi-user.target
     After: multi-user.target
   install:
-    Aliases: kiosk.target
+    Alias: kiosk.target
 ```
 
 ### Enable an existing target
