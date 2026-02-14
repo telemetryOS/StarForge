@@ -39,6 +39,18 @@ func (a *FileCreate) Execute(step config.Step, layerDir string, ctx *BuildContex
 	}
 
 	if s.LayerPath != "" {
+		if ctx.DryRun {
+			// Dry-run: record the copy without reading from disk
+			ctx.LayerCopies = append(ctx.LayerCopies, LayerCopyOp{
+				FromPath: s.LayerPath,
+				ToPath:   s.Path,
+				LayerDir: layerDir,
+				Layer:    ctx.CurrentLayer,
+				Label:    step.Label,
+			})
+			return nil
+		}
+
 		if config.IsURL(s.LayerPath) {
 			// URL — always a single file, read content
 			var err error

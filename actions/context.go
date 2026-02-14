@@ -72,6 +72,7 @@ type BuildContext struct {
 	// Internal state
 	CurrentLayer     string
 	DownloadCacheDir string
+	DryRun           bool // skip side effects (layer-run, file reads) for inspect
 	Warnings         []string
 }
 

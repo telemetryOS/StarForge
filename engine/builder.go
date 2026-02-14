@@ -29,6 +29,7 @@ var (
 // Builder orchestrates the build process for a project.
 type Builder struct {
 	project *config.Project
+	DryRun  bool // skip layer-run and file I/O (for inspect)
 }
 
 // NewBuilder creates a new builder for the given project.
@@ -84,6 +85,7 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 	}
 
 	ctx := actions.NewBuildContext()
+	ctx.DryRun = b.DryRun
 
 	// Set up download cache dir for URL support
 	cacheDir := filepath.Join(b.project.BuildDir(), "cache")
@@ -246,6 +248,9 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 
 			// Handle layer-run: execute on host, capture variable output
 			if step.Action == "layer-run" {
+				if ctx.DryRun {
+					continue
+				}
 				if err := b.executeLayerRun(step, effectiveLayerDir, layerVars, ctx.Env); err != nil {
 					return nil, fmt.Errorf("layer %s (layer-run): %w", layerPath, err)
 				}

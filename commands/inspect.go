@@ -86,6 +86,7 @@ func runInspect(cmd *cobra.Command, args []string) error {
 	}
 
 	builder := engine.NewBuilder(proj)
+	builder.DryRun = true
 	ctx, err := builder.Collect(target, false)
 	if err != nil {
 		return err
