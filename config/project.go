@@ -20,10 +20,11 @@ type Project struct {
 
 // Target defines a named build profile with an ordered list of layers.
 type Target struct {
-	Args   map[string]string `yaml:"args,omitempty"`
-	Env    map[string]string `yaml:"env,omitempty"`
-	Layers []string          `yaml:"layers"`
-	QEMU   *QEMUConfig       `yaml:"qemu,omitempty"`
+	Args       map[string]string `yaml:"args,omitempty"`
+	DefaultEnv map[string]string `yaml:"default_env,omitempty"`
+	Env        map[string]string `yaml:"env,omitempty"`
+	Layers     []string          `yaml:"layers"`
+	QEMU       *QEMUConfig       `yaml:"qemu,omitempty"`
 }
 
 // QEMUConfig holds QEMU virtual machine configuration for a target.

@@ -91,10 +91,18 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 	cacheDir := filepath.Join(b.project.BuildDir(), "cache")
 	ctx.DownloadCacheDir = cacheDir
 
-	// Initialize variable scope from target args
+	// Initialize variable scope from target args.
+	// Env var references ($NAME or ${NAME}) in values are expanded from the
+	// host environment, falling back to default_env values when unset.
 	vars := make(map[string]string)
+	envLookup := func(key string) string {
+		if val, ok := os.LookupEnv(key); ok {
+			return val
+		}
+		return target.DefaultEnv[key]
+	}
 	for k, v := range target.Args {
-		vars[k] = v
+		vars[k] = os.Expand(v, envLookup)
 	}
 
 	// Substitute variables in target env and store in ctx
