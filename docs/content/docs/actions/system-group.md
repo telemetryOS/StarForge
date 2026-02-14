@@ -28,7 +28,7 @@ Create an explicit group in the target system.
 
 ## Semantics
 
-**Accumulate.** Groups from all layers are created in order.
+**Replace-on-name.** If multiple layers define a group with the same `name`, the later definition replaces the earlier one.
 
 ## Build Phase
 

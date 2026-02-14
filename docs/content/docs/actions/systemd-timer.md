@@ -28,19 +28,19 @@ Create, enable, disable, or mask systemd timer units.
   name: cleanup
   enable: true
   unit:
-    description: Run cleanup daily
+    Description: Run cleanup daily
   timer:
-    on_calendar: daily
-    persistent: true
+    OnCalendar: daily
+    Persistent: true
   install:
-    wanted_by: timers.target
+    WantedBy: timers.target
 ```
 
-## Modes, INI Conversion, and Drop-in Overrides
+## Modes and Drop-in Overrides
 
 This action supports the same modes as [`systemd-service`](systemd-service/): enable-only, disable-only, mask, inline definition, layer file, and drop-in override.
 
-Field names in section maps use `snake_case` and are converted to systemd's `CamelCase` automatically (e.g., `on_calendar` becomes `OnCalendar`). See [`systemd-service`](systemd-service/) for full details on modes, `extends` syntax, INI field conversion, and the `!replace` tag for drop-in overrides. See also the [YAML Reference](../yaml-reference/#systemd-ini-field-names) for the complete conversion table.
+Keys in section maps are written verbatim to the generated unit file -- use systemd's native CamelCase names. See [`systemd-service`](systemd-service/) for full details on modes, `extends` syntax, INI field names, and the `!replace` tag for drop-in overrides.
 
 ## Semantics
 

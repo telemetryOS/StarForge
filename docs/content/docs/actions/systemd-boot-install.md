@@ -25,7 +25,7 @@ Configure the systemd-boot bootloader for the target system.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | string | Yes | Entry filename (e.g., `arch`). The `.conf` extension is added automatically. |
+| `name` | string | Yes | Entry filename including extension (e.g., `arch.conf`). |
 | `title` | string | Yes | Display title in the boot menu. |
 | `linux` | string | Yes | Path to the kernel image (e.g., `/vmlinuz-linux`). |
 | `initrd` | string | Yes | Path to the initramfs (e.g., `/initramfs-linux.img`). |
@@ -40,7 +40,7 @@ Configure the systemd-boot bootloader for the target system.
     timeout: 3
     editor: false
   entries:
-    - name: arch
+    - name: arch.conf
       title: Arch Linux
       linux: /vmlinuz-linux
       initrd: /initramfs-linux.img
@@ -56,12 +56,12 @@ Configure the systemd-boot bootloader for the target system.
     timeout: 5
     editor: true
   entries:
-    - name: arch
+    - name: arch.conf
       title: Arch Linux
       linux: /vmlinuz-linux
       initrd: /initramfs-linux.img
       options: root=LABEL=root rw quiet
-    - name: arch-fallback
+    - name: arch-fallback.conf
       title: Arch Linux (fallback)
       linux: /vmlinuz-linux
       initrd: /initramfs-linux-fallback.img
@@ -70,7 +70,7 @@ Configure the systemd-boot bootloader for the target system.
 
 ## Semantics
 
-**Replace.** If multiple layers define `systemd-boot-install`, the last layer's configuration replaces any earlier one entirely.
+**Mixed.** The `loader` configuration is replaced by the last layer that defines it. Boot `entries` accumulate across layers -- entries from later layers are appended to entries from earlier layers.
 
 ## Build Phase
 

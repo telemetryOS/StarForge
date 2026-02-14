@@ -28,21 +28,21 @@ Create, enable, disable, or mask systemd mount units.
   name: var-log
   enable: true
   unit:
-    description: Mount /var/log as tmpfs
+    Description: Mount /var/log as tmpfs
   mount:
-    what: tmpfs
-    where: /var/log
-    type: tmpfs
-    options: "size=100M"
+    What: tmpfs
+    Where: /var/log
+    Type: tmpfs
+    Options: "size=100M"
   install:
-    wanted_by: local-fs.target
+    WantedBy: local-fs.target
 ```
 
-## Modes, INI Conversion, and Drop-in Overrides
+## Modes and Drop-in Overrides
 
 This action supports the same modes as [`systemd-service`](systemd-service/): enable-only, disable-only, mask, inline definition, layer file, and drop-in override.
 
-Field names in section maps use `snake_case` and are converted to systemd's `CamelCase` automatically (e.g., `socket_mode` becomes `SocketMode`). See [`systemd-service`](systemd-service/) for full details on modes, `extends` syntax, INI field conversion, and the `!replace` tag for drop-in overrides. See also the [YAML Reference](../yaml-reference/#systemd-ini-field-names) for the complete conversion table.
+Keys in section maps are written verbatim to the generated unit file -- use systemd's native CamelCase names. See [`systemd-service`](systemd-service/) for full details on modes, `extends` syntax, INI field names, and the `!replace` tag for drop-in overrides.
 
 ## Semantics
 

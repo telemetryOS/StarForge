@@ -47,6 +47,47 @@ targets:
       - ./layers/app
 ```
 
+#### Environment variable expansion
+
+Arg values support shell-style environment variable expansion. Values containing `$NAME` or `${NAME}` are resolved from the host environment at build time.
+
+```yaml
+targets:
+  device:
+    args:
+      hostname: $EDGE_HOSTNAME
+      channel: ${UPDATE_CHANNEL}
+      label: device-${EDGE_HOSTNAME}
+      version: "2.1.0"
+    layers:
+      - ./layers/base
+```
+
+This lets you pass dynamic values without modifying the project file:
+
+```bash
+EDGE_HOSTNAME=factory-test UPDATE_CHANNEL=dev starforge build device
+```
+
+If an env var is not set, it expands to an empty string. Use `default_env` to provide fallback values:
+
+```yaml
+targets:
+  device:
+    args:
+      hostname: $EDGE_HOSTNAME
+      channel: $UPDATE_CHANNEL
+    default_env:
+      EDGE_HOSTNAME: edge-device
+      UPDATE_CHANNEL: stable
+    layers:
+      - ./layers/base
+```
+
+With `default_env`, the arg uses the environment variable if set, otherwise the default. This keeps the project buildable without requiring any environment setup while still allowing overrides.
+
+Plain string values (without `$`) are unaffected by expansion and work exactly as before.
+
 ### Layer `vars`
 
 The `vars` field in `layer.yaml` provides default values. Layer vars do not overwrite existing values -- they only fill in variables that are not already defined.
@@ -113,7 +154,7 @@ In this example, `commit_hash` is exported to subsequent layers, but `repo_url` 
 The complete flow for a target with three layers:
 
 ```
-Target args: { version: "2.1.0", channel: "stable" }
+Target args (after env expansion): { version: "2.1.0", channel: "stable" }
                         |
                         v
         +------ Layer 1 (base) ------+
@@ -171,7 +212,7 @@ Environment variables are separate from build variables. They are passed to scri
 
 ### Target-Level `env`
 
-Defined in `starforge.yaml` on the target. Values support `${{ var }}` substitution, resolved against the current scope at the time the script runs.
+Defined in `starforge.yaml` on the target. Values support `${{ var }}` substitution, resolved against the target `args` at the start of the build.
 
 ```yaml
 targets:

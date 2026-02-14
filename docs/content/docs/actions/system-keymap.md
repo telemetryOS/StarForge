@@ -27,7 +27,7 @@ Set the console keyboard map.
 
 Phase 0 (`preinstall`) and Phase 2 (`sysconfig`).
 
-In phase 0, the keymap is written to `/etc/vconsole.conf` before `pacstrap` runs (some packages need the keymap during installation). In phase 2, it is written again as part of full system configuration.
+In phase 0, the keymap is written to `/etc/vconsole.conf` before `pacstrap` runs so that `mkinitcpio`'s `sd-vconsole` hook can find it when building the initramfs during `linux` package installation. In phase 2, it is printed in the sysconfig summary output.
 
 ## Notes
 

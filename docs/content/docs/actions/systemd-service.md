@@ -51,16 +51,16 @@ The action operates in different modes depending on which fields are set:
   name: myapp
   enable: true
   unit:
-    description: My Application
-    after: network-online.target
-    wants: network-online.target
+    Description: My Application
+    After: network-online.target
+    Wants: network-online.target
   service:
-    type: simple
-    exec_start: /usr/bin/myapp --config /etc/myapp.conf
-    restart: always
-    restart_sec: 5
+    Type: simple
+    ExecStart: /usr/bin/myapp --config /etc/myapp.conf
+    Restart: always
+    RestartSec: 5
   install:
-    wanted_by: multi-user.target
+    WantedBy: multi-user.target
 ```
 
 ### Layer file
@@ -80,7 +80,7 @@ The action operates in different modes depending on which fields are set:
   extends:
     service: getty@tty1
   service:
-    exec_start: !replace "-/sbin/agetty --autologin player --noclear %I $TERM"
+    ExecStart: !replace "-/sbin/agetty --autologin player --noclear %I $TERM"
 ```
 
 This creates `/etc/systemd/system/getty@tty1.service.d/autologin.conf`.
@@ -93,29 +93,20 @@ This creates `/etc/systemd/system/getty@tty1.service.d/autologin.conf`.
   user: player
   enable: true
   unit:
-    description: User application
+    Description: User application
   service:
-    exec_start: /usr/bin/myapp
+    ExecStart: /usr/bin/myapp
   install:
-    wanted_by: default.target
+    WantedBy: default.target
 ```
 
 This creates `/home/player/.config/systemd/user/myapp.service`.
 
-## INI Field Name Conversion
+## INI Field Names
 
-Field names in section maps use `snake_case` and are automatically converted to systemd's `CamelCase`:
+Keys in section maps are written verbatim to the generated unit file. Use systemd's native CamelCase names (e.g., `ExecStart`, `WantedBy`, `RestartSec`). No automatic conversion is performed.
 
-| YAML | Rendered |
-|------|----------|
-| `exec_start` | `ExecStart` |
-| `wanted_by` | `WantedBy` |
-| `restart_sec` | `RestartSec` |
-| `type` | `Type` |
-
-Known acronyms are preserved as uppercase: `CPUWeight`, `IODeviceWeight`, `IPAddressAllow`, `OOMScoreAdjust`, `TTYPath`, etc.
-
-See the [YAML Reference](../yaml-reference/#systemd-ini-field-names) for the complete conversion table.
+See the [YAML Reference](../yaml-reference/#systemd-ini-field-names) for details.
 
 ## Drop-in Overrides
 
@@ -134,7 +125,7 @@ Use `!replace` on values that need to be cleared before being set (the systemd d
 
 ```yaml
 service:
-  exec_start: !replace "/usr/bin/new-command"
+  ExecStart: !replace "/usr/bin/new-command"
 ```
 
 Renders as:

@@ -50,5 +50,5 @@ Collected during Collect. Bundled during the Package phase, after partition imag
 - Partition images are copied to the specified `path` inside the installer image, alongside a `manifest.json` describing each partition's name, filesystem, size, mount point, type, and image filename.
 - Images are compressed using `zstd -T0 -9` (multi-threaded, high compression) and stored as `<partition>.img.zst`.
 - The `manifest.json` includes a `description` field populated from the step's `label`.
-- The installer runtime packages (`dosfstools`, `e2fsprogs`, `zstd`) are automatically added to the package list when any installer action is present.
+- Installer runtime packages are added by the `install-server` action, not by `install-payload`. Make sure your installer layer includes an `install-server` step.
 - See [install-server](install-server/) and [install-client](install-client/) for the other installer actions.

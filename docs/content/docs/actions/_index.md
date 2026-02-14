@@ -7,7 +7,7 @@ weight: 6
 
 Actions are the building blocks of StarForge layers. Each step in a `layer.yaml` specifies an action and its configuration. This page covers step fields, all available actions, override semantics, custom YAML tags, and build phase ordering.
 
-For YAML quoting rules, INI field name conversion, and common patterns, see the [YAML Reference](../yaml-reference/).
+For YAML quoting rules, systemd field naming, and common patterns, see the [YAML Reference](../yaml-reference/).
 
 ## Step Fields
 
@@ -75,7 +75,7 @@ Runs a host-side build script in the resolved source directory before the action
 
 | Action | Description | Page |
 |--------|-------------|------|
-| [partition-add](partition-add/) | Define disk partitions | Accumulate + replace-on-name |
+| [partition-add](partition-add/) | Define disk partitions | Accumulate |
 | [partition-remove](partition-remove/) | Remove a partition by name | -- |
 | [partition-change](partition-change/) | Modify partition fields by name | -- |
 
@@ -102,7 +102,7 @@ Runs a host-side build script in the resolved source directory before the action
 | [system-timezone](system-timezone/) | Set the system timezone | Replace |
 | [system-keymap](system-keymap/) | Set the keyboard map | Replace |
 | [system-user](system-user/) | Create or modify a user account | Merge-on-name |
-| [system-group](system-group/) | Create an explicit group | Accumulate |
+| [system-group](system-group/) | Create an explicit group | Replace-on-name |
 
 ### Systemd
 
@@ -114,7 +114,7 @@ Runs a host-side build script in the resolved source directory before the action
 | [systemd-socket](systemd-socket/) | Manage systemd socket units | Accumulate |
 | [systemd-slice](systemd-slice/) | Manage systemd slice units | Accumulate |
 | [systemd-target](systemd-target/) | Set default target or manage target units | Replace / Accumulate |
-| [systemd-boot-install](systemd-boot-install/) | Configure systemd-boot | Replace |
+| [systemd-boot-install](systemd-boot-install/) | Configure systemd-boot | Mixed (loader replaces, entries accumulate) |
 
 ### Scripts
 
@@ -195,12 +195,13 @@ When the same action appears in multiple layers, StarForge uses these rules to c
 
 | Semantics | Actions | Behavior |
 |-----------|---------|----------|
-| **Replace** | `systemd-boot-install`, `systemd-target` (set-default), `system-hostname`, `system-locale` (locale), `system-timezone`, `system-keymap` | Last layer wins entirely. |
+| **Replace** | `systemd-target` (set-default), `system-hostname`, `system-locale` (locale), `system-timezone`, `system-keymap` | Last layer wins entirely. |
 | **Replace-on-path** | `file-create` (single files) | Later layer replaces earlier file at the same path. Directory copies always accumulate. |
-| **Accumulate + replace-on-name** | `partition-add` | Partitions accumulate; a later partition with the same name replaces the earlier definition in place. |
-| **Remove** | `pacman-remove` | Removes matching items from the accumulated list. |
+| **Replace-on-name** | `system-group` | Later layer redefines a group with the same name. |
+| **Mixed** | `systemd-boot-install` | Loader config replaces; boot entries accumulate. |
+| **Remove** | `pacman-remove` | Removes matching items from the accumulated list. Unmatched items are silently ignored. |
 | **Merge-on-name** | `system-user` | Later layer referencing the same user modifies the existing user. Supports `!add`/`!remove` on `groups`. |
-| **Accumulate** | Everything else | Values from all layers are combined in order. |
+| **Accumulate** | Everything else (including `partition-add`) | Values from all layers are combined in order. |
 
 ## Custom YAML Tags
 

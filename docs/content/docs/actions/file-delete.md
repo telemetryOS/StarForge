@@ -36,5 +36,5 @@ Phase 4 (`files`). Deletes run last within the files phase, after all creates, e
 
 ## Notes
 
-- Deleting a non-existent path is not an error.
+- With `recursive: true`, deleting a non-existent path is silently ignored. Without `recursive: true`, deleting a non-existent path is an error.
 - Use `recursive: true` for directories. Attempting to delete a non-empty directory without `recursive: true` will fail.

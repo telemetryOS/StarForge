@@ -45,17 +45,17 @@ To create a new systemd service from scratch, provide the unit's section maps in
   name: myapp
   enable: true
   unit:
-    description: My Application
-    after: network-online.target
-    wants: network-online.target
+    Description: My Application
+    After: network-online.target
+    Wants: network-online.target
   service:
-    type: simple
-    exec_start: /usr/bin/myapp --config /etc/myapp.conf
-    restart: always
-    restart_sec: 5
-    environment: "LOG_LEVEL=info"
+    Type: simple
+    ExecStart: /usr/bin/myapp --config /etc/myapp.conf
+    Restart: always
+    RestartSec: 5
+    Environment: "LOG_LEVEL=info"
   install:
-    wanted_by: multi-user.target
+    WantedBy: multi-user.target
 ```
 
 This creates `/etc/systemd/system/myapp.service` containing:
@@ -77,20 +77,9 @@ Environment=LOG_LEVEL=info
 WantedBy=multi-user.target
 ```
 
-### INI Field Name Conversion
+### INI Field Names
 
-Field names in YAML can use either `snake_case` or CamelCase. The `snake_case` form is automatically converted to systemd's `CamelCase`, while CamelCase names pass through unchanged. The conversion capitalizes each word and preserves known acronyms:
-
-| YAML | Rendered |
-|------|----------|
-| `exec_start` | `ExecStart` |
-| `wanted_by` | `WantedBy` |
-| `restart_sec` | `RestartSec` |
-| `type` | `Type` |
-| `cpu_weight` | `CPUWeight` |
-| `oom_score_adjust` | `OOMScoreAdjust` |
-
-See the [YAML Reference](../../yaml-reference/#systemd-ini-field-names) for the complete conversion table.
+Keys in section maps are written verbatim to the generated unit file. Use systemd's native CamelCase names (e.g., `ExecStart`, `WantedBy`, `RestartSec`). The YAML section keys themselves (`unit`, `service`, `install`) are mapped to their canonical `[Unit]`, `[Service]`, `[Install]` headers automatically.
 
 ## Drop-in Overrides
 
@@ -102,7 +91,7 @@ Drop-in overrides modify an existing unit without replacing it entirely. This is
   extends:
     service: getty@tty1
   service:
-    exec_start: !replace "-/sbin/agetty --autologin player --noclear %I $TERM"
+    ExecStart: !replace "-/sbin/agetty --autologin player --noclear %I $TERM"
 ```
 
 The `extends` mapping has one key (the unit type) and one value (the unit name). This creates the file `/etc/systemd/system/getty@tty1.service.d/override.conf` with:
@@ -132,7 +121,7 @@ The `extends` key name determines the parent unit type:
   extends:
     mount: home
   mount:
-    options: "noatime,compress=zstd"
+    Options: "noatime,compress=zstd"
 
 # Drop-in for a timer unit
 - action: systemd-timer
@@ -140,7 +129,7 @@ The `extends` key name determines the parent unit type:
   extends:
     timer: backup
   timer:
-    on_calendar: !replace "weekly"
+    OnCalendar: !replace "weekly"
 ```
 
 ## User-Level Services
@@ -153,10 +142,10 @@ The `user` field installs the unit under a specific user's home directory instea
   user: player
   enable: true
   service:
-    type: simple
-    exec_start: /usr/bin/pipewire
+    Type: simple
+    ExecStart: /usr/bin/pipewire
   install:
-    wanted_by: default.target
+    WantedBy: default.target
 ```
 
 This creates `/home/player/.config/systemd/user/pipewire.service` and enables it for that user. The unit is managed by the user's systemd instance (`systemctl --user`), not the system instance.
@@ -189,14 +178,14 @@ Creates `.mount` units. Uses the `mount` section instead of `service`.
   name: var-log
   enable: true
   unit:
-    description: Mount /var/log as tmpfs
+    Description: Mount /var/log as tmpfs
   mount:
-    what: tmpfs
-    where: /var/log
-    type: tmpfs
-    options: "size=100M"
+    What: tmpfs
+    Where: /var/log
+    Type: tmpfs
+    Options: "size=100M"
   install:
-    wanted_by: local-fs.target
+    WantedBy: local-fs.target
 ```
 
 Mount unit names are derived from the mount path (e.g., `/var/log` becomes `var-log.mount`). See the [systemd-mount reference](../../actions/systemd-mount/) for full details.
@@ -210,12 +199,12 @@ Creates `.timer` units for scheduled tasks. Uses the `timer` section.
   name: cleanup
   enable: true
   unit:
-    description: Run cleanup daily
+    Description: Run cleanup daily
   timer:
-    on_calendar: daily
-    persistent: true
+    OnCalendar: daily
+    Persistent: true
   install:
-    wanted_by: timers.target
+    WantedBy: timers.target
 ```
 
 Timer units typically activate a corresponding `.service` unit of the same name. See the [systemd-timer reference](../../actions/systemd-timer/) for full details.
@@ -229,12 +218,12 @@ Creates `.socket` units for socket activation. Uses the `socket` section.
   name: myapp
   enable: true
   unit:
-    description: My App Socket
+    Description: My App Socket
   socket:
-    listen_stream: /run/myapp.sock
-    socket_mode: "0660"
+    ListenStream: /run/myapp.sock
+    SocketMode: "0660"
   install:
-    wanted_by: sockets.target
+    WantedBy: sockets.target
 ```
 
 When a connection arrives on the socket, systemd starts the corresponding `.service` unit. See the [systemd-socket reference](../../actions/systemd-socket/) for full details.
@@ -247,8 +236,8 @@ Creates `.slice` units for resource management (cgroups). Uses the `slice` secti
 - action: systemd-slice
   name: app
   slice:
-    memory_max: 2G
-    cpu_weight: 100
+    MemoryMax: 2G
+    CPUWeight: 100
 ```
 
 Place services under a slice by adding `Slice=app.slice` to their `[Service]` section. See the [systemd-slice reference](../../actions/systemd-slice/) for full details.
@@ -270,11 +259,11 @@ The `systemd-target` action has two distinct modes.
 - action: systemd-target
   name: kiosk
   unit:
-    description: Kiosk Target
-    requires: multi-user.target
-    after: multi-user.target
+    Description: Kiosk Target
+    Requires: multi-user.target
+    After: multi-user.target
   install:
-    aliases: kiosk.target
+    Aliases: kiosk.target
 ```
 
 Custom targets are useful for defining a boot goal that aggregates multiple services. You can then set the custom target as the default:
@@ -305,5 +294,5 @@ This ordering means that if multiple layers mask and then enable the same unit, 
 
 - [systemd-service reference](../../actions/systemd-service/) -- Complete field reference and all modes.
 - [systemd-boot-install reference](../../actions/systemd-boot-install/) -- Bootloader configuration (separate from unit management).
-- [YAML Reference](../../yaml-reference/) -- INI field name conversion table and `!replace` tag syntax.
+- [YAML Reference](../../yaml-reference/) -- Systemd INI field names and `!replace` tag syntax.
 - [Bootloader](../bootloader/) -- Configuring systemd-boot entries and loader settings.

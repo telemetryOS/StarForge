@@ -28,19 +28,19 @@ Create, enable, disable, or mask systemd socket units.
   name: myapp
   enable: true
   unit:
-    description: My App Socket
+    Description: My App Socket
   socket:
-    listen_stream: /run/myapp.sock
-    socket_mode: "0660"
+    ListenStream: /run/myapp.sock
+    SocketMode: "0660"
   install:
-    wanted_by: sockets.target
+    WantedBy: sockets.target
 ```
 
-## Modes, INI Conversion, and Drop-in Overrides
+## Modes and Drop-in Overrides
 
 This action supports the same modes as [`systemd-service`](systemd-service/): enable-only, disable-only, mask, inline definition, layer file, and drop-in override.
 
-Field names in section maps use `snake_case` and are converted to systemd's `CamelCase` automatically (e.g., `listen_stream` becomes `ListenStream`). See [`systemd-service`](systemd-service/) for full details on modes, `extends` syntax, INI field conversion, and the `!replace` tag for drop-in overrides. See also the [YAML Reference](../yaml-reference/#systemd-ini-field-names) for the complete conversion table.
+Keys in section maps are written verbatim to the generated unit file -- use systemd's native CamelCase names. See [`systemd-service`](systemd-service/) for full details on modes, `extends` syntax, INI field names, and the `!replace` tag for drop-in overrides.
 
 ## Semantics
 

@@ -200,7 +200,7 @@ In systemd unit section maps (`unit`, `service`, `mount`, `timer`, `socket`, `sl
   extends:
     service: getty@tty1
   service:
-    exec_start: !replace "-/sbin/agetty --autologin player"
+    ExecStart: !replace "-/sbin/agetty --autologin player"
 ```
 
 Renders as:
@@ -319,41 +319,41 @@ In practice, most StarForge fields handle this correctly because simple values w
 
 ## Systemd INI Field Names
 
-All systemd unit actions (`systemd-service`, `systemd-mount`, `systemd-timer`, `systemd-socket`, `systemd-slice`, `systemd-target`) accept both `snake_case` and CamelCase field names in YAML. The `snake_case` form is automatically converted to systemd's `CamelCase` in the generated INI files; CamelCase names pass through unchanged.
-
-### Conversion rules
-
-1. Split on underscores
-2. Capitalize the first letter of each word
-3. Uppercase known acronyms entirely
+All systemd unit actions (`systemd-service`, `systemd-mount`, `systemd-timer`, `systemd-socket`, `systemd-slice`, `systemd-target`) use section maps (`unit`, `service`, `mount`, `timer`, `socket`, `slice`, `install`) whose keys are written verbatim to the generated INI file. Use systemd's native CamelCase names:
 
 ```yaml
-# YAML                    # Generated INI
-exec_start            →   ExecStart
-wanted_by             →   WantedBy
-restart_sec           →   RestartSec
-cpu_weight            →   CPUWeight
-oom_score_adjust      →   OOMScoreAdjust
-dns_stub_listener     →   DNSStubListener
-io_device_weight      →   IODeviceWeight
+service:
+  ExecStart: /usr/bin/myapp
+  Restart: always
+  RestartSec: 5
+install:
+  WantedBy: multi-user.target
 ```
 
-### Known acronyms
+Generates:
 
-These abbreviations are uppercased entirely when they appear as a word in a field name:
+```ini
+[Service]
+ExecStart=/usr/bin/myapp
+Restart=always
+RestartSec=5
 
-`CPU`, `PID`, `OOM`, `IO`, `TCP`, `UDP`, `IP`, `UID`, `GID`, `DNS`, `NTP`, `TTY`
+[Install]
+WantedBy=multi-user.target
+```
+
+### Section names
+
+The YAML section keys (`unit`, `service`, `mount`, `timer`, `socket`, `slice`, `install`) are mapped to their canonical INI headers (`[Unit]`, `[Service]`, etc.). Sections are sorted alphabetically in the output, and keys within each section are also sorted alphabetically.
 
 ### Value types
 
 | YAML type | INI output | Example |
 |-----------|-----------|---------|
-| String | As-is | `exec_start: /usr/bin/app` → `ExecStart=/usr/bin/app` |
-| Number | As-is | `restart_sec: 5` → `RestartSec=5` |
-| Boolean | `yes`/`no` | `persistent: true` → `Persistent=yes` |
-| List | Repeated key | `exec_start_pre: [/bin/a, /bin/b]` → `ExecStartPre=/bin/a\nExecStartPre=/bin/b` |
-
-Sections are ordered canonically: `[Unit]`, then the type-specific section (`[Service]`, `[Mount]`, `[Timer]`, `[Socket]`, `[Slice]`), then `[Install]`. Keys within each section are sorted alphabetically.
+| String | As-is | `ExecStart: /usr/bin/app` → `ExecStart=/usr/bin/app` |
+| Number | As-is | `RestartSec: 5` → `RestartSec=5` |
+| Boolean | `true`/`false` | `Persistent: true` → `Persistent=true` |
+| List | Repeated key | `ExecStartPre: [/bin/a, /bin/b]` → `ExecStartPre=/bin/a\nExecStartPre=/bin/b` |
 
 ## Common Patterns
 
@@ -423,7 +423,7 @@ steps:
   extends:
     service: getty@tty1
   service:
-    exec_start: !replace "-/sbin/agetty --autologin player --noclear - $TERM"
+    ExecStart: !replace "-/sbin/agetty --autologin player --noclear - $TERM"
 ```
 
 ### Building user accounts across layers

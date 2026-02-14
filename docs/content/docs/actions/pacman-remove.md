@@ -26,7 +26,7 @@ Remove packages that were added by earlier layers. This action filters the accum
 
 ## Semantics
 
-**Remove.** Each listed package is removed from the accumulated package list. Packages that are not found in the list produce a warning but do not cause an error.
+**Remove.** Each listed package is removed from the accumulated package list. Packages that are not in the list are silently ignored.
 
 ## Build Phase
 
@@ -35,5 +35,5 @@ This action modifies the package list during the Collect stage. The filtered lis
 ## Notes
 
 - This only affects the accumulated `pacman-add` list. It does not remove packages that are pulled in as dependencies.
-- Removing a package that was never added produces a warning, not an error.
+- Removing a package that was never added is silently ignored.
 - The removal happens before deduplication and before `pacstrap` runs.

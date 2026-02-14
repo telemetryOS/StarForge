@@ -57,11 +57,12 @@ Each target is a named build profile with an ordered list of layers and optional
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `layers` | list | Yes | Ordered list of layer paths or URLs. |
-| `args` | map | No | Variables that seed the initial scope for variable substitution. |
-| `env` | map | No | Environment variables passed to `run` and `layer_script` scripts. Supports `${{ var }}` substitution. |
+| `args` | map | No | Variables that seed the initial scope for variable substitution. Values support `$NAME` / `${NAME}` env var expansion. |
+| `default_env` | map | No | Default values for environment variables referenced in `args`. Used when the env var is not set. |
+| `env` | map | No | Environment variables passed to `run` and `layer-run` scripts. Values support `${{ var }}` substitution against target `args`. |
 | `qemu` | object | No | QEMU configuration for `starforge run` (additional disks, memory, etc.). |
 
-Target `args` provide initial variable values that layers can reference via `${{ var_name }}` substitution and declare as required with `imports`:
+Target `args` provide initial variable values that layers can reference via `${{ var_name }}` substitution and declare as required with `imports`. Arg values can be hardcoded strings or reference host environment variables:
 
 ```yaml
 targets:
@@ -83,6 +84,18 @@ targets:
       - ./layers/base
       - ./layers/app
       - ./layers/dev-tools
+
+  # Args from environment, with defaults
+  ci:
+    args:
+      version: $CI_VERSION
+      channel: $CI_CHANNEL
+    default_env:
+      CI_VERSION: "0.0.0-dev"
+      CI_CHANNEL: dev
+    layers:
+      - ./layers/base
+      - ./layers/app
 ```
 
 ## Layer Directories

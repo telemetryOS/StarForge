@@ -92,7 +92,7 @@ Sizes ending with `+` indicate a growable partition. The image is created at the
 
 ## Semantics
 
-**Accumulate with replace-on-name.** Partitions from all layers are combined into a single ordered list. If a later layer defines a partition with the same `name` as an earlier one, the later definition replaces the earlier one in place (preserving its position in the list).
+**Accumulate.** Partitions from all layers are combined into a single ordered list. Use the `after` field to control insertion position. To modify an existing partition's properties, use [`partition-change`](partition-change/).
 
 ## Build Phase
 

@@ -37,11 +37,11 @@ Either `target` (set-default mode) or `name` (create/manage mode) is required.
 - action: systemd-target
   name: kiosk
   unit:
-    description: Kiosk Target
-    requires: multi-user.target
-    after: multi-user.target
+    Description: Kiosk Target
+    Requires: multi-user.target
+    After: multi-user.target
   install:
-    aliases: kiosk.target
+    Aliases: kiosk.target
 ```
 
 ### Enable an existing target
@@ -68,7 +68,7 @@ Either `target` (set-default mode) or `name` (create/manage mode) is required.
 - **Set-default mode**: **Replace.** The last layer's `target` value wins.
 - **Unit management modes**: Same as other systemd unit types. See [`systemd-service`](systemd-service/).
 
-Field names in section maps use `snake_case` and are converted to systemd's `CamelCase` automatically. See the [YAML Reference](../yaml-reference/#systemd-ini-field-names) for the complete conversion table.
+Keys in section maps are written verbatim to the generated unit file -- use systemd's native CamelCase names. See [`systemd-service`](systemd-service/) for details on INI field names.
 
 ## Build Phase
 

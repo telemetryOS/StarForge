@@ -338,7 +338,7 @@ The app layer installs the Chromium-based kiosk browser application and its runt
 
 The `WatchdogSec: 30` directive means systemd will restart the kiosk browser if it fails to send a heartbeat notification within 30 seconds. `BindsTo: sway-session.target` ensures the application stops if the compositor crashes and restarts when it comes back.
 
-Both CamelCase and `snake_case` field names are accepted in systemd unit sections. This example uses CamelCase directly (`ExecStart`, `WantedBy`, `WatchdogSec`), while the guide examples use `snake_case` (`exec_start`, `wanted_by`). StarForge converts `snake_case` to CamelCase automatically; CamelCase names pass through unchanged. See the [YAML Reference](yaml-reference/#systemd-ini-field-names) for conversion rules.
+Keys in systemd unit section maps are written verbatim to the generated INI file -- use systemd's native CamelCase names (`ExecStart`, `WantedBy`, `WatchdogSec`, etc.). No automatic conversion is performed.
 
 **User-level PipeWire services.** Audio services run in the `kiosk` user's systemd session rather than as system services:
 

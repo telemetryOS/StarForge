@@ -13,7 +13,8 @@ Create or modify a user account in the target system.
 | `name` | string | Yes | User name. |
 | `groups` | list of strings | No | Supplementary groups. Supports `!add` and `!remove` tags for merge control. |
 | `shell` | string | No | Login shell (e.g., `/bin/bash`, `/usr/bin/zsh`). |
-| `password` | string | No | Password hash (use `mkpasswd` to generate). |
+| `password` | string | No | Plaintext password. Set via `chpasswd` at build time. |
+| `no_password` | bool | No | Remove the password entirely (passwordless login). Default: `false`. |
 | `system` | bool | No | Create as a system user. Default: `false`. |
 | `uid` | int | No | Explicit UID. If omitted, assigned automatically. |
 
@@ -34,6 +35,16 @@ Create or modify a user account in the target system.
 - action: system-user
   name: myapp
   system: true
+```
+
+### Passwordless user
+
+```yaml
+- action: system-user
+  name: kiosk
+  no_password: true
+  groups: [video, audio, input]
+  shell: /bin/bash
 ```
 
 ### Modify a user in a later layer
@@ -73,7 +84,7 @@ Phase 3 (`users`). Users are created after groups. Home directories are created 
 
 ## Notes
 
-- The `password` field expects a hashed password. Generate one with: `mkpasswd -m sha-512`.
+- The `password` field is a plaintext password passed to `chpasswd`. For passwordless login (e.g. kiosk accounts), use `no_password: true` instead.
 - Users with `system: true` are created with `useradd -r` (no home directory, no login shell by default).
 - A user's primary group is created automatically with the same name.
 - Supplementary groups must exist (created by `system-group` or provided by packages like `wheel`, `video`, etc.).
