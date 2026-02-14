@@ -121,7 +121,10 @@ func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 		}
 		for _, cp := range ctx.LayerCopies {
 			fmt.Fprintf(h, "copy=%s->%s\n", cp.FromPath, cp.ToPath)
-			srcPath := filepath.Join(cp.LayerDir, cp.FromPath)
+			srcPath := cp.FromPath
+			if !filepath.IsAbs(srcPath) {
+				srcPath = filepath.Join(cp.LayerDir, srcPath)
+			}
 			fileHash, err := hashPath(srcPath)
 			if err != nil {
 				return "", fmt.Errorf("hashing source %s: %w", srcPath, err)

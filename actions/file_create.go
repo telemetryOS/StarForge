@@ -59,7 +59,10 @@ func (a *FileCreate) Execute(step config.Step, layerDir string, ctx *BuildContex
 				return fmt.Errorf("file-create: %w", err)
 			}
 		} else {
-			srcPath := filepath.Join(layerDir, s.LayerPath)
+			srcPath := s.LayerPath
+			if !filepath.IsAbs(srcPath) {
+				srcPath = filepath.Join(layerDir, srcPath)
+			}
 			info, err := os.Stat(srcPath)
 			if err != nil {
 				return fmt.Errorf("file-create: stat %s: %w", s.LayerPath, err)

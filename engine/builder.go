@@ -800,7 +800,10 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 
 	// 2. Layer copies (file-create with dir layer_path, systemd-unit, systemd-config)
 	for _, cp := range ctx.LayerCopies {
-		src := filepath.Join(cp.LayerDir, cp.FromPath)
+		src := cp.FromPath
+		if !filepath.IsAbs(src) {
+			src = filepath.Join(cp.LayerDir, src)
+		}
 		dest := filepath.Join(rootfs, cp.ToPath)
 		fmt.Printf("    %s -> %s%s\n", cp.FromPath, cp.ToPath, labelSuffix(cp.Label))
 
