@@ -128,7 +128,10 @@ func runExportDisk(targetName string) error {
 
 	// Create disk image — SetupDevicePartitions handles GPT overhead and
 	// growable partition resolution internally.
-	if err := engine.PackageToDiskImage(mergedDir, ctx.Partitions, diskSize, outputPath); err != nil {
+	if err := engine.PackageToDiskImage(mergedDir, ctx.Partitions, diskSize, outputPath, engine.PackageOps{
+		Ownerships:  ctx.FileOwnerships,
+		Permissions: ctx.FilePermissions,
+	}); err != nil {
 		return fmt.Errorf("creating disk image: %w", err)
 	}
 
@@ -189,7 +192,10 @@ func runExportPartitions(targetName string) error {
 	defer overlay.Unmount()
 
 	// Package into individual partition images
-	if err := engine.PackageToImages(mergedDir, ctx.Partitions, buildDir); err != nil {
+	if err := engine.PackageToImages(mergedDir, ctx.Partitions, buildDir, engine.PackageOps{
+		Ownerships:  ctx.FileOwnerships,
+		Permissions: ctx.FilePermissions,
+	}); err != nil {
 		return fmt.Errorf("packaging partitions: %w", err)
 	}
 

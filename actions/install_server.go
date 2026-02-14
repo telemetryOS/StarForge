@@ -1,8 +1,6 @@
 package actions
 
 import (
-	"fmt"
-
 	"github.com/telemetryos/starforge/config"
 )
 
@@ -22,18 +20,19 @@ var installerDeps = []string{
 func (a *InstallServer) Execute(step config.Step, layerDir string, ctx *BuildContext) error {
 	s := step.InstallServer
 
-	if s.Path == "" {
-		return fmt.Errorf("install-server: path is required")
-	}
-
 	port := s.Port
 	if port == 0 {
 		port = 8100
 	}
 
+	path := s.Path
+	if path == "" {
+		path = "/usr/lib/starforge/payloads"
+	}
+
 	ctx.InstallerServer = &InstallerServerDef{
 		Port:  port,
-		Path:  s.Path,
+		Path:  path,
 		Layer: ctx.CurrentLayer,
 	}
 

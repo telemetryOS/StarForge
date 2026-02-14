@@ -29,12 +29,16 @@ func cleanupDeviceMapper(dmName string, loopDevs []string) {
 	// Sync to flush writes
 	run("sync")
 
+	// Wait for udev to finish processing events — it may hold partition
+	// sub-devices open briefly after QEMU exits.
+	run("udevadm", "settle")
+
 	// Remove kernel partition mappings first (e.g. /dev/mapper/starforge-device-abcd1234p1).
 	// These are created by partprobe/kpartx when the GPT is written, and must be
 	// removed before the main dm device.
 	entries, _ := filepath.Glob(fmt.Sprintf("/dev/mapper/%sp*", dmName))
 	for _, entry := range entries {
-		run("dmsetup", "remove", "--force", entry)
+		run("dmsetup", "remove", "--force", filepath.Base(entry))
 	}
 
 	// Remove the main dm device

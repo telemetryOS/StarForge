@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -463,8 +462,17 @@ func (b *Builder) executeLayerRun(step config.Step, layerDir string, vars, targe
 // using overlayfs layers for caching. Unchanged phases are skipped.
 // After all phases, the merged tree is packaged into partition images.
 func (b *Builder) execute(ctx *actions.BuildContext, buildDir string, overlay *OverlayManager) error {
-	// Clean up any stale mounts from a previous interrupted build
+	// Clean up any stale mounts and loops from a previous interrupted build
+	// so we don't fail on locked resources. Scoped to buildDir only — does
+	// not touch device mappers from other commands (e.g. QEMU).
 	CleanupMounts(buildDir)
+	cleanupLoops(buildDir)
+
+	// Ensure mounts and loops are cleaned up when we exit, even on error.
+	defer func() {
+		CleanupMounts(buildDir)
+		cleanupLoops(buildDir)
+	}()
 
 	// Ensure vendored dependencies are available
 	if err := EnsureDeps("build"); err != nil {
@@ -579,7 +587,10 @@ func (b *Builder) execute(ctx *actions.BuildContext, buildDir string, overlay *O
 	defer overlay.Unmount()
 
 	// Package into partition images
-	if err := PackageToImages(mergedDir, ctx.Partitions, buildDir); err != nil {
+	if err := PackageToImages(mergedDir, ctx.Partitions, buildDir, PackageOps{
+		Ownerships:  ctx.FileOwnerships,
+		Permissions: ctx.FilePermissions,
+	}); err != nil {
 		return fmt.Errorf("packaging: %w", err)
 	}
 
@@ -768,7 +779,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 		target := filepath.Join(rootfs, m.Path)
 		fmt.Printf("    mkdir %s%s\n", m.Path, labelSuffix(m.Label))
 		mode := parseMode(m.Mode, 0o755)
-		if err := mkdirAllInherit(target, mode); err != nil {
+		if err := os.MkdirAll(target, mode); err != nil {
 			return fmt.Errorf("mkdir %s: %w", m.Path, err)
 		}
 		if err := os.Chmod(target, mode); err != nil {
@@ -793,20 +804,12 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 			return fmt.Errorf("stat %s: %w", cp.FromPath, err)
 		}
 
-		// Snapshot existing ownership before copy so we can preserve it
-		// for files that already exist (e.g. from useradd skel).
-		var existingOwners map[string][2]int
 		if srcInfo.IsDir() {
-			existingOwners = snapshotOwnership(src, dest)
-			if err := mkdirAllInherit(dest, 0o755); err != nil {
+			if err := os.MkdirAll(dest, 0o755); err != nil {
 				return fmt.Errorf("creating directory for %s: %w", cp.ToPath, err)
 			}
 		} else {
-			if _, err := os.Lstat(dest); err == nil {
-				uid, gid := pathOwnership(dest)
-				existingOwners = map[string][2]int{".": {uid, gid}}
-			}
-			if err := mkdirAllInherit(filepath.Dir(dest), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 				return fmt.Errorf("creating parent directory for %s: %w", cp.ToPath, err)
 			}
 		}
@@ -815,10 +818,6 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 		if err := copyForFilesystem(src, dest, fs); err != nil {
 			return fmt.Errorf("copying %s to %s: %w", cp.FromPath, cp.ToPath, err)
 		}
-
-		// Restore ownership: existing files keep their ownership,
-		// new files inherit from their parent directory.
-		restoreOrInheritOwnership(src, dest, existingOwners)
 	}
 
 	// 3. File creates (file-create with content or file layer_path)
@@ -826,11 +825,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 		fmt.Printf("    create %s%s\n", fc.Path, labelSuffix(fc.Label))
 		target := filepath.Join(rootfs, fc.Path)
 
-		// Check if file exists before overwriting
-		_, existed := os.Lstat(target)
-		existedUID, existedGID := pathOwnership(target)
-
-		if err := mkdirAllInherit(filepath.Dir(target), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return fmt.Errorf("creating parent for %s: %w", fc.Path, err)
 		}
 		mode := parseMode(fc.Mode, 0o644)
@@ -839,14 +834,6 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 		}
 		if err := os.Chmod(target, mode); err != nil {
 			return fmt.Errorf("chmod %s: %w", fc.Path, err)
-		}
-
-		if existed == nil {
-			// File existed — restore its original ownership
-			os.Lchown(target, existedUID, existedGID)
-		} else {
-			// New file — inherit ownership from parent directory
-			inheritOwnership(target)
 		}
 	}
 
@@ -863,7 +850,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 		fmt.Printf("    copy %s -> %s%s\n", ic.FromPath, ic.ToPath, labelSuffix(ic.Label))
 		src := filepath.Join(rootfs, ic.FromPath)
 		dest := filepath.Join(rootfs, ic.ToPath)
-		if err := mkdirAllInherit(filepath.Dir(dest), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return fmt.Errorf("creating parent for %s: %w", ic.ToPath, err)
 		}
 		if err := run("cp", "-rT", src, dest); err != nil {
@@ -876,7 +863,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 		fmt.Printf("    move %s -> %s%s\n", mv.FromPath, mv.ToPath, labelSuffix(mv.Label))
 		src := filepath.Join(rootfs, mv.FromPath)
 		dest := filepath.Join(rootfs, mv.ToPath)
-		if err := mkdirAllInherit(filepath.Dir(dest), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return fmt.Errorf("creating parent for %s: %w", mv.ToPath, err)
 		}
 		if err := os.Rename(src, dest); err != nil {
@@ -888,7 +875,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 	for _, ln := range ctx.FileLinks {
 		fmt.Printf("    %s %s -> %s%s\n", ln.Type, ln.ToPath, ln.FromPath, labelSuffix(ln.Label))
 		dest := filepath.Join(rootfs, ln.ToPath)
-		if err := mkdirAllInherit(filepath.Dir(dest), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return fmt.Errorf("creating parent for %s: %w", ln.ToPath, err)
 		}
 		os.Remove(dest) // remove existing link/file if present
@@ -1270,109 +1257,6 @@ func appendFile(path, content string) error {
 	return err
 }
 
-// parentUID returns the uid and gid of the given path's owner.
-// Returns (0, 0) if the path doesn't exist or can't be stat'd.
-func pathOwnership(path string) (uid, gid int) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return 0, 0
-	}
-	stat := info.Sys().(*syscall.Stat_t)
-	return int(stat.Uid), int(stat.Gid)
-}
-
-// inheritOwnership sets the ownership of path to match its parent directory.
-// If the parent is owned by root (0:0), this is a no-op since files are
-// already created as root.
-func inheritOwnership(path string) {
-	uid, gid := pathOwnership(filepath.Dir(path))
-	if uid == 0 && gid == 0 {
-		return
-	}
-	os.Lchown(path, uid, gid)
-}
-
-// snapshotOwnership walks the source tree and records the current ownership
-// of corresponding destination paths that already exist. Returns a map of
-// relative path -> [uid, gid] for existing files.
-func snapshotOwnership(src, dest string) map[string][2]int {
-	owners := make(map[string][2]int)
-	filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		rel, _ := filepath.Rel(src, p)
-		destPath := filepath.Join(dest, rel)
-		if _, err := os.Lstat(destPath); err == nil {
-			uid, gid := pathOwnership(destPath)
-			owners[rel] = [2]int{uid, gid}
-		}
-		return nil
-	})
-	return owners
-}
-
-// restoreOrInheritOwnership walks the source tree and for each corresponding
-// destination path: restores original ownership if the file existed before
-// the copy, or inherits from the parent directory if it's new.
-func restoreOrInheritOwnership(src, dest string, existing map[string][2]int) {
-	filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		rel, _ := filepath.Rel(src, p)
-		destPath := filepath.Join(dest, rel)
-		if owner, ok := existing[rel]; ok {
-			// File existed before copy — restore original ownership
-			os.Lchown(destPath, owner[0], owner[1])
-		} else {
-			// New file — inherit from parent directory
-			inheritOwnership(destPath)
-		}
-		return nil
-	})
-}
-
-// mkdirAllInherit creates a directory and all parents, inheriting ownership
-// from the closest existing ancestor. Standard os.MkdirAll creates all
-// directories as root; this ensures intermediate dirs under e.g. /home/player
-// are owned by player:player.
-func mkdirAllInherit(absPath string, perm os.FileMode) error {
-	// Find the closest existing ancestor
-	existing := absPath
-	var missing []string
-	for {
-		info, err := os.Stat(existing)
-		if err == nil && info.IsDir() {
-			break
-		}
-		missing = append([]string{existing}, missing...)
-		parent := filepath.Dir(existing)
-		if parent == existing {
-			break // reached filesystem root
-		}
-		existing = parent
-	}
-
-	if len(missing) == 0 {
-		return nil // already exists
-	}
-
-	// Get ownership of the closest existing ancestor
-	uid, gid := pathOwnership(existing)
-
-	// Create each missing directory with inherited ownership
-	for _, dir := range missing {
-		if err := os.Mkdir(dir, perm); err != nil && !os.IsExist(err) {
-			return err
-		}
-		if uid != 0 || gid != 0 {
-			os.Lchown(dir, uid, gid)
-		}
-	}
-	return nil
-}
-
 // CopyFile copies a file from src to dest using streaming I/O.
 func CopyFile(src, dest string) error {
 	in, err := os.Open(src)
@@ -1528,7 +1412,7 @@ func enableUserUnit(rootfs, user, service string) error {
 	// Create WantedBy symlinks
 	for _, target := range install.WantedBy {
 		wantsDir := filepath.Join(userDir, target+".wants")
-		if err := mkdirAllInherit(wantsDir, 0o755); err != nil {
+		if err := os.MkdirAll(wantsDir, 0o755); err != nil {
 			return fmt.Errorf("creating %s: %w", wantsDir, err)
 		}
 		link := filepath.Join(wantsDir, service)
@@ -1536,13 +1420,12 @@ func enableUserUnit(rootfs, user, service string) error {
 		if err := os.Symlink(linkTarget, link); err != nil {
 			return fmt.Errorf("creating symlink %s: %w", link, err)
 		}
-		inheritOwnership(link)
 	}
 
 	// Create RequiredBy symlinks
 	for _, target := range install.RequiredBy {
 		requiresDir := filepath.Join(userDir, target+".requires")
-		if err := mkdirAllInherit(requiresDir, 0o755); err != nil {
+		if err := os.MkdirAll(requiresDir, 0o755); err != nil {
 			return fmt.Errorf("creating %s: %w", requiresDir, err)
 		}
 		link := filepath.Join(requiresDir, service)
@@ -1550,20 +1433,18 @@ func enableUserUnit(rootfs, user, service string) error {
 		if err := os.Symlink(linkTarget, link); err != nil {
 			return fmt.Errorf("creating symlink %s: %w", link, err)
 		}
-		inheritOwnership(link)
 	}
 
 	// Create Alias symlinks
 	for _, alias := range install.Alias {
 		link := filepath.Join(userDir, alias)
-		if err := mkdirAllInherit(filepath.Dir(link), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 			return err
 		}
 		os.Remove(link)
 		if err := os.Symlink(linkTarget, link); err != nil {
 			return fmt.Errorf("creating alias %s: %w", link, err)
 		}
-		inheritOwnership(link)
 	}
 
 	// Create Also enables (recursive)

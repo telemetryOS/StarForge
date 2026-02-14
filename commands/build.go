@@ -42,17 +42,12 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown target %q", targetName)
 	}
 
-	// Validate config by collecting before elevating
-	builder := engine.NewBuilder(proj)
-	if _, err := builder.Collect(target, false); err != nil {
-		return err
-	}
-
-	// Elevate to root for the execute phase
+	// Elevate to root early so cleanup, collect, and build all run privileged
 	if err := engine.EnsureRootExec(); err != nil {
 		return fmt.Errorf("failed to elevate privileges: %w", err)
 	}
 
+	builder := engine.NewBuilder(proj)
 	if err := builder.Build(targetName, target, cleanFlag); err != nil {
 		return err
 	}

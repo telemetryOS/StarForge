@@ -2,7 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -38,6 +37,11 @@ func init() {
 func runRun(cmd *cobra.Command, args []string) error {
 	targetName := args[0]
 
+	// Elevate early — device mapper, losetup, and potential auto-build all need root
+	if err := engine.EnsureRootExec(); err != nil {
+		return fmt.Errorf("failed to elevate privileges: %w", err)
+	}
+
 	proj, err := config.FindProject()
 	if err != nil {
 		return err
@@ -48,11 +52,6 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown target %q", targetName)
 	}
 
-	// Device mapper and losetup need root — elevate before fetching sources
-	if err := engine.EnsureRootExec(); err != nil {
-		return fmt.Errorf("failed to elevate privileges: %w", err)
-	}
-
 	buildDir := proj.TargetBuildDir(targetName)
 
 	if runBootDisk != "" {
@@ -60,27 +59,21 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return engine.RunQEMU(targetName, buildDir, proj.Dir, nil, runSerial, runOverlay, runBootDisk, target.QEMU)
 	}
 
-	// Collect to get partition definitions
-	builder := engine.NewBuilder(proj)
-	ctx, err := builder.Collect(target, false)
+	// Load partition layout saved by the build — if missing, build first
+	parts, err := engine.LoadPartitions(buildDir)
 	if err != nil {
-		return err
-	}
+		fmt.Println("No previous build found, building first...")
+		builder := engine.NewBuilder(proj)
+		if err := builder.Build(targetName, target, false); err != nil {
+			return err
+		}
+		engine.ChownToInvoker(proj.BuildDir())
 
-	if len(ctx.Partitions) == 0 {
-		return fmt.Errorf("target %q has no partitions defined", targetName)
-	}
-
-	// Verify partition images exist
-	for _, part := range ctx.Partitions {
-		imgPath := fmt.Sprintf("%s/%s.img", buildDir, part.Name)
-		if _, err := os.Stat(imgPath); os.IsNotExist(err) {
-			return fmt.Errorf("partition image not found: %s — run 'starforge build %s' first", imgPath, targetName)
+		parts, err = engine.LoadPartitions(buildDir)
+		if err != nil {
+			return err
 		}
 	}
 
-	// Clean up stale device mapper and loop devices from a previous crashed run
-	engine.CleanupAll(buildDir)
-
-	return engine.RunQEMU(targetName, buildDir, proj.Dir, ctx.Partitions, runSerial, runOverlay, runBootDisk, target.QEMU)
+	return engine.RunQEMU(targetName, buildDir, proj.Dir, parts, runSerial, runOverlay, runBootDisk, target.QEMU)
 }

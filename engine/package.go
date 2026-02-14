@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,9 +14,17 @@ import (
 	"github.com/telemetryos/starforge/actions"
 )
 
+// PackageOps holds file ownership and permission operations to apply on
+// the packaged images via chroot. Usernames are resolved from the target's
+// /etc/passwd so UIDs match the target system.
+type PackageOps struct {
+	Ownerships  []actions.FileOwnershipOp
+	Permissions []actions.FilePermissionOp
+}
+
 // PackageToImages creates sparse partition images, formats them, and copies
 // the merged overlay tree into the appropriate partitions.
-func PackageToImages(mergedDir string, parts []actions.PartitionDef, buildDir string) error {
+func PackageToImages(mergedDir string, parts []actions.PartitionDef, buildDir string, ops PackageOps) error {
 	fmt.Println()
 	fmt.Printf("  %s\n", phaseStyle.Render("Packaging images"))
 
@@ -35,7 +44,13 @@ func PackageToImages(mergedDir string, parts []actions.PartitionDef, buildDir st
 		return fmt.Errorf("creating images: %w", err)
 	}
 
-	return packagePipeline(mergedDir, parts, mounts, rootfs, "images")
+	if err := packagePipeline(mergedDir, parts, mounts, rootfs, "images", ops); err != nil {
+		return err
+	}
+
+	// Save partition layout so non-build commands (run, export) can read
+	// it without re-running Collect.
+	return SavePartitions(parts, buildDir)
 }
 
 // WriteToDevice partitions a block device and writes pre-built partition
@@ -92,7 +107,7 @@ func expandFilesystem(partDev, filesystem string) error {
 
 // PackageToDiskImage creates a single disk image file with a GPT partition table,
 // formats partitions, and copies the merged overlay tree into them.
-func PackageToDiskImage(mergedDir string, parts []actions.PartitionDef, diskSize uint64, outputPath string) error {
+func PackageToDiskImage(mergedDir string, parts []actions.PartitionDef, diskSize uint64, outputPath string, ops PackageOps) error {
 	fmt.Println()
 	fmt.Printf("  %s\n", phaseStyle.Render("Creating disk image"))
 
@@ -137,13 +152,14 @@ func PackageToDiskImage(mergedDir string, parts []actions.PartitionDef, diskSize
 	}
 	defer os.RemoveAll(rootfs)
 
-	return packagePipeline(mergedDir, parts, mounts, rootfs, "disk image")
+	return packagePipeline(mergedDir, parts, mounts, rootfs, "disk image", ops)
 }
 
 // packagePipeline is the common pipeline shared by all Package functions.
-// It verifies the overlay, mounts partitions, copies content, ensures chroot
-// dirs, installs the bootloader, generates fstab, and unmounts.
-func packagePipeline(mergedDir string, parts []actions.PartitionDef, mounts []PartitionMount, rootfs, label string) error {
+// It verifies the overlay, mounts partitions, copies content, applies
+// ownership/permissions via chroot, installs the bootloader, generates
+// fstab, and unmounts.
+func packagePipeline(mergedDir string, parts []actions.PartitionDef, mounts []PartitionMount, rootfs, label string, ops PackageOps) error {
 	// Verify overlay is mounted and populated before we start
 	if err := verifyOverlay(mergedDir); err != nil {
 		return fmt.Errorf("source overlay: %w", err)
@@ -171,7 +187,7 @@ func packagePipeline(mergedDir string, parts []actions.PartitionDef, mounts []Pa
 		return err
 	}
 
-	// Ensure chroot directories exist for bootloader installation
+	// Ensure chroot directories exist for bootloader and ownership fixup
 	if err := EnsureChrootDirs(rootfs); err != nil {
 		return err
 	}
@@ -181,11 +197,64 @@ func packagePipeline(mergedDir string, parts []actions.PartitionDef, mounts []Pa
 		return err
 	}
 
-	// Generate /etc/fstab with UUIDs from the formatted partitions
+	// Generate /etc/fstab with UUIDs from the formatted partitions.
+	// This must run before applyImageOwnership because arch-chroot
+	// bind-mounts /proc, /sys, /dev into the rootfs which can pollute
+	// the mount table that genfstab reads.
 	fmt.Println()
 	fmt.Printf("  %s\n", phaseStyle.Render("Generating fstab"))
 	if err := GenerateFstab(rootfs); err != nil {
 		return err
+	}
+
+	// Apply file ownership and permissions on the real partition images.
+	// This runs inside the chroot so usernames are resolved from the
+	// target's /etc/passwd — not from overlay metadata which may have
+	// been corrupted by ChownToInvoker on cached builds.
+	if err := applyImageOwnership(rootfs, ops); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// applyImageOwnership applies file ownership and permission operations on
+// the mounted partition images via chroot. Usernames are resolved from
+// the target's /etc/passwd, ensuring correct UIDs regardless of overlay
+// cache state.
+func applyImageOwnership(rootfs string, ops PackageOps) error {
+	if len(ops.Ownerships) == 0 && len(ops.Permissions) == 0 {
+		return nil
+	}
+
+	fmt.Println()
+	fmt.Printf("  %s\n", phaseStyle.Render("Applying ownership & permissions"))
+
+	for _, own := range ops.Ownerships {
+		spec := own.Owner + ":" + own.Group
+		fmt.Printf("    chown %s %s%s\n", spec, own.Path, labelSuffix(own.Label))
+
+		args := []string{"chown"}
+		if own.Recursive {
+			args = append(args, "-R")
+		}
+		args = append(args, spec, own.Path)
+		if err := chrootRun(rootfs, args...); err != nil {
+			return fmt.Errorf("chown %s: %w", own.Path, err)
+		}
+	}
+
+	for _, perm := range ops.Permissions {
+		fmt.Printf("    chmod %s %s%s\n", perm.Mode, perm.Path, labelSuffix(perm.Label))
+
+		args := []string{"chmod"}
+		if perm.Recursive {
+			args = append(args, "-R")
+		}
+		args = append(args, perm.Mode, perm.Path)
+		if err := chrootRun(rootfs, args...); err != nil {
+			return fmt.Errorf("chmod %s: %w", perm.Path, err)
+		}
 	}
 
 	return nil
@@ -505,4 +574,27 @@ func filterSwapEntries(fstab string) string {
 		filtered = append(filtered, line)
 	}
 	return strings.Join(filtered, "\n")
+}
+
+// SavePartitions writes the partition layout to partitions.json in buildDir.
+// Non-build commands (run, export) read this instead of re-running Collect.
+func SavePartitions(parts []actions.PartitionDef, buildDir string) error {
+	data, err := json.MarshalIndent(parts, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshalling partitions: %w", err)
+	}
+	return os.WriteFile(filepath.Join(buildDir, "partitions.json"), data, 0o644)
+}
+
+// LoadPartitions reads the partition layout saved by a previous build.
+func LoadPartitions(buildDir string) ([]actions.PartitionDef, error) {
+	data, err := os.ReadFile(filepath.Join(buildDir, "partitions.json"))
+	if err != nil {
+		return nil, fmt.Errorf("reading partitions.json: %w", err)
+	}
+	var parts []actions.PartitionDef
+	if err := json.Unmarshal(data, &parts); err != nil {
+		return nil, fmt.Errorf("parsing partitions.json: %w", err)
+	}
+	return parts, nil
 }
