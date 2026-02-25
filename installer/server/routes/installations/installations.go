@@ -435,6 +435,13 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 
 	mt.Unmount()
 
+	// Set the installed OS as the EFI boot target so the device boots
+	// into the installed OS on next reboot rather than back into the
+	// installer USB.
+	if err := setEFIBootTarget(inst, disk.Path, parts); err != nil {
+		inst.addLog(fmt.Sprintf("Warning: could not set EFI boot target: %v", err))
+	}
+
 	inst.setStatus("complete", 1.0)
 	inst.addLog("Installation complete")
 }
@@ -531,4 +538,95 @@ func expandFilesystem(partDev, filesystem string) {
 		exec.Command("e2fsck", "-f", "-y", partDev).Run()
 		exec.Command("resize2fs", partDev).Run()
 	}
+}
+
+// setEFIBootTarget uses efibootmgr to set the installed OS's boot entry
+// as BootNext and first in BootOrder. This ensures the device boots into
+// the installed OS on next reboot rather than back into the installer.
+// Best-effort: logs warnings but does not fail the installation if EFI
+// variables or efibootmgr are unavailable.
+func setEFIBootTarget(inst *Installation, diskPath string, parts []partDef) error {
+	// Check if EFI variables are accessible
+	if _, err := os.Stat("/sys/firmware/efi/efivars"); err != nil {
+		return nil // not an EFI system or no access
+	}
+
+	// Find the EFI partition number (1-based)
+	efiPartNum := 0
+	for i, p := range parts {
+		if p.partType == "efi" {
+			efiPartNum = i + 1
+			break
+		}
+	}
+	if efiPartNum == 0 {
+		return nil // no EFI partition
+	}
+
+	// Get the PARTUUID of the target disk's EFI partition
+	efiDev := engine.PartitionPath(diskPath, efiPartNum)
+	partuuidBytes, err := exec.Command("blkid", "-s", "PARTUUID", "-o", "value", efiDev).Output()
+	if err != nil {
+		return fmt.Errorf("getting PARTUUID of %s: %w", efiDev, err)
+	}
+	partuuid := strings.ToUpper(strings.TrimSpace(string(partuuidBytes)))
+	if partuuid == "" {
+		return fmt.Errorf("empty PARTUUID for %s", efiDev)
+	}
+
+	// List EFI boot entries with device paths
+	outBytes, err := exec.Command("efibootmgr", "-v").Output()
+	if err != nil {
+		return fmt.Errorf("efibootmgr: %w", err)
+	}
+
+	// Parse boot entries to find the one matching our EFI partition
+	var targetNum string
+	var bootOrder []string
+	for _, line := range strings.Split(string(outBytes), "\n") {
+		line = strings.TrimSpace(line)
+
+		if strings.HasPrefix(line, "BootOrder:") {
+			orderStr := strings.TrimSpace(strings.TrimPrefix(line, "BootOrder:"))
+			for _, e := range strings.Split(orderStr, ",") {
+				bootOrder = append(bootOrder, strings.TrimSpace(e))
+			}
+			continue
+		}
+
+		// Boot entry format: "Boot0002* Linux Boot Manager\tHD(1,GPT,<partuuid>,...)..."
+		if strings.HasPrefix(line, "Boot") && strings.Contains(line, "*") &&
+			strings.Contains(strings.ToUpper(line), partuuid) {
+			end := strings.Index(line, "*")
+			if end > 4 {
+				targetNum = line[4:end]
+			}
+		}
+	}
+
+	if targetNum == "" {
+		return fmt.Errorf("no EFI boot entry found for %s (PARTUUID %s)", efiDev, partuuid)
+	}
+
+	inst.addLog(fmt.Sprintf("Setting EFI boot target to Boot%s", targetNum))
+
+	// Set BootNext for the immediate next reboot
+	if err := exec.Command("efibootmgr", "--bootnext", targetNum).Run(); err != nil {
+		return fmt.Errorf("setting BootNext: %w", err)
+	}
+
+	// Move to front of BootOrder for permanent preference
+	if len(bootOrder) > 0 {
+		newOrder := []string{targetNum}
+		for _, e := range bootOrder {
+			if e != targetNum {
+				newOrder = append(newOrder, e)
+			}
+		}
+		if err := exec.Command("efibootmgr", "--bootorder", strings.Join(newOrder, ",")).Run(); err != nil {
+			return fmt.Errorf("setting BootOrder: %w", err)
+		}
+	}
+
+	return nil
 }
