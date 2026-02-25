@@ -20,7 +20,8 @@ var cleanCmd = &cobra.Command{
   starforge clean <target> cache      Remove only the overlay cache
   starforge clean <target> images     Remove only partition images
   starforge clean <target> disks      Remove extra QEMU disks
-  starforge clean deps                Remove vendored dependencies (~/.local/share/starforge/)`,
+  starforge clean deps                Remove vendored dependencies (~/.local/share/starforge/)
+  starforge clean pacman              Remove persistent pacman package cache (~/.local/state/starforge/pacman/)`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: runClean,
 }
@@ -28,9 +29,12 @@ var cleanCmd = &cobra.Command{
 func runClean(cmd *cobra.Command, args []string) error {
 	subject := args[0]
 
-	// Special case: "starforge clean deps"
-	if subject == "deps" {
+	// Special cases: global clean targets (not per-target)
+	switch subject {
+	case "deps":
 		return cleanDeps()
+	case "pacman":
+		return cleanPacmanCache()
 	}
 
 	// Otherwise it's a target name
@@ -165,6 +169,20 @@ func cleanDeps() error {
 	fmt.Printf("Removing %s\n", vendorDir)
 	if err := os.RemoveAll(vendorDir); err != nil {
 		return fmt.Errorf("removing vendor directory: %w", err)
+	}
+	return nil
+}
+
+func cleanPacmanCache() error {
+	cacheDir := engine.PacmanCacheDir()
+	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
+		fmt.Println("No pacman cache to clean")
+		return nil
+	}
+
+	fmt.Printf("Removing %s\n", cacheDir)
+	if err := os.RemoveAll(cacheDir); err != nil {
+		return fmt.Errorf("removing pacman cache: %w", err)
 	}
 	return nil
 }

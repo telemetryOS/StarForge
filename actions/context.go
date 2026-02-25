@@ -286,3 +286,12 @@ type InstallerClientDef struct {
 	AutoLogin string
 	Layer     string
 }
+
+// RecordPartitionSnapshot appends a snapshot of the current partition state
+// to the history, tagged with the current layer name.
+func (ctx *BuildContext) RecordPartitionSnapshot() {
+	ctx.PartitionHistory = append(ctx.PartitionHistory, PartitionSnapshot{
+		Layer:      ctx.CurrentLayer,
+		Partitions: copyPartitions(ctx.Partitions),
+	})
+}

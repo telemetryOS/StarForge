@@ -59,21 +59,23 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return engine.RunQEMU(targetName, buildDir, proj.Dir, nil, runSerial, runOverlay, runBootDisk, target.QEMU)
 	}
 
-	// Load partition layout saved by the build — if missing, build first
-	parts, err := engine.LoadPartitions(buildDir)
+	// Ensure partition images exist and are up to date.
+	// If no build exists yet, build first, then package.
+	builder := engine.NewBuilder(proj)
+	ctx, err := builder.EnsurePackaged(targetName)
 	if err != nil {
-		fmt.Println("No previous build found, building first...")
-		builder := engine.NewBuilder(proj)
+		fmt.Println("No complete build found, building first...")
 		if err := builder.Build(targetName, target, false); err != nil {
 			return err
 		}
 		engine.ChownToInvoker(proj.BuildDir())
 
-		parts, err = engine.LoadPartitions(buildDir)
+		ctx, err = builder.EnsurePackaged(targetName)
 		if err != nil {
 			return err
 		}
 	}
+	engine.ChownToInvoker(proj.BuildDir())
 
-	return engine.RunQEMU(targetName, buildDir, proj.Dir, parts, runSerial, runOverlay, runBootDisk, target.QEMU)
+	return engine.RunQEMU(targetName, buildDir, proj.Dir, ctx.Partitions, runSerial, runOverlay, runBootDisk, target.QEMU)
 }

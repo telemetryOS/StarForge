@@ -3,7 +3,6 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -178,7 +177,7 @@ func bundleServer(server *actions.InstallerServerDef, rootfs string) error {
 	if err := os.MkdirAll(filepath.Dir(destBin), 0o755); err != nil {
 		return err
 	}
-	if err := copyFileLarge(serverBin, destBin); err != nil {
+	if err := CopyFile(serverBin, destBin); err != nil {
 		return fmt.Errorf("copying server binary: %w", err)
 	}
 	if err := os.Chmod(destBin, 0o755); err != nil {
@@ -235,7 +234,7 @@ func bundleClient(client *actions.InstallerClientDef, server *actions.InstallerS
 	if err := os.MkdirAll(filepath.Dir(destBin), 0o755); err != nil {
 		return err
 	}
-	if err := copyFileLarge(clientBin, destBin); err != nil {
+	if err := CopyFile(clientBin, destBin); err != nil {
 		return fmt.Errorf("copying client binary: %w", err)
 	}
 	if err := os.Chmod(destBin, 0o755); err != nil {
@@ -390,22 +389,3 @@ func isModuleRoot(dir, modulePath string) bool {
 	return false
 }
 
-// copyFileLarge copies a file using streaming I/O, suitable for large files.
-func copyFileLarge(src, dest string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	return out.Close()
-}

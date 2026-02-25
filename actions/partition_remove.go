@@ -29,10 +29,7 @@ func (a *PartitionRemove) Execute(step config.Step, layerDir string, ctx *BuildC
 
 	ctx.Partitions = append(ctx.Partitions[:idx], ctx.Partitions[idx+1:]...)
 
-	ctx.PartitionHistory = append(ctx.PartitionHistory, PartitionSnapshot{
-		Layer:      ctx.CurrentLayer,
-		Partitions: copyPartitions(ctx.Partitions),
-	})
+	ctx.RecordPartitionSnapshot()
 
 	return nil
 }

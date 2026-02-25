@@ -13,14 +13,14 @@ var cleanFlag bool
 
 var buildCmd = &cobra.Command{
 	Use:   "build [target]",
-	Short: "Build disk images for a target",
-	Long: `Resolve layers for a target, execute build phases, and produce partition images.
+	Short: "Build overlay layers for a target",
+	Long: `Resolve layers for a target and execute build phases using overlayfs caching.
 
-Creates sparse image files in the .starforge/ build directory. Phases are
-cached using overlayfs — unchanged phases are skipped on subsequent builds.
+Overlay layers are stored in the .starforge/ build directory. Unchanged phases
+are skipped on subsequent builds. Partition images (.img files) are created on
+demand by 'starforge run' or 'starforge write'.
 
-Use --clean to force a full rebuild, ignoring the cache.
-Use 'starforge write' to write a completed build to a storage device.`,
+Use --clean to force a full rebuild, ignoring the cache.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBuild,
 }

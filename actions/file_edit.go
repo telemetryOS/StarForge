@@ -65,10 +65,10 @@ func (a *FileEdit) Execute(step config.Step, layerDir string, ctx *BuildContext)
 
 // InsertPattern inserts content before or after lines matching a regex pattern.
 // mode is "before" or "after". match limits replacements (0 = all).
-func InsertPattern(content, pattern, insert, mode string, match int) string {
+func InsertPattern(content, pattern, insert, mode string, match int) (string, error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return content
+		return "", fmt.Errorf("invalid regex %q: %w", pattern, err)
 	}
 
 	lines := strings.Split(content, "\n")
@@ -90,16 +90,16 @@ func InsertPattern(content, pattern, insert, mode string, match int) string {
 		}
 	}
 
-	return strings.Join(result, "\n")
+	return strings.Join(result, "\n"), nil
 }
 
 // TruncatePattern removes content before or after lines matching a regex pattern.
 // mode is "truncate_before" or "truncate_after". match selects which occurrence
 // (default 1 if 0).
-func TruncatePattern(content, pattern, mode string, match int) string {
+func TruncatePattern(content, pattern, mode string, match int) (string, error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return content
+		return "", fmt.Errorf("invalid regex %q: %w", pattern, err)
 	}
 
 	if match == 0 {
@@ -114,13 +114,13 @@ func TruncatePattern(content, pattern, mode string, match int) string {
 			count++
 			if count == match {
 				if mode == "truncate_before" {
-					return strings.Join(lines[i:], "\n")
+					return strings.Join(lines[i:], "\n"), nil
 				}
 				// truncate_after: keep up to and including the matched line
-				return strings.Join(lines[:i+1], "\n")
+				return strings.Join(lines[:i+1], "\n"), nil
 			}
 		}
 	}
 
-	return content
+	return content, nil
 }

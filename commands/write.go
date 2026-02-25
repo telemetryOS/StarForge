@@ -33,7 +33,7 @@ func runWrite(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	target, ok := proj.Targets[targetName]
+	_, ok := proj.Targets[targetName]
 	if !ok {
 		return fmt.Errorf("unknown target %q", targetName)
 	}
@@ -55,21 +55,15 @@ func runWrite(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to elevate privileges: %w", err)
 	}
 
-	// Collect to get partition definitions
+	// Ensure partition images exist and are up to date
 	builder := engine.NewBuilder(proj)
-	ctx, err := builder.Collect(target, false)
+	ctx, err := builder.EnsurePackaged(targetName)
 	if err != nil {
-		return err
+		return fmt.Errorf("target not ready: %w", err)
 	}
+	engine.ChownToInvoker(proj.BuildDir())
 
-	// Verify build images exist
 	buildDir := proj.TargetBuildDir(targetName)
-	for _, part := range ctx.Partitions {
-		imgPath := fmt.Sprintf("%s/%s.img", buildDir, part.Name)
-		if _, err := os.Stat(imgPath); err != nil {
-			return fmt.Errorf("partition image %s.img not found — run 'starforge build %s' first", part.Name, targetName)
-		}
-	}
 
 	// Confirm destruction
 	fmt.Printf("WARNING: All data on %s will be destroyed.\n", device)

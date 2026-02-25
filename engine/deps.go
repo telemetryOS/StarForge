@@ -97,6 +97,16 @@ func VendorDir() string {
 	return filepath.Join(home, ".local", "share", "starforge")
 }
 
+// PacmanCacheDir returns the path to the persistent pacman package cache.
+// Uses XDG_STATE_HOME (~/.local/state) to survive clean builds.
+func PacmanCacheDir() string {
+	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
+		return filepath.Join(d, "starforge", "pacman")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "state", "starforge", "pacman")
+}
+
 // VendorBinDir returns the path to vendored binaries.
 func VendorBinDir() string {
 	return filepath.Join(VendorDir(), "usr", "bin")

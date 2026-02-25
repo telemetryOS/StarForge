@@ -598,3 +598,44 @@ func LoadPartitions(buildDir string) ([]actions.PartitionDef, error) {
 	}
 	return parts, nil
 }
+
+// BuildResult captures the subset of BuildContext that packaging needs.
+// Saved by Build so EnsurePackaged can avoid re-running Collect.
+type BuildResult struct {
+	Partitions        []actions.PartitionDef       `json:"partitions"`
+	Ownerships        []actions.FileOwnershipOp    `json:"ownerships,omitempty"`
+	Permissions       []actions.FilePermissionOp   `json:"permissions,omitempty"`
+	InstallerPayloads []actions.InstallerPayloadDef `json:"installer_payloads,omitempty"`
+	InstallerServer   *actions.InstallerServerDef   `json:"installer_server,omitempty"`
+	InstallerClient   *actions.InstallerClientDef   `json:"installer_client,omitempty"`
+}
+
+// SaveBuildResult writes the packaging-relevant context to build-result.json.
+func SaveBuildResult(ctx *actions.BuildContext, buildDir string) error {
+	r := BuildResult{
+		Partitions:        ctx.Partitions,
+		Ownerships:        ctx.FileOwnerships,
+		Permissions:       ctx.FilePermissions,
+		InstallerPayloads: ctx.InstallerPayloads,
+		InstallerServer:   ctx.InstallerServer,
+		InstallerClient:   ctx.InstallerClient,
+	}
+	data, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshalling build result: %w", err)
+	}
+	return os.WriteFile(filepath.Join(buildDir, "build-result.json"), data, 0o644)
+}
+
+// LoadBuildResult reads the packaging context saved by a previous build.
+func LoadBuildResult(buildDir string) (*BuildResult, error) {
+	data, err := os.ReadFile(filepath.Join(buildDir, "build-result.json"))
+	if err != nil {
+		return nil, fmt.Errorf("reading build-result.json: %w", err)
+	}
+	var r BuildResult
+	if err := json.Unmarshal(data, &r); err != nil {
+		return nil, fmt.Errorf("parsing build-result.json: %w", err)
+	}
+	return &r, nil
+}

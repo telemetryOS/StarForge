@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -29,12 +30,20 @@ var PhaseNames = []string{
 
 // CacheVersion is incremented when the overlay mount options or cache
 // format changes. Caches with a different version are automatically cleaned.
-const CacheVersion = 1
+const CacheVersion = 2
 
 // Manifest tracks the input hash and completion status of each cached phase.
 type Manifest struct {
-	Version int                   `json:"version,omitempty"`
-	Phases  map[string]PhaseEntry `json:"phases"`
+	Version   int                   `json:"version,omitempty"`
+	Phases    map[string]PhaseEntry `json:"phases"`
+	Packaging *PackagingEntry       `json:"packaging,omitempty"`
+}
+
+// PackagingEntry records the cache state of the packaging step
+// (mkfs, tar copy, bootloader, fstab, ownership → .img files).
+type PackagingEntry struct {
+	Hash      string `json:"hash"`
+	Completed bool   `json:"completed"`
 }
 
 // PhaseEntry records a single phase's cache state.
@@ -76,9 +85,23 @@ func (m *Manifest) Save(cacheDir string) error {
 }
 
 // HashPhase computes a deterministic hash of the BuildContext fields
-// that the given phase depends on.
+// that the given phase depends on. A memoization map avoids redundant
+// hashPath calls when the same source path appears multiple times.
 func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 	h := sha256.New()
+	memo := make(map[string]string) // path → hash
+
+	memoHashPath := func(path string) (string, error) {
+		if cached, ok := memo[path]; ok {
+			return cached, nil
+		}
+		result, err := hashPath(path)
+		if err != nil {
+			return "", err
+		}
+		memo[path] = result
+		return result, nil
+	}
 
 	switch phaseIndex {
 	case 0: // preinstall
@@ -125,7 +148,7 @@ func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 			if !filepath.IsAbs(srcPath) {
 				srcPath = filepath.Join(cp.LayerDir, srcPath)
 			}
-			fileHash, err := hashPath(srcPath)
+			fileHash, err := memoHashPath(srcPath)
 			if err != nil {
 				return "", fmt.Errorf("hashing source %s: %w", srcPath, err)
 			}
@@ -229,7 +252,7 @@ func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 			if s.Script != "" {
 				fmt.Fprintf(h, "script=%s\n", s.Script)
 				scriptPath := filepath.Join(s.LayerDir, s.Script)
-				fileHash, err := hashPath(scriptPath)
+				fileHash, err := memoHashPath(scriptPath)
 				if err != nil {
 					return "", fmt.Errorf("hashing script %s: %w", scriptPath, err)
 				}
@@ -260,8 +283,10 @@ func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// InvalidateFrom deletes cached overlay layers from phaseIndex onward.
+// InvalidateFrom deletes cached overlay layers from phaseIndex onward
+// and clears the packaging cache (any phase rebuild invalidates packaging).
 func InvalidateFrom(cacheDir string, phaseIndex int, manifest *Manifest) error {
+	manifest.Packaging = nil
 	for i := phaseIndex; i < len(PhaseNames); i++ {
 		name := PhaseNames[i]
 		delete(manifest.Phases, name)
@@ -290,6 +315,40 @@ func IsPhaseCached(cacheDir string, phaseIndex int, hash string, manifest *Manif
 	return true
 }
 
+// HashPackaging computes a composite hash over all phase hashes, partition
+// definitions, and installer definitions. Any change to any input invalidates
+// the packaging artifacts (.img files).
+func HashPackaging(manifest *Manifest, ctx *actions.BuildContext) string {
+	h := sha256.New()
+
+	// Include all phase hashes in order — the overlay content is the primary input.
+	for _, name := range PhaseNames {
+		if entry, ok := manifest.Phases[name]; ok {
+			fmt.Fprintf(h, "phase=%s:%s\n", name, entry.Hash)
+		}
+	}
+
+	// Partition layout determines how overlay content is split into images.
+	for _, p := range ctx.Partitions {
+		fmt.Fprintf(h, "partition=%s,fs=%s,size=%d,mount=%s,type=%s,grow=%v\n",
+			p.Name, p.Filesystem, p.Size, p.MountPoint, p.Type, p.Grow)
+	}
+
+	// Installer config affects which additional files get bundled.
+	if ctx.InstallerServer != nil {
+		fmt.Fprintf(h, "installer-server=%d,%s\n",
+			ctx.InstallerServer.Port, ctx.InstallerServer.Path)
+	}
+	if ctx.InstallerClient != nil {
+		fmt.Fprintf(h, "installer-client=%s\n", ctx.InstallerClient.AutoLogin)
+	}
+	for _, p := range ctx.InstallerPayloads {
+		fmt.Fprintf(h, "installer-payload=%s,%s\n", p.Target, p.Path)
+	}
+
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 // hashPath computes the sha256 of a file or directory tree.
 func hashPath(path string) (string, error) {
 	info, err := os.Lstat(path)
@@ -312,23 +371,28 @@ func hashPath(path string) (string, error) {
 	}
 
 	// For directories, walk and hash all file contents + relative paths
-	err = filepath.Walk(path, func(p string, fi os.FileInfo, err error) error {
+	err = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		rel, _ := filepath.Rel(path, p)
-		fmt.Fprintf(h, "path=%s,mode=%o,size=%d\n", rel, fi.Mode(), fi.Size())
 
-		if fi.Mode()&os.ModeSymlink != 0 {
+		if d.Type()&os.ModeSymlink != 0 {
 			target, err := os.Readlink(p)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(h, "link=%s\n", target)
+			fmt.Fprintf(h, "path=%s,symlink=%s\n", rel, target)
 			return nil
 		}
 
-		if !fi.IsDir() {
+		fi, err := d.Info()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(h, "path=%s,mode=%o,size=%d\n", rel, fi.Mode(), fi.Size())
+
+		if !d.IsDir() {
 			f, err := os.Open(p)
 			if err != nil {
 				return err

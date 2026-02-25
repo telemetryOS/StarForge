@@ -26,10 +26,11 @@ func EnsureRootExec() error {
 		return fmt.Errorf("cannot resolve executable path: %w", err)
 	}
 
-	args := make([]string, len(os.Args)+1)
+	args := make([]string, len(os.Args)+2)
 	args[0] = sudo
-	args[1] = exe
-	copy(args[2:], os.Args[1:])
+	args[1] = "--preserve-env"
+	args[2] = exe
+	copy(args[3:], os.Args[1:])
 	return syscall.Exec(sudo, args, os.Environ())
 }
 
@@ -44,10 +45,12 @@ func ChownToInvoker(paths ...string) {
 
 	uid, err := strconv.Atoi(uidStr)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: invalid SUDO_UID %q: %v\n", uidStr, err)
 		return
 	}
 	gid, err := strconv.Atoi(gidStr)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: invalid SUDO_GID %q: %v\n", gidStr, err)
 		return
 	}
 
@@ -56,7 +59,13 @@ func ChownToInvoker(paths ...string) {
 			if err != nil {
 				return nil
 			}
-			os.Lchown(path, uid, gid)
+			// Skip overlay upper directories — their contents are rootfs
+			// files whose ownership must be preserved for the target OS
+			// (e.g. /usr/bin/sudo must be root:root with setuid).
+			if d.IsDir() && (d.Name() == "upper" || d.Name() == "chroot-upper") {
+				return filepath.SkipDir
+			}
+			_ = os.Lchown(path, uid, gid)
 			return nil
 		})
 	}

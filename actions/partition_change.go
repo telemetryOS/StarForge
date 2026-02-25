@@ -49,10 +49,7 @@ func (a *PartitionChange) Execute(step config.Step, layerDir string, ctx *BuildC
 		ctx.Partitions[idx].Type = s.PartType
 	}
 
-	ctx.PartitionHistory = append(ctx.PartitionHistory, PartitionSnapshot{
-		Layer:      ctx.CurrentLayer,
-		Partitions: copyPartitions(ctx.Partitions),
-	})
+	ctx.RecordPartitionSnapshot()
 
 	return nil
 }

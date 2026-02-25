@@ -448,3 +448,175 @@ func TestHashPath_NonExistent(t *testing.T) {
 		t.Error("expected error for non-existent path")
 	}
 }
+
+// --- PackagingEntry tests ---
+
+func TestManifest_PackagingEntry(t *testing.T) {
+	dir := t.TempDir()
+
+	m := &Manifest{
+		Version: CacheVersion,
+		Phases: map[string]PhaseEntry{
+			"0-preinstall": {Hash: "aaa", Completed: true},
+		},
+		Packaging: &PackagingEntry{Hash: "pkg-hash-123", Completed: true},
+	}
+
+	if err := m.Save(dir); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	loaded, err := LoadManifest(dir)
+	if err != nil {
+		t.Fatalf("LoadManifest error: %v", err)
+	}
+
+	if loaded.Packaging == nil {
+		t.Fatal("Packaging should not be nil after load")
+	}
+	if loaded.Packaging.Hash != "pkg-hash-123" {
+		t.Errorf("Packaging.Hash = %q, want %q", loaded.Packaging.Hash, "pkg-hash-123")
+	}
+	if !loaded.Packaging.Completed {
+		t.Error("Packaging.Completed should be true")
+	}
+}
+
+func TestManifest_PackagingEntry_Nil(t *testing.T) {
+	dir := t.TempDir()
+
+	m := &Manifest{
+		Version: CacheVersion,
+		Phases:  map[string]PhaseEntry{},
+	}
+
+	if err := m.Save(dir); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	loaded, err := LoadManifest(dir)
+	if err != nil {
+		t.Fatalf("LoadManifest error: %v", err)
+	}
+
+	if loaded.Packaging != nil {
+		t.Error("Packaging should be nil when omitted")
+	}
+}
+
+func TestInvalidateFrom_ClearsPackaging(t *testing.T) {
+	dir := t.TempDir()
+
+	manifest := &Manifest{
+		Phases: map[string]PhaseEntry{
+			"0-preinstall": {Hash: "a", Completed: true},
+			"1-packages":   {Hash: "b", Completed: true},
+		},
+		Packaging: &PackagingEntry{Hash: "pkg-hash", Completed: true},
+	}
+
+	if err := InvalidateFrom(dir, 1, manifest); err != nil {
+		t.Fatalf("InvalidateFrom error: %v", err)
+	}
+
+	if manifest.Packaging != nil {
+		t.Error("InvalidateFrom should clear Packaging")
+	}
+}
+
+func TestHashPackaging_Deterministic(t *testing.T) {
+	ctx := actions.NewBuildContext()
+	ctx.Partitions = []actions.PartitionDef{
+		{Name: "efi", Filesystem: "vfat", Size: 512 << 20, MountPoint: "/boot", Type: "ef00"},
+		{Name: "root", Filesystem: "ext4", Size: 4 << 30, MountPoint: "/", Type: "8300", Grow: true},
+	}
+
+	manifest := &Manifest{
+		Phases: map[string]PhaseEntry{
+			"0-preinstall": {Hash: "aaa", Completed: true},
+			"1-packages":   {Hash: "bbb", Completed: true},
+		},
+	}
+
+	h1 := HashPackaging(manifest, ctx)
+	h2 := HashPackaging(manifest, ctx)
+	if h1 != h2 {
+		t.Error("same inputs should produce same hash")
+	}
+	if h1 == "" {
+		t.Error("hash should not be empty")
+	}
+}
+
+func TestHashPackaging_ChangesOnPhaseHash(t *testing.T) {
+	ctx := actions.NewBuildContext()
+	ctx.Partitions = []actions.PartitionDef{
+		{Name: "root", Filesystem: "ext4", Size: 4 << 30, MountPoint: "/", Type: "8300"},
+	}
+
+	m1 := &Manifest{
+		Phases: map[string]PhaseEntry{
+			"0-preinstall": {Hash: "aaa", Completed: true},
+		},
+	}
+	m2 := &Manifest{
+		Phases: map[string]PhaseEntry{
+			"0-preinstall": {Hash: "zzz", Completed: true},
+		},
+	}
+
+	h1 := HashPackaging(m1, ctx)
+	h2 := HashPackaging(m2, ctx)
+	if h1 == h2 {
+		t.Error("different phase hash should produce different packaging hash")
+	}
+}
+
+func TestHashPackaging_ChangesOnPartitionDef(t *testing.T) {
+	manifest := &Manifest{
+		Phases: map[string]PhaseEntry{
+			"0-preinstall": {Hash: "aaa", Completed: true},
+		},
+	}
+
+	ctx1 := actions.NewBuildContext()
+	ctx1.Partitions = []actions.PartitionDef{
+		{Name: "root", Filesystem: "ext4", Size: 4 << 30, MountPoint: "/"},
+	}
+
+	ctx2 := actions.NewBuildContext()
+	ctx2.Partitions = []actions.PartitionDef{
+		{Name: "root", Filesystem: "ext4", Size: 8 << 30, MountPoint: "/"},
+	}
+
+	h1 := HashPackaging(manifest, ctx1)
+	h2 := HashPackaging(manifest, ctx2)
+	if h1 == h2 {
+		t.Error("different partition size should produce different packaging hash")
+	}
+}
+
+func TestHashPackaging_ChangesOnInstaller(t *testing.T) {
+	manifest := &Manifest{
+		Phases: map[string]PhaseEntry{
+			"0-preinstall": {Hash: "aaa", Completed: true},
+		},
+	}
+
+	ctx1 := actions.NewBuildContext()
+	ctx1.Partitions = []actions.PartitionDef{
+		{Name: "root", Filesystem: "ext4", Size: 4 << 30, MountPoint: "/"},
+	}
+
+	ctx2 := actions.NewBuildContext()
+	ctx2.Partitions = []actions.PartitionDef{
+		{Name: "root", Filesystem: "ext4", Size: 4 << 30, MountPoint: "/"},
+	}
+	ctx2.InstallerServer = &actions.InstallerServerDef{Port: 8080, Path: "/opt/installer"}
+
+	h1 := HashPackaging(manifest, ctx1)
+	h2 := HashPackaging(manifest, ctx2)
+	if h1 == h2 {
+		t.Error("adding installer server should change packaging hash")
+	}
+}
