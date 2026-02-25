@@ -55,11 +55,12 @@ func runWrite(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to elevate privileges: %w", err)
 	}
 
-	// Ensure partition images exist and are up to date
+	// Ensure partition images exist and are up to date.
+	// Auto-builds if no prior build exists.
 	builder := engine.NewBuilder(proj)
-	ctx, err := builder.EnsurePackaged(targetName)
+	ctx, err := builder.EnsureBuiltAndPackaged(targetName)
 	if err != nil {
-		return fmt.Errorf("target not ready: %w", err)
+		return err
 	}
 	engine.ChownToInvoker(proj.BuildDir())
 

@@ -80,6 +80,34 @@ func (b *Builder) Build(targetName string, target config.Target, clean bool) err
 	return nil
 }
 
+// EnsureBuiltAndPackaged guarantees that a target has been fully built and
+// packaged. If no build result exists or the build is incomplete, runs a
+// full Build first, then packages. This is the entry point for commands
+// like run and write that need images to exist without requiring a separate
+// build step.
+func (b *Builder) EnsureBuiltAndPackaged(targetName string) (*actions.BuildContext, error) {
+	// Fast path: try packaging from an existing build
+	ctx, err := b.EnsurePackaged(targetName)
+	if err == nil {
+		return ctx, nil
+	}
+
+	// Build needed — look up the target
+	target, ok := b.project.Targets[targetName]
+	if !ok {
+		return nil, fmt.Errorf("target %q not found in project", targetName)
+	}
+
+	fmt.Println(headerStyle.Render(fmt.Sprintf("Building target: %s (auto)", targetName)))
+	fmt.Println()
+
+	if err := b.Build(targetName, target, false); err != nil {
+		return nil, err
+	}
+
+	return b.EnsurePackaged(targetName)
+}
+
 // EnsurePackaged guarantees that up-to-date partition images (.img files) exist
 // for the given target. If all build phases are cached and packaging is marked
 // complete in the manifest, this is a no-op. Otherwise it reads the saved

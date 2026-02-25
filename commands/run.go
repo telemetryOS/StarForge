@@ -60,20 +60,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Ensure partition images exist and are up to date.
-	// If no build exists yet, build first, then package.
+	// Auto-builds if no prior build exists.
 	builder := engine.NewBuilder(proj)
-	ctx, err := builder.EnsurePackaged(targetName)
+	ctx, err := builder.EnsureBuiltAndPackaged(targetName)
 	if err != nil {
-		fmt.Println("No complete build found, building first...")
-		if err := builder.Build(targetName, target, false); err != nil {
-			return err
-		}
-		engine.ChownToInvoker(proj.BuildDir())
-
-		ctx, err = builder.EnsurePackaged(targetName)
-		if err != nil {
-			return err
-		}
+		return err
 	}
 	engine.ChownToInvoker(proj.BuildDir())
 

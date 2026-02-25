@@ -78,31 +78,20 @@ func (b *Builder) BundleInstallerToRootfs(ctx *actions.BuildContext, rootfs stri
 	return nil
 }
 
-// bundlePayloads copies each payload target's partition images and manifest
-// into the installer rootfs.
+// bundlePayloads ensures each payload target is packaged, then copies
+// its partition images (zstd-compressed) and manifest into the installer rootfs.
 func (b *Builder) bundlePayloads(ctx *actions.BuildContext, rootfs string) error {
 	for _, payload := range ctx.InstallerPayloads {
 		fmt.Printf("    payload: %s\n", payload.Target)
 
-		// Resolve payload target's build dir
-		payloadBuildDir := b.project.TargetBuildDir(payload.Target)
-
-		// Verify the payload target has been built
-		if _, err := os.Stat(payloadBuildDir); err != nil {
-			return fmt.Errorf("payload target %q has not been built — run 'starforge build %s' first",
-				payload.Target, payload.Target)
-		}
-
-		// Collect the payload target to get its partition defs
-		payloadTarget, ok := b.project.Targets[payload.Target]
-		if !ok {
-			return fmt.Errorf("payload target %q not found in project", payload.Target)
-		}
-
-		payloadCtx, err := b.Collect(payloadTarget, false)
+		// Ensure the payload target is built and packaged — auto-builds
+		// if needed, then guarantees all .img files exist.
+		payloadCtx, err := b.EnsureBuiltAndPackaged(payload.Target)
 		if err != nil {
-			return fmt.Errorf("collecting payload target %q: %w", payload.Target, err)
+			return fmt.Errorf("payload target %q: %w", payload.Target, err)
 		}
+
+		payloadBuildDir := b.project.TargetBuildDir(payload.Target)
 
 		// Create payload directory in rootfs
 		payloadDir := filepath.Join(rootfs, payload.Path)
@@ -112,7 +101,7 @@ func (b *Builder) bundlePayloads(ctx *actions.BuildContext, rootfs string) error
 
 		// Build manifest from payload's partition defs
 		manifest := installer.PayloadManifest{
-			Name:  payload.Target,
+			Name:        payload.Target,
 			Description: payload.Label,
 		}
 
@@ -120,14 +109,6 @@ func (b *Builder) bundlePayloads(ctx *actions.BuildContext, rootfs string) error
 			srcFile := fmt.Sprintf("%s.img", part.Name)
 			srcImg := filepath.Join(payloadBuildDir, srcFile)
 
-			if _, err := os.Stat(srcImg); err != nil {
-				return fmt.Errorf("payload %q partition image %s not found: %w",
-					payload.Target, srcFile, err)
-			}
-
-			// Always include the image — even "empty" partitions may have
-			// non-default ownership, permissions, or setgid bits on the root
-			// directory that would be lost if we formatted a fresh filesystem.
 			zstFile := fmt.Sprintf("%s.img.zst", part.Name)
 			destImg := filepath.Join(payloadDir, zstFile)
 			fmt.Printf("      %s → %s (%s)\n", srcFile, zstFile, actions.FormatSize(part.Size))
