@@ -283,8 +283,9 @@ type InstallerServerDef struct {
 
 // InstallerClientDef configures the installer client TUI.
 type InstallerClientDef struct {
-	AutoLogin string
-	Layer     string
+	AutoLogin  string
+	Unattended bool
+	Layer      string
 }
 
 // RecordPartitionSnapshot appends a snapshot of the current partition state

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // Disk represents a block device.
@@ -26,11 +27,13 @@ type lsblkDevice struct {
 	Size  uint64  `json:"size"`
 	Model *string `json:"model"`
 	Tran  *string `json:"tran"`
+	Type  string  `json:"type"`
 }
 
-// ListDisks enumerates block devices using lsblk.
+// ListDisks enumerates physical disks using lsblk, excluding the source
+// (installer) disk and non-disk devices such as loop and optical drives.
 func ListDisks() ([]Disk, error) {
-	out, err := exec.Command("lsblk", "-d", "-b", "-J", "-o", "NAME,PATH,SIZE,MODEL,TRAN").Output()
+	out, err := exec.Command("lsblk", "-d", "-b", "-J", "-o", "NAME,PATH,SIZE,MODEL,TRAN,TYPE").Output()
 	if err != nil {
 		return nil, fmt.Errorf("lsblk: %w", err)
 	}
@@ -40,8 +43,17 @@ func ListDisks() ([]Disk, error) {
 		return nil, fmt.Errorf("parsing lsblk output: %w", err)
 	}
 
+	sourceDisk, _ := SourceDisk()
+
 	var disks []Disk
 	for _, d := range parsed.BlockDevices {
+		if d.Type != "disk" {
+			continue
+		}
+		if d.Name == sourceDisk {
+			continue
+		}
+
 		disk := Disk{
 			Name: d.Name,
 			Path: d.Path,
@@ -56,6 +68,36 @@ func ListDisks() ([]Disk, error) {
 		disks = append(disks, disk)
 	}
 	return disks, nil
+}
+
+// SourceDisk returns the name of the disk the installer is running from
+// by resolving the root mount point back to its parent disk.
+func SourceDisk() (string, error) {
+	// Find the device mounted at /
+	srcOut, err := exec.Command("findmnt", "-n", "-o", "SOURCE", "/").Output()
+	if err != nil {
+		return "", fmt.Errorf("findmnt: %w", err)
+	}
+	source := strings.TrimSpace(string(srcOut))
+
+	// Strip any subvolume suffix like [/@]
+	if idx := strings.Index(source, "["); idx != -1 {
+		source = source[:idx]
+	}
+
+	// Resolve the partition to its parent disk
+	pkOut, err := exec.Command("lsblk", "-n", "-o", "PKNAME", source).Output()
+	if err != nil {
+		return "", fmt.Errorf("resolving parent disk: %w", err)
+	}
+	parent := strings.TrimSpace(string(pkOut))
+	if parent != "" {
+		return parent, nil
+	}
+
+	// Source is already a whole disk (not a partition)
+	source = strings.TrimPrefix(source, "/dev/")
+	return source, nil
 }
 
 // GetDisk returns a single disk by name.

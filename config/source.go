@@ -86,6 +86,7 @@ func resolveGitSource(source, cacheDir string) (string, error) {
 	args = append(args, repo, sourceDir)
 
 	cmd := exec.Command("git", args...)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

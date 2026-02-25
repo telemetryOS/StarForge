@@ -660,8 +660,9 @@ type InstallServerStep struct {
 }
 
 type InstallClientStep struct {
-	Action    string `yaml:"action"`
-	AutoLogin string `yaml:"auto_login,omitempty"`
+	Action     string `yaml:"action"`
+	AutoLogin  string `yaml:"auto_login,omitempty"`
+	Unattended bool   `yaml:"unattended,omitempty"`
 }
 
 type InstallPayloadStep struct {

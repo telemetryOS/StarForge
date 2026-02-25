@@ -17,8 +17,9 @@ func (a *InstallClient) Execute(step config.Step, layerDir string, ctx *BuildCon
 	}
 
 	ctx.InstallerClient = &InstallerClientDef{
-		AutoLogin: autoLogin,
-		Layer:     ctx.CurrentLayer,
+		AutoLogin:  autoLogin,
+		Unattended: s.Unattended,
+		Layer:      ctx.CurrentLayer,
 	}
 
 	return nil

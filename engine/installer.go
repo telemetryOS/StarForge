@@ -249,11 +249,15 @@ ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
 	if server != nil {
 		port = server.Port
 	}
+	args := fmt.Sprintf("--server http://localhost:%d", port)
+	if client.Unattended {
+		args += " --unattended"
+	}
 	bashProfile := fmt.Sprintf(`# StarForge installer auto-start
 if [ "$(tty)" = "/dev/%s" ]; then
-    exec /usr/bin/starforge-install --server http://localhost:%d
+    exec /usr/bin/starforge-install %s
 fi
-`, client.AutoLogin, port)
+`, client.AutoLogin, args)
 
 	profilePath := filepath.Join(bashProfileDir, ".bash_profile")
 	if err := os.WriteFile(profilePath, []byte(bashProfile), 0o644); err != nil {

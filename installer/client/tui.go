@@ -39,8 +39,9 @@ const (
 
 // model is the bubbletea model.
 type model struct {
-	client *Client
-	phase  phase
+	client     *Client
+	phase      phase
+	unattended bool
 
 	// Loading
 	loadErr error
@@ -92,11 +93,12 @@ type installUpdateMsg struct {
 type tickMsg struct{}
 
 // RunTUI starts the interactive installer TUI.
-func RunTUI(serverURL string) error {
+func RunTUI(serverURL string, unattended bool) error {
 	c := NewClient(serverURL)
 	m := model{
-		client: c,
-		phase:  phaseLoading,
+		client:     c,
+		phase:      phaseLoading,
+		unattended: unattended,
 	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
@@ -135,6 +137,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loadErr = fmt.Errorf("no payloads found on the server")
 			return m, nil
 		}
+		if m.unattended {
+			if len(m.disks) == 0 {
+				m.phase = phaseError
+				m.loadErr = fmt.Errorf("unattended: no available disks found")
+				return m, nil
+			}
+			m.payloadCursor = 0
+			m.diskCursor = 0
+			m.confirmed = true
+			return m, startInstall(m.client, m.payloads[0].Name, m.disks[0].Name)
+		}
 		if len(m.payloads) == 1 {
 			// Skip payload selection if only one
 			m.payloadCursor = 0
@@ -167,6 +180,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if msg.status == "complete" {
 			m.phase = phaseComplete
+			if m.unattended {
+				m.client.Reboot()
+				return m, tea.Quit
+			}
 			return m, nil
 		}
 		if msg.status == "failed" {

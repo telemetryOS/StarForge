@@ -421,9 +421,15 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 		return
 	}
 
-	if err := engine.ConfigureInstallation(toEngineParts(parts), rootfs); err != nil {
+	if err := engine.InstallBootloader(toEngineParts(parts), rootfs); err != nil {
 		mt.Unmount()
-		inst.fail(fmt.Errorf("post-install configuration: %w", err))
+		inst.fail(fmt.Errorf("installing bootloader: %w", err))
+		return
+	}
+
+	if err := engine.GenerateFstab(rootfs); err != nil {
+		mt.Unmount()
+		inst.fail(fmt.Errorf("generating fstab: %w", err))
 		return
 	}
 
