@@ -2,9 +2,19 @@ package actions
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/telemetryos/starforge/config"
 )
+
+// PkgName extracts the package name before any "=" version pin.
+// e.g. "linux=6.12.1-1" → "linux", "base" → "base".
+func PkgName(pkg string) string {
+	if name, _, ok := strings.Cut(pkg, "="); ok {
+		return name
+	}
+	return pkg
+}
 
 type PacmanAdd struct{}
 

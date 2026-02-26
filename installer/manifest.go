@@ -4,6 +4,7 @@ package installer
 type PayloadManifest struct {
 	Name        string             `json:"name"`
 	Description string             `json:"description,omitempty"`
+	EFILabel    string             `json:"efi_label,omitempty"`
 	Partitions  []PayloadPartition `json:"partitions"`
 }
 

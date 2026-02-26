@@ -86,21 +86,15 @@ func (b *Builder) Build(targetName string, target config.Target, clean bool) err
 // like run and write that need images to exist without requiring a separate
 // build step.
 func (b *Builder) EnsureBuiltAndPackaged(targetName string) (*actions.BuildContext, error) {
-	// Fast path: try packaging from an existing build
-	ctx, err := b.EnsurePackaged(targetName)
-	if err == nil {
-		return ctx, nil
-	}
-
-	// Build needed — look up the target
 	target, ok := b.project.Targets[targetName]
 	if !ok {
 		return nil, fmt.Errorf("target %q not found in project", targetName)
 	}
 
-	fmt.Println(headerStyle.Render(fmt.Sprintf("Building target: %s (auto)", targetName)))
-	fmt.Println()
-
+	// Always run an incremental build. Build re-collects layers, hashes
+	// each phase against the manifest, and only rebuilds what changed.
+	// This correctly detects source file changes that EnsurePackaged alone
+	// would miss (it only checks whether .img files exist on disk).
 	if err := b.Build(targetName, target, false); err != nil {
 		return nil, err
 	}
@@ -428,13 +422,16 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 		ctx.Vars = vars
 	}
 
-	// Deduplicate packages (data normalization belongs in collection)
+	// Deduplicate packages by name — later layers win (can override/pin version)
 	if len(ctx.Packages) > 0 {
-		seen := make(map[string]bool)
+		seen := make(map[string]int) // name → index in unique
 		var unique []string
 		for _, pkg := range ctx.Packages {
-			if !seen[pkg] {
-				seen[pkg] = true
+			name := actions.PkgName(pkg)
+			if idx, ok := seen[name]; ok {
+				unique[idx] = pkg // later layer wins
+			} else {
+				seen[name] = len(unique)
 				unique = append(unique, pkg)
 			}
 		}

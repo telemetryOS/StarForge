@@ -172,12 +172,3 @@ func resolveArchiveSource(source, cacheDir string) (string, error) {
 	return sourceDir, nil
 }
 
-// ReadSourceResolved reads the .resolved marker from a source directory.
-// Returns the commit hash (for git) or content hash (for archives).
-func ReadSourceResolved(sourceDir string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(sourceDir, ".resolved"))
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(data)), nil
-}

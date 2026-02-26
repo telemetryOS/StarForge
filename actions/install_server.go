@@ -13,6 +13,7 @@ func (a *InstallServer) Name() string { return "install-server" }
 var installerDeps = []string{
 	"dosfstools",           // mkfs.vfat
 	"e2fsprogs",            // mkfs.ext4
+	"efibootmgr",           // EFI boot entry management
 	"arch-install-scripts", // genfstab, arch-chroot
 	"zstd",                 // zstd decompression
 }
@@ -31,9 +32,10 @@ func (a *InstallServer) Execute(step config.Step, layerDir string, ctx *BuildCon
 	}
 
 	ctx.InstallerServer = &InstallerServerDef{
-		Port:  port,
-		Path:  path,
-		Layer: ctx.CurrentLayer,
+		Port:     port,
+		Path:     path,
+		Layer:    ctx.CurrentLayer,
+		EFILabel: s.EFILabel,
 	}
 
 	// Add installer runtime dependencies to the package list

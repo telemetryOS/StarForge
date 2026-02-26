@@ -667,19 +667,6 @@ func SavePartitions(parts []actions.PartitionDef, buildDir string) error {
 	return os.WriteFile(filepath.Join(buildDir, "partitions.json"), data, 0o644)
 }
 
-// LoadPartitions reads the partition layout saved by a previous build.
-func LoadPartitions(buildDir string) ([]actions.PartitionDef, error) {
-	data, err := os.ReadFile(filepath.Join(buildDir, "partitions.json"))
-	if err != nil {
-		return nil, fmt.Errorf("reading partitions.json: %w", err)
-	}
-	var parts []actions.PartitionDef
-	if err := json.Unmarshal(data, &parts); err != nil {
-		return nil, fmt.Errorf("parsing partitions.json: %w", err)
-	}
-	return parts, nil
-}
-
 // BuildResult captures the subset of BuildContext that packaging needs.
 // Saved by Build so EnsurePackaged can avoid re-running Collect.
 type BuildResult struct {

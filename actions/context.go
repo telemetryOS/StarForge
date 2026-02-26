@@ -276,9 +276,10 @@ type InstallerPayloadDef struct {
 
 // InstallerServerDef configures the installer server.
 type InstallerServerDef struct {
-	Port  int
-	Path  string
-	Layer string
+	Port     int
+	Path     string
+	Layer    string
+	EFILabel string
 }
 
 // InstallerClientDef configures the installer client TUI.

@@ -14,7 +14,6 @@ import (
 var (
 	statusBuilt    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
 	statusNotBuilt = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	statusLabel    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
 var statusCmd = &cobra.Command{

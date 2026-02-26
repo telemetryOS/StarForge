@@ -12,6 +12,19 @@ import (
 	"github.com/telemetryos/starforge/engine"
 )
 
+// loadProjectAndTarget loads the project and validates the target name.
+func loadProjectAndTarget(targetName string) (*config.Project, config.Target, error) {
+	proj, err := config.FindProject()
+	if err != nil {
+		return nil, config.Target{}, err
+	}
+	target, ok := proj.Targets[targetName]
+	if !ok {
+		return nil, config.Target{}, fmt.Errorf("unknown target %q", targetName)
+	}
+	return proj, target, nil
+}
+
 var exportDiskOutput string
 var exportDiskSize string
 
@@ -42,17 +55,22 @@ func runExport(cmd *cobra.Command, args []string) error {
 	targetName := args[0]
 	exportType := args[1]
 
+	proj, target, err := loadProjectAndTarget(targetName)
+	if err != nil {
+		return err
+	}
+
 	switch exportType {
 	case "disk":
-		return runExportDisk(targetName)
+		return runExportDisk(proj, targetName, target)
 	case "partitions":
-		return runExportPartitions(targetName)
+		return runExportPartitions(proj, targetName, target)
 	default:
 		return fmt.Errorf("unknown export type %q — must be 'disk' or 'partitions'", exportType)
 	}
 }
 
-func runExportDisk(targetName string) error {
+func runExportDisk(proj *config.Project, targetName string, target config.Target) error {
 	if exportDiskSize == "" {
 		return fmt.Errorf("--size is required for disk export (e.g. --size 8G)")
 	}
@@ -63,51 +81,35 @@ func runExportDisk(targetName string) error {
 		return fmt.Errorf("invalid --size: %w", err)
 	}
 
-	proj, err := config.FindProject()
-	if err != nil {
-		return err
-	}
-
-	target, ok := proj.Targets[targetName]
-	if !ok {
-		return fmt.Errorf("unknown target %q", targetName)
-	}
-
-	// Elevate to root before fetching sources
+	// Elevate to root before building
 	if err := engine.EnsureRootExec(); err != nil {
 		return fmt.Errorf("failed to elevate privileges: %w", err)
 	}
 
-	// Collect to get partition definitions
+	// Incremental build — detects source changes via cache hashing
 	builder := engine.NewBuilder(proj)
-	ctx, err := builder.Collect(target, false)
-	if err != nil {
+	if err := builder.Build(targetName, target, false); err != nil {
 		return err
 	}
 
-	if len(ctx.Partitions) == 0 {
+	buildDir := proj.TargetBuildDir(targetName)
+	result, err := engine.LoadBuildResult(buildDir)
+	if err != nil {
+		return fmt.Errorf("loading build result: %w", err)
+	}
+
+	if len(result.Partitions) == 0 {
 		return fmt.Errorf("target %q has no partitions defined", targetName)
 	}
 
 	// Validate disk size fits all partitions
 	var totalFixed uint64
-	for _, p := range ctx.Partitions {
+	for _, p := range result.Partitions {
 		totalFixed += p.Size
 	}
 	if diskSize < totalFixed {
 		return fmt.Errorf("disk size %s is too small for partitions (need at least %s)",
 			actions.FormatSize(diskSize), actions.FormatSize(totalFixed))
-	}
-
-	// Verify build cache exists
-	buildDir := proj.TargetBuildDir(targetName)
-	overlay := engine.NewOverlayManager(buildDir)
-	manifest, err := engine.LoadManifest(overlay.CacheDir())
-	if err != nil {
-		return fmt.Errorf("loading manifest: %w", err)
-	}
-	if len(manifest.Phases) == 0 {
-		return fmt.Errorf("target %q has not been built yet — run 'starforge build %s' first", targetName, targetName)
 	}
 
 	// Determine output path
@@ -120,6 +122,7 @@ func runExportDisk(targetName string) error {
 	engine.CleanupAll(buildDir)
 
 	// Mount cached overlay layers as read-only merged view
+	overlay := engine.NewOverlayManager(buildDir)
 	mergedDir, err := overlay.MountMerged()
 	if err != nil {
 		return fmt.Errorf("mounting overlay: %w", err)
@@ -128,9 +131,9 @@ func runExportDisk(targetName string) error {
 
 	// Create disk image — SetupDevicePartitions handles GPT overhead and
 	// growable partition resolution internally.
-	if err := engine.PackageToDiskImage(mergedDir, ctx.Partitions, diskSize, outputPath, engine.PackageOps{
-		Ownerships:  ctx.FileOwnerships,
-		Permissions: ctx.FilePermissions,
+	if err := engine.PackageToDiskImage(mergedDir, result.Partitions, diskSize, outputPath, engine.PackageOps{
+		Ownerships:  result.Ownerships,
+		Permissions: result.Permissions,
 	}); err != nil {
 		return fmt.Errorf("creating disk image: %w", err)
 	}
@@ -143,48 +146,33 @@ func runExportDisk(targetName string) error {
 	return nil
 }
 
-func runExportPartitions(targetName string) error {
-	proj, err := config.FindProject()
-	if err != nil {
-		return err
-	}
-
-	target, ok := proj.Targets[targetName]
-	if !ok {
-		return fmt.Errorf("unknown target %q", targetName)
-	}
-
-	// Elevate to root before fetching sources
+func runExportPartitions(proj *config.Project, targetName string, target config.Target) error {
+	// Elevate to root before building
 	if err := engine.EnsureRootExec(); err != nil {
 		return fmt.Errorf("failed to elevate privileges: %w", err)
 	}
 
-	// Collect to get partition definitions
+	// Incremental build — detects source changes via cache hashing
 	builder := engine.NewBuilder(proj)
-	ctx, err := builder.Collect(target, false)
-	if err != nil {
+	if err := builder.Build(targetName, target, false); err != nil {
 		return err
 	}
 
-	if len(ctx.Partitions) == 0 {
-		return fmt.Errorf("target %q has no partitions defined", targetName)
+	buildDir := proj.TargetBuildDir(targetName)
+	result, err := engine.LoadBuildResult(buildDir)
+	if err != nil {
+		return fmt.Errorf("loading build result: %w", err)
 	}
 
-	// Verify build cache exists
-	buildDir := proj.TargetBuildDir(targetName)
-	overlay := engine.NewOverlayManager(buildDir)
-	manifest, err := engine.LoadManifest(overlay.CacheDir())
-	if err != nil {
-		return fmt.Errorf("loading manifest: %w", err)
-	}
-	if len(manifest.Phases) == 0 {
-		return fmt.Errorf("target %q has not been built yet — run 'starforge build %s' first", targetName, targetName)
+	if len(result.Partitions) == 0 {
+		return fmt.Errorf("target %q has no partitions defined", targetName)
 	}
 
 	// Clean up any stale mounts from a previous interrupted build
 	engine.CleanupAll(buildDir)
 
 	// Mount cached overlay layers as read-only merged view
+	overlay := engine.NewOverlayManager(buildDir)
 	mergedDir, err := overlay.MountMerged()
 	if err != nil {
 		return fmt.Errorf("mounting overlay: %w", err)
@@ -192,9 +180,9 @@ func runExportPartitions(targetName string) error {
 	defer overlay.Unmount()
 
 	// Package into individual partition images
-	if err := engine.PackageToImages(mergedDir, ctx.Partitions, buildDir, engine.PackageOps{
-		Ownerships:  ctx.FileOwnerships,
-		Permissions: ctx.FilePermissions,
+	if err := engine.PackageToImages(mergedDir, result.Partitions, buildDir, engine.PackageOps{
+		Ownerships:  result.Ownerships,
+		Permissions: result.Permissions,
 	}); err != nil {
 		return fmt.Errorf("packaging partitions: %w", err)
 	}
@@ -209,7 +197,7 @@ func runExportPartitions(targetName string) error {
 		fmt.Println()
 		fmt.Printf("  Copying to %s\n", outputDir)
 
-		for _, part := range ctx.Partitions {
+		for _, part := range result.Partitions {
 			imgName := fmt.Sprintf("%s.img", part.Name)
 			src := filepath.Join(buildDir, imgName)
 			dest := filepath.Join(outputDir, imgName)

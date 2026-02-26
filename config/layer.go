@@ -654,9 +654,10 @@ type SystemdSliceStep struct {
 }
 
 type InstallServerStep struct {
-	Action string `yaml:"action"`
-	Port   int    `yaml:"port,omitempty"`
-	Path   string `yaml:"path"`
+	Action   string `yaml:"action"`
+	Port     int    `yaml:"port,omitempty"`
+	Path     string `yaml:"path"`
+	EFILabel string `yaml:"efi_label,omitempty"`
 }
 
 type InstallClientStep struct {
