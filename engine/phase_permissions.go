@@ -1,8 +1,6 @@
 package engine
 
 import (
-	"fmt"
-
 	"github.com/telemetryos/starforge/actions"
 )
 
@@ -12,7 +10,7 @@ import (
 // usernames resolve from the target's /etc/passwd.
 func (b *Builder) phasePermissions(ctx *actions.BuildContext, rootfs string) error {
 	if len(ctx.FileOwnerships) > 0 || len(ctx.FilePermissions) > 0 {
-		fmt.Printf("    %s\n", dimStyle.Render("deferred to packaging"))
+		out.SubInfo("deferred to packaging")
 	}
 	return nil
 }

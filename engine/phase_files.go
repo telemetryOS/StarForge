@@ -13,7 +13,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 	// 1. Create directories (file-mkdir)
 	for _, m := range ctx.FileMkdirs {
 		target := filepath.Join(rootfs, m.Path)
-		fmt.Printf("    mkdir %s%s\n", m.Path, labelSuffix(m.Label))
+		out.Info("mkdir %s%s", m.Path, labelSuffix(m.Label))
 		mode, err := parseMode(m.Mode, 0o755)
 		if err != nil {
 			return fmt.Errorf("mkdir %s: %w", m.Path, err)
@@ -39,7 +39,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 			src = filepath.Join(cp.LayerDir, src)
 		}
 		dest := filepath.Join(rootfs, cp.ToPath)
-		fmt.Printf("    %s -> %s%s\n", cp.FromPath, cp.ToPath, labelSuffix(cp.Label))
+		out.Info("%s -> %s%s", cp.FromPath, cp.ToPath, labelSuffix(cp.Label))
 
 		srcInfo, err := os.Stat(src)
 		if err != nil {
@@ -65,7 +65,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 
 	// 3. File creates (file-create with content or file layer_path)
 	for _, fc := range ctx.FileCreates {
-		fmt.Printf("    create %s%s\n", fc.Path, labelSuffix(fc.Label))
+		out.Info("create %s%s", fc.Path, labelSuffix(fc.Label))
 		target := filepath.Join(rootfs, fc.Path)
 
 		if err := mkdirAllInherit(filepath.Dir(target), 0o755); err != nil {
@@ -86,7 +86,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 
 	// 4. File edits (file-edit)
 	for _, fe := range ctx.FileEdits {
-		fmt.Printf("    edit %s%s\n", fe.Path, labelSuffix(fe.Label))
+		out.Info("edit %s%s", fe.Path, labelSuffix(fe.Label))
 		if err := applyFileEdit(rootfs, fe); err != nil {
 			return err
 		}
@@ -94,7 +94,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 
 	// 5. Internal copies (file-copy, within target)
 	for _, ic := range ctx.FileCopies {
-		fmt.Printf("    copy %s -> %s%s\n", ic.FromPath, ic.ToPath, labelSuffix(ic.Label))
+		out.Info("copy %s -> %s%s", ic.FromPath, ic.ToPath, labelSuffix(ic.Label))
 		src := filepath.Join(rootfs, ic.FromPath)
 		dest := filepath.Join(rootfs, ic.ToPath)
 		if err := mkdirAllInherit(filepath.Dir(dest), 0o755); err != nil {
@@ -108,7 +108,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 
 	// 6. Moves (file-move)
 	for _, mv := range ctx.FileMoves {
-		fmt.Printf("    move %s -> %s%s\n", mv.FromPath, mv.ToPath, labelSuffix(mv.Label))
+		out.Info("move %s -> %s%s", mv.FromPath, mv.ToPath, labelSuffix(mv.Label))
 		src := filepath.Join(rootfs, mv.FromPath)
 		dest := filepath.Join(rootfs, mv.ToPath)
 		if err := mkdirAllInherit(filepath.Dir(dest), 0o755); err != nil {
@@ -122,7 +122,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 
 	// 7. Links (file-link)
 	for _, ln := range ctx.FileLinks {
-		fmt.Printf("    %s %s -> %s%s\n", ln.Type, ln.ToPath, ln.FromPath, labelSuffix(ln.Label))
+		out.Info("%s %s -> %s%s", ln.Type, ln.ToPath, ln.FromPath, labelSuffix(ln.Label))
 		dest := filepath.Join(rootfs, ln.ToPath)
 		if err := mkdirAllInherit(filepath.Dir(dest), 0o755); err != nil {
 			return fmt.Errorf("creating parent for %s: %w", ln.ToPath, err)
@@ -143,7 +143,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 
 	// 8. Deletes (file-delete, runs last)
 	for _, r := range ctx.FileDeletes {
-		fmt.Printf("    delete %s%s\n", r.Path, labelSuffix(r.Label))
+		out.Info("delete %s%s", r.Path, labelSuffix(r.Label))
 		target := filepath.Join(rootfs, r.Path)
 		if r.Recursive {
 			if err := os.RemoveAll(target); err != nil {

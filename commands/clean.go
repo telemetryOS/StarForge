@@ -72,7 +72,7 @@ func runClean(cmd *cobra.Command, args []string) error {
 
 func cleanTarget(buildDir, targetName string) error {
 	if _, err := os.Stat(buildDir); os.IsNotExist(err) {
-		fmt.Printf("Nothing to clean for target %q\n", targetName)
+		fmt.Println(cmdDim.Render(fmt.Sprintf("Nothing to clean for target %q", targetName)))
 		return nil
 	}
 
@@ -84,7 +84,7 @@ func cleanTarget(buildDir, targetName string) error {
 	// Clean up any stale mounts before removing
 	engine.CleanupAll(buildDir)
 
-	fmt.Printf("Removing %s\n", buildDir)
+	fmt.Println(cmdSuccess.Render(fmt.Sprintf("Removing %s", buildDir)))
 	if err := os.RemoveAll(buildDir); err != nil {
 		return fmt.Errorf("removing build directory: %w", err)
 	}
@@ -94,7 +94,7 @@ func cleanTarget(buildDir, targetName string) error {
 func cleanCache(buildDir, targetName string) error {
 	cacheDir := filepath.Join(buildDir, "cache")
 	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
-		fmt.Printf("No cache to clean for target %q\n", targetName)
+		fmt.Println(cmdDim.Render(fmt.Sprintf("No cache to clean for target %q", targetName)))
 		return nil
 	}
 
@@ -106,7 +106,7 @@ func cleanCache(buildDir, targetName string) error {
 	// Clean up any stale mounts before removing
 	engine.CleanupAll(buildDir)
 
-	fmt.Printf("Removing %s\n", cacheDir)
+	fmt.Println(cmdSuccess.Render(fmt.Sprintf("Removing %s", cacheDir)))
 	if err := os.RemoveAll(cacheDir); err != nil {
 		return fmt.Errorf("removing cache: %w", err)
 	}
@@ -115,7 +115,7 @@ func cleanCache(buildDir, targetName string) error {
 
 func cleanImages(buildDir, targetName string) error {
 	if _, err := os.Stat(buildDir); os.IsNotExist(err) {
-		fmt.Printf("No images to clean for target %q\n", targetName)
+		fmt.Println(cmdDim.Render(fmt.Sprintf("No images to clean for target %q", targetName)))
 		return nil
 	}
 
@@ -131,7 +131,7 @@ func cleanImages(buildDir, targetName string) error {
 		path := filepath.Join(buildDir, name)
 
 		if filepath.Ext(name) == ".img" || name == "rootfs" {
-			fmt.Printf("Removing %s\n", path)
+			fmt.Println(cmdSuccess.Render(fmt.Sprintf("Removing %s", path)))
 			if err := os.RemoveAll(path); err != nil {
 				return fmt.Errorf("removing %s: %w", name, err)
 			}
@@ -140,7 +140,7 @@ func cleanImages(buildDir, targetName string) error {
 	}
 
 	if removed == 0 {
-		fmt.Printf("No images to clean for target %q\n", targetName)
+		fmt.Println(cmdDim.Render(fmt.Sprintf("No images to clean for target %q", targetName)))
 	}
 	return nil
 }
@@ -148,11 +148,11 @@ func cleanImages(buildDir, targetName string) error {
 func cleanDisks(buildDir, targetName string) error {
 	diskDir := filepath.Join(buildDir, "disks")
 	if _, err := os.Stat(diskDir); os.IsNotExist(err) {
-		fmt.Printf("No disks to clean for target %q\n", targetName)
+		fmt.Println(cmdDim.Render(fmt.Sprintf("No disks to clean for target %q", targetName)))
 		return nil
 	}
 
-	fmt.Printf("Removing %s\n", diskDir)
+	fmt.Println(cmdSuccess.Render(fmt.Sprintf("Removing %s", diskDir)))
 	if err := os.RemoveAll(diskDir); err != nil {
 		return fmt.Errorf("removing disks: %w", err)
 	}
@@ -162,11 +162,11 @@ func cleanDisks(buildDir, targetName string) error {
 func cleanDeps() error {
 	vendorDir := engine.VendorDir()
 	if _, err := os.Stat(vendorDir); os.IsNotExist(err) {
-		fmt.Println("No vendored dependencies to clean")
+		fmt.Println(cmdDim.Render("No vendored dependencies to clean"))
 		return nil
 	}
 
-	fmt.Printf("Removing %s\n", vendorDir)
+	fmt.Println(cmdSuccess.Render(fmt.Sprintf("Removing %s", vendorDir)))
 	if err := os.RemoveAll(vendorDir); err != nil {
 		return fmt.Errorf("removing vendor directory: %w", err)
 	}
@@ -176,11 +176,11 @@ func cleanDeps() error {
 func cleanPacmanCache() error {
 	cacheDir := engine.PacmanCacheDir()
 	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
-		fmt.Println("No pacman cache to clean")
+		fmt.Println(cmdDim.Render("No pacman cache to clean"))
 		return nil
 	}
 
-	fmt.Printf("Removing %s\n", cacheDir)
+	fmt.Println(cmdSuccess.Render(fmt.Sprintf("Removing %s", cacheDir)))
 	if err := os.RemoveAll(cacheDir); err != nil {
 		return fmt.Errorf("removing pacman cache: %w", err)
 	}

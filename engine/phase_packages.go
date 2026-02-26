@@ -47,7 +47,10 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 		for i, pkg := range unpinned {
 			names[i] = pkg.Name
 		}
-		fmt.Printf("    pacstrap %s\n", dimStyle.Render(strings.Join(names, ", ")))
+		out.Styled(
+			fmt.Sprintf("    pacstrap %s", dimStyle.Render(strings.Join(names, ", "))),
+			fmt.Sprintf("    pacstrap %s", strings.Join(names, ", ")),
+		)
 
 		// -C: use our config with custom CacheDir
 		// -c: use host cache mode (passes CacheDir as --cachedir to pacman,
@@ -60,7 +63,10 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 	} else {
 		// Even with no unpinned packages, we need a base rootfs for arch-chroot.
 		// pacstrap with no packages just sets up the base filesystem.
-		fmt.Printf("    pacstrap %s\n", dimStyle.Render("(base only)"))
+		out.Styled(
+			fmt.Sprintf("    pacstrap %s", dimStyle.Render("(base only)")),
+			"    pacstrap (base only)",
+		)
 		if err := run("pacstrap", "-C", confFile, "-c", "-K", rootfs); err != nil {
 			return err
 		}
@@ -68,7 +74,10 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 
 	// Initialize and populate the pacman keyring so the installed system
 	// can verify package signatures without manual key imports.
-	fmt.Printf("    pacman-key %s\n", dimStyle.Render("--init, --populate archlinux"))
+	out.Styled(
+		fmt.Sprintf("    pacman-key %s", dimStyle.Render("--init, --populate archlinux")),
+		"    pacman-key --init, --populate archlinux",
+	)
 	if err := run("arch-chroot", rootfs, "pacman-key", "--init"); err != nil {
 		return fmt.Errorf("pacman-key --init: %w", err)
 	}
@@ -78,7 +87,10 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 
 	// Install pinned packages from the Arch Linux Archive
 	for _, pkg := range pinned {
-		fmt.Printf("    archive %s\n", dimStyle.Render(pkg.String()))
+		out.Styled(
+			fmt.Sprintf("    archive %s", dimStyle.Render(pkg.String())),
+			fmt.Sprintf("    archive %s", pkg.String()),
+		)
 		if err := installFromArchive(rootfs, pkg); err != nil {
 			return err
 		}
@@ -100,7 +112,7 @@ func installFromArchive(rootfs string, pkg actions.Package) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("      resolved %s=%s → %s=%s\n", pkg.Name, version, pkg.Name, resolved)
+		out.SubInfo("resolved %s=%s → %s=%s", pkg.Name, version, pkg.Name, resolved)
 		version = resolved
 	}
 

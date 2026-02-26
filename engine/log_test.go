@@ -1,26 +1,36 @@
 package engine
 
 import (
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
-func TestStartBuildLog_CapturesStdout(t *testing.T) {
+func TestInitOutput_CreatesLogFile(t *testing.T) {
 	dir := t.TempDir()
 
-	cleanup, err := startBuildLog(dir)
+	o, err := InitOutput(dir, "test", "target")
 	if err != nil {
-		t.Fatalf("startBuildLog: %v", err)
+		t.Fatalf("InitOutput: %v", err)
 	}
+	defer o.Close()
 
-	fmt.Println("hello from stdout")
-	fmt.Fprintln(os.Stderr, "hello from stderr")
+	logPath := filepath.Join(dir, "build.log")
+	if _, err := os.Stat(logPath); err != nil {
+		t.Fatalf("build.log not created: %v", err)
+	}
+}
 
-	cleanup()
+func TestInitOutput_LogContainsTimestamp(t *testing.T) {
+	dir := t.TempDir()
+
+	o, err := InitOutput(dir, "test", "target")
+	if err != nil {
+		t.Fatalf("InitOutput: %v", err)
+	}
+	o.Close()
 
 	data, err := os.ReadFile(filepath.Join(dir, "build.log"))
 	if err != nil {
@@ -28,97 +38,117 @@ func TestStartBuildLog_CapturesStdout(t *testing.T) {
 	}
 	log := string(data)
 
-	if !strings.Contains(log, "hello from stdout") {
-		t.Errorf("build.log missing stdout output:\n%s", log)
-	}
-	if !strings.Contains(log, "hello from stderr") {
-		t.Errorf("build.log missing stderr output:\n%s", log)
-	}
-}
-
-func TestStartBuildLog_CapturesSubprocess(t *testing.T) {
-	dir := t.TempDir()
-
-	cleanup, err := startBuildLog(dir)
-	if err != nil {
-		t.Fatalf("startBuildLog: %v", err)
-	}
-
-	// Subprocess inherits os.Stdout/os.Stderr which are now the pipe write-ends
-	cmd := exec.Command("echo", "subprocess output")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		cleanup()
-		t.Fatalf("subprocess: %v", err)
-	}
-
-	cleanup()
-
-	data, err := os.ReadFile(filepath.Join(dir, "build.log"))
-	if err != nil {
-		t.Fatalf("reading build.log: %v", err)
-	}
-	if !strings.Contains(string(data), "subprocess output") {
-		t.Errorf("build.log missing subprocess output:\n%s", string(data))
-	}
-}
-
-func TestStartBuildLog_HasTimestampHeader(t *testing.T) {
-	dir := t.TempDir()
-
-	cleanup, err := startBuildLog(dir)
-	if err != nil {
-		t.Fatalf("startBuildLog: %v", err)
-	}
-	cleanup()
-
-	data, err := os.ReadFile(filepath.Join(dir, "build.log"))
-	if err != nil {
-		t.Fatalf("reading build.log: %v", err)
-	}
-	log := string(data)
-
-	if !strings.HasPrefix(log, "Build started: ") {
-		t.Errorf("build.log should start with timestamp header, got:\n%s", log)
+	if !strings.Contains(log, "Build started: ") {
+		t.Errorf("build.log missing start timestamp:\n%s", log)
 	}
 	if !strings.Contains(log, "Build ended: ") {
-		t.Errorf("build.log should contain end timestamp, got:\n%s", log)
+		t.Errorf("build.log missing end timestamp:\n%s", log)
 	}
 }
 
-func TestStartBuildLog_RestoresGlobals(t *testing.T) {
+func TestInitOutput_LogCapturesOutput(t *testing.T) {
 	dir := t.TempDir()
 
-	origOut := os.Stdout
-	origErr := os.Stderr
-
-	cleanup, err := startBuildLog(dir)
+	o, err := InitOutput(dir, "test", "target")
 	if err != nil {
-		t.Fatalf("startBuildLog: %v", err)
+		t.Fatalf("InitOutput: %v", err)
 	}
 
-	// While logging, globals should be different
-	if os.Stdout == origOut {
-		t.Error("os.Stdout should be replaced during logging")
-	}
-	if os.Stderr == origErr {
-		t.Error("os.Stderr should be replaced during logging")
-	}
+	o.Header("Test Header")
+	o.Info("test info %s", "value")
+	o.SubInfo("sub info")
+	o.Close()
 
-	cleanup()
-
-	// After cleanup, globals should be restored
-	if os.Stdout != origOut {
-		t.Error("os.Stdout not restored after cleanup")
+	data, err := os.ReadFile(filepath.Join(dir, "build.log"))
+	if err != nil {
+		t.Fatalf("reading build.log: %v", err)
 	}
-	if os.Stderr != origErr {
-		t.Error("os.Stderr not restored after cleanup")
+	log := string(data)
+
+	if !strings.Contains(log, "Test Header") {
+		t.Errorf("build.log missing Header output:\n%s", log)
+	}
+	if !strings.Contains(log, "test info value") {
+		t.Errorf("build.log missing Info output:\n%s", log)
+	}
+	if !strings.Contains(log, "sub info") {
+		t.Errorf("build.log missing SubInfo output:\n%s", log)
 	}
 }
 
-func TestWrapBuildLog_NonFatal(t *testing.T) {
-	// Point to a non-existent directory — should warn but not panic
-	cleanup := wrapBuildLog("/nonexistent/path/that/does/not/exist")
-	cleanup() // should be a no-op, not panic
+func TestInitOutput_Reentrant(t *testing.T) {
+	dir := t.TempDir()
+
+	o1, err := InitOutput(dir, "test", "target")
+	if err != nil {
+		t.Fatalf("InitOutput: %v", err)
+	}
+
+	// Second call should return the same instance (nested builds)
+	o2, err := InitOutput(dir, "test", "target")
+	if err != nil {
+		t.Fatalf("InitOutput (second): %v", err)
+	}
+
+	if o1 != o2 {
+		t.Error("expected same Output instance for nested calls")
+	}
+
+	o1.Close()
+}
+
+func TestInitOutput_NoBuildDir(t *testing.T) {
+	// Pass empty string — no log file
+	o, err := InitOutput("", "test", "target")
+	if err != nil {
+		t.Fatalf("InitOutput: %v", err)
+	}
+	defer o.Close()
+
+	// Should work without crashing
+	o.Header("no log")
+	o.Info("test")
+}
+
+func TestOutput_RunWithSpinner_NonInteractive(t *testing.T) {
+	dir := t.TempDir()
+
+	o, err := InitOutput(dir, "test", "target")
+	if err != nil {
+		t.Fatalf("InitOutput: %v", err)
+	}
+	defer o.Close()
+
+	// In test mode, output is non-interactive (no terminal)
+	called := false
+	err = o.RunWithSpinner("test label", func() error {
+		called = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("RunWithSpinner: %v", err)
+	}
+	if !called {
+		t.Error("RunWithSpinner did not call fn")
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		name     string
+		duration time.Duration
+		want     string
+	}{
+		{"milliseconds", 50 * time.Millisecond, "50ms"},
+		{"seconds", 2500 * time.Millisecond, "2.5s"},
+		{"minutes", 125 * time.Second, "2m5s"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatDuration(tt.duration)
+			if got != tt.want {
+				t.Errorf("formatDuration(%v) = %q, want %q", tt.duration, got, tt.want)
+			}
+		})
+	}
 }

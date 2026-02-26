@@ -86,64 +86,72 @@ func runExportDisk(proj *config.Project, targetName string, target config.Target
 		return fmt.Errorf("failed to elevate privileges: %w", err)
 	}
 
-	// Incremental build — detects source changes via cache hashing
-	builder := engine.NewBuilder(proj)
-	if err := builder.Build(targetName, target, false); err != nil {
+	buildDir := proj.TargetBuildDir(targetName)
+	os.MkdirAll(buildDir, 0o755)
+
+	output, err := engine.InitOutput(buildDir, "export", targetName)
+	if err != nil {
 		return err
 	}
+	defer output.Close()
 
-	buildDir := proj.TargetBuildDir(targetName)
-	result, err := engine.LoadBuildResult(buildDir)
-	if err != nil {
-		return fmt.Errorf("loading build result: %w", err)
-	}
+	return output.Run(func() error {
+		// Incremental build — detects source changes via cache hashing
+		builder := engine.NewBuilder(proj)
+		if err := builder.Build(targetName, target, false); err != nil {
+			return err
+		}
 
-	if len(result.Partitions) == 0 {
-		return fmt.Errorf("target %q has no partitions defined", targetName)
-	}
+		result, err := engine.LoadBuildResult(buildDir)
+		if err != nil {
+			return fmt.Errorf("loading build result: %w", err)
+		}
 
-	// Validate disk size fits all partitions
-	var totalFixed uint64
-	for _, p := range result.Partitions {
-		totalFixed += p.Size
-	}
-	if diskSize < totalFixed {
-		return fmt.Errorf("disk size %s is too small for partitions (need at least %s)",
-			actions.FormatSize(diskSize), actions.FormatSize(totalFixed))
-	}
+		if len(result.Partitions) == 0 {
+			return fmt.Errorf("target %q has no partitions defined", targetName)
+		}
 
-	// Determine output path
-	outputPath := exportDiskOutput
-	if outputPath == "" {
-		outputPath = filepath.Join(buildDir, "disk.img")
-	}
+		// Validate disk size fits all partitions
+		var totalFixed uint64
+		for _, p := range result.Partitions {
+			totalFixed += p.Size
+		}
+		if diskSize < totalFixed {
+			return fmt.Errorf("disk size %s is too small for partitions (need at least %s)",
+				actions.FormatSize(diskSize), actions.FormatSize(totalFixed))
+		}
 
-	// Clean up any stale mounts from a previous interrupted build
-	engine.CleanupAll(buildDir)
+		// Determine output path
+		outputPath := exportDiskOutput
+		if outputPath == "" {
+			outputPath = filepath.Join(buildDir, "disk.img")
+		}
 
-	// Mount cached overlay layers as read-only merged view
-	overlay := engine.NewOverlayManager(buildDir)
-	mergedDir, err := overlay.MountMerged()
-	if err != nil {
-		return fmt.Errorf("mounting overlay: %w", err)
-	}
-	defer overlay.Unmount()
+		// Clean up any stale mounts from a previous interrupted build
+		engine.CleanupAll(buildDir)
 
-	// Create disk image — SetupDevicePartitions handles GPT overhead and
-	// growable partition resolution internally.
-	if err := engine.PackageToDiskImage(mergedDir, result.Partitions, diskSize, outputPath, engine.PackageOps{
-		Ownerships:  result.Ownerships,
-		Permissions: result.Permissions,
-	}); err != nil {
-		return fmt.Errorf("creating disk image: %w", err)
-	}
+		// Mount cached overlay layers as read-only merged view
+		overlay := engine.NewOverlayManager(buildDir)
+		mergedDir, err := overlay.MountMerged()
+		if err != nil {
+			return fmt.Errorf("mounting overlay: %w", err)
+		}
+		defer overlay.Unmount()
 
-	// Ensure build dir is owned by the invoking user
-	engine.ChownToInvoker(proj.BuildDir())
+		// Create disk image — SetupDevicePartitions handles GPT overhead and
+		// growable partition resolution internally.
+		if err := engine.PackageToDiskImage(mergedDir, result.Partitions, diskSize, outputPath, engine.PackageOps{
+			Ownerships:  result.Ownerships,
+			Permissions: result.Permissions,
+		}); err != nil {
+			return fmt.Errorf("creating disk image: %w", err)
+		}
 
-	fmt.Println()
-	fmt.Printf("Disk image: %s\n", outputPath)
-	return nil
+		// Ensure build dir is owned by the invoking user
+		engine.ChownToInvoker(proj.BuildDir())
+
+		return nil
+	})
 }
 
 func runExportPartitions(proj *config.Project, targetName string, target config.Target) error {
@@ -152,75 +160,75 @@ func runExportPartitions(proj *config.Project, targetName string, target config.
 		return fmt.Errorf("failed to elevate privileges: %w", err)
 	}
 
-	// Incremental build — detects source changes via cache hashing
-	builder := engine.NewBuilder(proj)
-	if err := builder.Build(targetName, target, false); err != nil {
+	buildDir := proj.TargetBuildDir(targetName)
+	os.MkdirAll(buildDir, 0o755)
+
+	output, err := engine.InitOutput(buildDir, "export", targetName)
+	if err != nil {
 		return err
 	}
+	defer output.Close()
 
-	buildDir := proj.TargetBuildDir(targetName)
-	result, err := engine.LoadBuildResult(buildDir)
-	if err != nil {
-		return fmt.Errorf("loading build result: %w", err)
-	}
-
-	if len(result.Partitions) == 0 {
-		return fmt.Errorf("target %q has no partitions defined", targetName)
-	}
-
-	// Clean up any stale mounts from a previous interrupted build
-	engine.CleanupAll(buildDir)
-
-	// Mount cached overlay layers as read-only merged view
-	overlay := engine.NewOverlayManager(buildDir)
-	mergedDir, err := overlay.MountMerged()
-	if err != nil {
-		return fmt.Errorf("mounting overlay: %w", err)
-	}
-	defer overlay.Unmount()
-
-	// Package into individual partition images
-	if err := engine.PackageToImages(mergedDir, result.Partitions, buildDir, engine.PackageOps{
-		Ownerships:  result.Ownerships,
-		Permissions: result.Permissions,
-	}); err != nil {
-		return fmt.Errorf("packaging partitions: %w", err)
-	}
-
-	// Copy to output directory if specified
-	outputDir := exportDiskOutput // reuse --output flag
-	if outputDir != "" {
-		if err := os.MkdirAll(outputDir, 0o755); err != nil {
-			return fmt.Errorf("creating output directory: %w", err)
+	return output.Run(func() error {
+		// Incremental build — detects source changes via cache hashing
+		builder := engine.NewBuilder(proj)
+		if err := builder.Build(targetName, target, false); err != nil {
+			return err
 		}
 
-		fmt.Println()
-		fmt.Printf("  Copying to %s\n", outputDir)
+		result, err := engine.LoadBuildResult(buildDir)
+		if err != nil {
+			return fmt.Errorf("loading build result: %w", err)
+		}
 
-		for _, part := range result.Partitions {
-			imgName := fmt.Sprintf("%s.img", part.Name)
-			src := filepath.Join(buildDir, imgName)
-			dest := filepath.Join(outputDir, imgName)
+		if len(result.Partitions) == 0 {
+			return fmt.Errorf("target %q has no partitions defined", targetName)
+		}
 
-			if _, err := os.Stat(src); os.IsNotExist(err) {
-				continue
+		// Clean up any stale mounts from a previous interrupted build
+		engine.CleanupAll(buildDir)
+
+		// Mount cached overlay layers as read-only merged view
+		overlay := engine.NewOverlayManager(buildDir)
+		mergedDir, err := overlay.MountMerged()
+		if err != nil {
+			return fmt.Errorf("mounting overlay: %w", err)
+		}
+		defer overlay.Unmount()
+
+		// Package into individual partition images
+		if err := engine.PackageToImages(mergedDir, result.Partitions, buildDir, engine.PackageOps{
+			Ownerships:  result.Ownerships,
+			Permissions: result.Permissions,
+		}); err != nil {
+			return fmt.Errorf("packaging partitions: %w", err)
+		}
+
+		// Copy to output directory if specified
+		outputDir := exportDiskOutput // reuse --output flag
+		if outputDir != "" {
+			if err := os.MkdirAll(outputDir, 0o755); err != nil {
+				return fmt.Errorf("creating output directory: %w", err)
 			}
 
-			fmt.Printf("    %s\n", imgName)
-			if err := engine.CopyFile(src, dest); err != nil {
-				return fmt.Errorf("copying %s: %w", imgName, err)
+			for _, part := range result.Partitions {
+				imgName := fmt.Sprintf("%s.img", part.Name)
+				src := filepath.Join(buildDir, imgName)
+				dest := filepath.Join(outputDir, imgName)
+
+				if _, err := os.Stat(src); os.IsNotExist(err) {
+					continue
+				}
+
+				if err := engine.CopyFile(src, dest); err != nil {
+					return fmt.Errorf("copying %s: %w", imgName, err)
+				}
 			}
 		}
-	}
 
-	// Ensure build dir is owned by the invoking user
-	engine.ChownToInvoker(proj.BuildDir())
+		// Ensure build dir is owned by the invoking user
+		engine.ChownToInvoker(proj.BuildDir())
 
-	fmt.Println()
-	if outputDir != "" {
-		fmt.Printf("Partition images: %s\n", outputDir)
-	} else {
-		fmt.Printf("Partition images: %s\n", buildDir)
-	}
-	return nil
+		return nil
+	})
 }

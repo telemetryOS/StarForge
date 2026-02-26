@@ -5,15 +5,9 @@ import (
 	"os"
 	"sort"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/telemetryos/starforge/config"
-)
-
-var (
-	statusBuilt    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
-	statusNotBuilt = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
 var statusCmd = &cobra.Command{
@@ -30,7 +24,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Println("StarForge Project")
+	fmt.Println(cmdHeader.Render("StarForge Project"))
 	fmt.Println()
 	fmt.Printf("  %-14s %s\n", "Name:", proj.Name)
 	if proj.Description != "" {
@@ -40,7 +34,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  %-14s %s\n", "Build dir:", proj.BuildDir())
 	fmt.Println()
 
-	fmt.Println("Targets")
+	fmt.Println(cmdHeader.Render("Targets"))
 	fmt.Println()
 
 	names := make([]string, 0, len(proj.Targets))

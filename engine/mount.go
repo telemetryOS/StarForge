@@ -59,7 +59,7 @@ func (mt *MountTable) MountAll(parts []PartitionMount) error {
 			args = []string{"-o", "loop", pm.Source, target}
 		}
 
-		fmt.Printf("    mount %s -> %s\n", pm.MountPoint, pm.Source)
+		out.Info("mount %s -> %s", pm.MountPoint, pm.Source)
 		if err := run("mount", args...); err != nil {
 			return fmt.Errorf("mounting %s: %w", pm.MountPoint, err)
 		}
@@ -78,7 +78,7 @@ func (mt *MountTable) Unmount() error {
 	var firstErr error
 	for i := len(mt.mounts) - 1; i >= 0; i-- {
 		entry := mt.mounts[i]
-		fmt.Printf("    umount %s\n", entry.target)
+		out.Info("umount %s", entry.target)
 		if err := run("umount", "-R", entry.target); err != nil {
 			if firstErr == nil {
 				firstErr = fmt.Errorf("unmounting %s: %w", entry.target, err)
@@ -106,26 +106,53 @@ func resolveBin(name string) string {
 	return name
 }
 
-// run executes a command and returns an error if it fails.
+// run executes a command with visible output routed through the output system.
 // It checks the vendored bin directory first for the binary and
 // sets PATH/LD_LIBRARY_PATH so child processes also find vendored tools.
 func run(name string, args ...string) error {
 	cmd := exec.Command(resolveBin(name), args...)
 	cmd.Env = vendorEnv()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if out != nil {
+		cmd.Stdout = out.ProcessWriter()
+		cmd.Stderr = out.ProcessWriter()
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+	return cmd.Run()
+}
+
+// runSilent executes a command with output suppressed from the terminal.
+// Output goes to the log file only. Used for noisy subprocesses like mkfs,
+// tar, zstd, and go build.
+func runSilent(name string, args ...string) error {
+	cmd := exec.Command(resolveBin(name), args...)
+	cmd.Env = vendorEnv()
+	if out != nil {
+		cmd.Stdout = out.LogWriter()
+		cmd.Stderr = out.LogWriter()
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	return cmd.Run()
 }
 
 // runPipe connects stdout of cmd1 to stdin of cmd2 and runs both.
-// Both commands inherit stderr. Returns an error if either command fails.
+// Both commands inherit stderr via the output system. Returns an error
+// if either command fails.
 func runPipe(cmd1Name string, cmd1Args []string, cmd2Name string, cmd2Args []string) error {
 	c1 := exec.Command(resolveBin(cmd1Name), cmd1Args...)
 	c2 := exec.Command(resolveBin(cmd2Name), cmd2Args...)
 	c1.Env = vendorEnv()
 	c2.Env = vendorEnv()
-	c1.Stderr = os.Stderr
-	c2.Stderr = os.Stderr
+	if out != nil {
+		c1.Stderr = out.ProcessWriter()
+		c2.Stderr = out.ProcessWriter()
+	} else {
+		c1.Stderr = os.Stderr
+		c2.Stderr = os.Stderr
+	}
 
 	pipe, err := c1.StdoutPipe()
 	if err != nil {
@@ -144,6 +171,47 @@ func runPipe(cmd1Name string, cmd1Args []string, cmd2Name string, cmd2Args []str
 
 	// Wait for the reader first (c2), then the writer (c1).
 	// This ensures the pipe drains fully before we check c1's exit.
+	err2 := c2.Wait()
+	err1 := c1.Wait()
+	if err1 != nil {
+		return fmt.Errorf("%s: %w", cmd1Name, err1)
+	}
+	if err2 != nil {
+		return fmt.Errorf("%s: %w", cmd2Name, err2)
+	}
+	return nil
+}
+
+// runPipeSilent connects stdout of cmd1 to stdin of cmd2 with output
+// suppressed from the terminal. Stderr goes to the log file only.
+func runPipeSilent(cmd1Name string, cmd1Args []string, cmd2Name string, cmd2Args []string) error {
+	c1 := exec.Command(resolveBin(cmd1Name), cmd1Args...)
+	c2 := exec.Command(resolveBin(cmd2Name), cmd2Args...)
+	c1.Env = vendorEnv()
+	c2.Env = vendorEnv()
+	if out != nil {
+		c1.Stderr = out.LogWriter()
+		c2.Stderr = out.LogWriter()
+	} else {
+		c1.Stderr = os.Stderr
+		c2.Stderr = os.Stderr
+	}
+
+	pipe, err := c1.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("creating pipe: %w", err)
+	}
+	c2.Stdin = pipe
+
+	if err := c1.Start(); err != nil {
+		return fmt.Errorf("starting %s: %w", cmd1Name, err)
+	}
+	if err := c2.Start(); err != nil {
+		c1.Process.Kill()
+		c1.Wait()
+		return fmt.Errorf("starting %s: %w", cmd2Name, err)
+	}
+
 	err2 := c2.Wait()
 	err1 := c1.Wait()
 	if err1 != nil {
@@ -205,7 +273,7 @@ func SetupImagePartitions(parts []actions.PartitionDef, buildDir string) ([]Part
 		imgPath := filepath.Join(buildDir, fmt.Sprintf("%s.img", part.Name))
 		sizeLabel := actions.FormatSize(part.Size)
 
-		fmt.Printf("    %s.img (%s, %s)\n", part.Name, sizeLabel, part.Filesystem)
+		out.Info("%s.img (%s, %s)", part.Name, sizeLabel, part.Filesystem)
 
 		// Create sparse image file
 		f, err := os.Create(imgPath)
@@ -237,7 +305,7 @@ func SetupImagePartitions(parts []actions.PartitionDef, buildDir string) ([]Part
 // the resolved partition list (with grow sizes applied). It does NOT format
 // the partitions — the caller decides what to do with each one.
 func PartitionDevice(parts []actions.PartitionDef, device string) ([]actions.PartitionDef, error) {
-	fmt.Printf("    partitioning %s\n", device)
+	out.Info("partitioning %s", device)
 
 	// Get device size for resolving growable partitions
 	sizeStr, err := runOutput("blockdev", "--getsize64", device)
@@ -260,7 +328,7 @@ func PartitionDevice(parts []actions.PartitionDef, device string) ([]actions.Par
 	for _, part := range resolved {
 		sizeSectors := part.Size / 512
 		sizeLabel := actions.FormatSize(part.Size)
-		fmt.Printf("    partition: %s (%s, %s)\n", part.Name, sizeLabel, part.Filesystem)
+		out.Info("partition: %s (%s, %s)", part.Name, sizeLabel, part.Filesystem)
 		fmt.Fprintf(&script, "size=%d, type=%s, name=%q\n",
 			sizeSectors, sfdiskTypeAlias(part.Type), part.Name)
 	}
@@ -268,8 +336,13 @@ func PartitionDevice(parts []actions.PartitionDef, device string) ([]actions.Par
 	cmd := exec.Command(resolveBin("sfdisk"), "--force", device)
 	cmd.Env = vendorEnv()
 	cmd.Stdin = strings.NewReader(script.String())
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if out != nil {
+		cmd.Stdout = out.LogWriter()
+		cmd.Stderr = out.LogWriter()
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("partitioning %s: %w", device, err)
 	}
@@ -326,11 +399,12 @@ func formatFilesystem(path, filesystem, name string) error {
 	}
 
 	mkfs := fmt.Sprintf("mkfs.%s", filesystem)
-	fmt.Printf("    format %s (%s)\n", name, filesystem)
-	if err := run(mkfs, args...); err != nil {
-		return fmt.Errorf("formatting %s as %s: %w", name, filesystem, err)
-	}
-	return nil
+	return out.RunWithSpinner(fmt.Sprintf("format %s (%s)", name, filesystem), func() error {
+		if err := runSilent(mkfs, args...); err != nil {
+			return fmt.Errorf("formatting %s as %s: %w", name, filesystem, err)
+		}
+		return nil
+	})
 }
 
 // partitionPath returns the device path for a numbered partition.

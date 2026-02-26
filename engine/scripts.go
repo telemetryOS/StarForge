@@ -72,9 +72,14 @@ func chrootRunWithEnv(rootfs string, env map[string]string, args ...string) erro
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
+	if out != nil {
+		w := out.ProcessWriter()
+		cmd.Stdout = w
+		cmd.Stderr = w
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	return cmd.Run()
 }
 
@@ -162,8 +167,15 @@ func (b *Builder) executeLayerRun(step config.Step, layerDir string, vars, targe
 	for k, v := range vars {
 		cmd.Env = append(cmd.Env, "STARFORGE_VAR_"+strings.ToUpper(k)+"="+v)
 	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Route output through the TUI output system when available.
+	if out != nil {
+		w := out.ProcessWriter()
+		cmd.Stdout = w
+		cmd.Stderr = w
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("script failed: %w", err)
@@ -216,7 +228,13 @@ func runLayerScript(step config.Step, layerDir, sourceDir string) error {
 	// Execute in source directory on host
 	cmd := exec.Command("bash", tmpScript)
 	cmd.Dir = sourceDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if out != nil {
+		w := out.ProcessWriter()
+		cmd.Stdout = w
+		cmd.Stderr = w
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	return cmd.Run()
 }

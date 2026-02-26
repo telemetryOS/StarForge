@@ -5,23 +5,23 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/telemetryos/starforge/installer"
 	"github.com/telemetryos/starforge/installer/diskutil"
 )
 
-// Styles
+// Styles — ember palette.
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
-	normalStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
-	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	errorStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("9"))
-	progressStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
-	successStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
-	warningStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#d07030"))
+	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#c8a028"))
+	normalStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#f0d0a0"))
+	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#7a5538"))
+	errorStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e84848"))
+	progressStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e8b830"))
+	successStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#c8a028"))
+	warningStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e89030"))
 )
 
 // phase tracks the current TUI screen.
@@ -100,7 +100,7 @@ func RunTUI(serverURL string, unattended bool) error {
 		phase:      phaseLoading,
 		unattended: unattended,
 	}
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 	_, err := p.Run()
 	return err
 }
@@ -111,7 +111,7 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
 			if m.phase != phaseProgress {
@@ -214,7 +214,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updatePayloadSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "up", "k":
 			if m.payloadCursor > 0 {
@@ -233,7 +233,7 @@ func (m model) updatePayloadSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateDiskSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "up", "k":
 			if m.diskCursor > 0 {
@@ -258,7 +258,7 @@ func (m model) updateDiskSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "y", "Y":
 			m.confirmed = true
@@ -274,7 +274,7 @@ func (m model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateComplete(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "r", "R":
 			m.client.Reboot()
@@ -286,24 +286,27 @@ func (m model) updateComplete(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
+	v := tea.NewView("")
+	v.AltScreen = true
+
 	switch m.phase {
 	case phaseLoading:
-		return m.viewLoading()
+		v.Content = m.viewLoading()
 	case phasePayloadSelect:
-		return m.viewPayloadSelect()
+		v.Content = m.viewPayloadSelect()
 	case phaseDiskSelect:
-		return m.viewDiskSelect()
+		v.Content = m.viewDiskSelect()
 	case phaseConfirm:
-		return m.viewConfirm()
+		v.Content = m.viewConfirm()
 	case phaseProgress:
-		return m.viewProgress()
+		v.Content = m.viewProgress()
 	case phaseComplete:
-		return m.viewComplete()
+		v.Content = m.viewComplete()
 	case phaseError:
-		return m.viewError()
+		v.Content = m.viewError()
 	}
-	return ""
+	return v
 }
 
 func (m model) viewLoading() string {

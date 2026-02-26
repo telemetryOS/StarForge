@@ -5,21 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/charmbracelet/lipgloss"
+	"time"
 
 	"github.com/telemetryos/starforge/actions"
 	"github.com/telemetryos/starforge/config"
-)
-
-var (
-	headerStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	phaseStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("13"))
-	layerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
-	stepStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	successStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
-	cachedStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
-	dimStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
 // Builder orchestrates the build process for a project.
@@ -37,17 +26,11 @@ func NewBuilder(project *config.Project) *Builder {
 // the resolved state in phase order using overlayfs for caching.
 // The clean flag forces a full rebuild by deleting the cache first.
 func (b *Builder) Build(targetName string, target config.Target, clean bool) error {
-	fmt.Println(headerStyle.Render(fmt.Sprintf("Building target: %s", targetName)))
-	fmt.Println()
-
 	// Create build directory
 	buildDir := b.project.TargetBuildDir(targetName)
 	if err := os.MkdirAll(buildDir, 0o755); err != nil {
 		return fmt.Errorf("creating build directory: %w", err)
 	}
-
-	// Tee all output to build.log (non-fatal if it fails)
-	defer wrapBuildLog(buildDir)()
 
 	// Phase 1: Collect — process all layers and build the context
 	ctx, err := b.Collect(target, true)
@@ -59,11 +42,10 @@ func (b *Builder) Build(targetName string, target config.Target, clean bool) err
 	overlay := NewOverlayManager(buildDir)
 
 	if clean {
-		fmt.Println(headerStyle.Render("Cleaning cache"))
+		out.Info("Cleaning cache")
 		if err := overlay.CleanCache(); err != nil {
 			return fmt.Errorf("cleaning cache: %w", err)
 		}
-		fmt.Println()
 	}
 
 	if err := b.execute(ctx, buildDir, overlay); err != nil {
@@ -76,7 +58,6 @@ func (b *Builder) Build(targetName string, target config.Target, clean bool) err
 		return fmt.Errorf("saving build result: %w", err)
 	}
 
-	fmt.Println(successStyle.Render(fmt.Sprintf("Build complete: %s", buildDir)))
 	return nil
 }
 
@@ -111,9 +92,6 @@ func (b *Builder) EnsureBuiltAndPackaged(targetName string) (*actions.BuildConte
 // for RunQEMU or WriteToDevice without a separate Collect call.
 func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, error) {
 	buildDir := b.project.TargetBuildDir(targetName)
-
-	// Tee all output to build.log (non-fatal if it fails)
-	defer wrapBuildLog(buildDir)()
 
 	overlay := NewOverlayManager(buildDir)
 
@@ -151,14 +129,14 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 			}
 		}
 		if allExist {
-			fmt.Println(cachedStyle.Render("Packaging up to date"))
+			out.Success("Packaging up to date")
 			return buildResultToContext(result), nil
 		}
 	}
 
 	// Need to (re-)package
-	fmt.Println(headerStyle.Render("Packaging images"))
-	fmt.Println()
+	out.StartStage(StagePackage)
+	packageStart := time.Now()
 
 	CleanupMounts(buildDir)
 	cleanupLoops(buildDir)
@@ -203,16 +181,15 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 		return nil, fmt.Errorf("saving manifest: %w", err)
 	}
 
+	out.EndStage(StagePackage, time.Since(packageStart))
 	return ctx, nil
 }
 
 // Collect processes all layers and returns the resolved BuildContext.
 // If verbose is true, prints progress to stdout.
 func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildContext, error) {
-	if verbose {
-		fmt.Println(headerStyle.Render("Collecting layers"))
-		fmt.Println()
-	}
+	out.StartStage(StageCollect)
+	collectStart := time.Now()
 
 	ctx := actions.NewBuildContext()
 	ctx.DryRun = b.DryRun
@@ -289,10 +266,9 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 			layerDir = rawLayer.Dir
 		}
 
+		layerStart := time.Now()
 		if verbose {
-			fmt.Printf("  %s %s\n",
-				layerStyle.Render(fmt.Sprintf("[%d/%d]", i+1, len(target.Layers))),
-				layerPath)
+			out.CollectLayer(i, layerPath)
 		}
 
 		ctx.CurrentLayer = layerPath
@@ -323,6 +299,9 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 				if err := action.Execute(step, effectiveDir, ctx); err != nil {
 					return nil, fmt.Errorf("layer %s (%s): %w", layerPath, step.Action, err)
 				}
+			}
+			if verbose {
+				out.CollectLayerDone(i, time.Since(layerStart))
 			}
 			continue
 		}
@@ -405,6 +384,10 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 			}
 		}
 
+		if verbose {
+			out.CollectLayerDone(i, time.Since(layerStart))
+		}
+
 		// Export: if exports declared, only those vars propagate to outer scope
 		if len(rawLayer.Exports) > 0 {
 			for _, name := range rawLayer.Exports {
@@ -451,7 +434,7 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 					return nil, fmt.Errorf("resolving pkgrel for %s=%s: %w", pkg.Name, pkg.Version, err)
 				}
 				if verbose {
-					fmt.Printf("    resolved %s=%s → %s=%s\n", pkg.Name, pkg.Version, pkg.Name, resolved)
+					out.Info("resolved %s=%s → %s=%s", pkg.Name, pkg.Version, pkg.Name, resolved)
 				}
 				ctx.Packages[i].Version = resolved
 			}
@@ -460,12 +443,14 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 
 	// Print collection warnings
 	for _, w := range ctx.Warnings {
-		fmt.Printf("  warning: %s\n", w)
+		out.Warning(w)
 	}
 
 	if verbose {
-		fmt.Println()
+		out.Blank()
 	}
+
+	out.EndStage(StageCollect, time.Since(collectStart))
 	return ctx, nil
 }
 
@@ -481,9 +466,15 @@ func labelSuffix(label string) string {
 // printStep prints a step's action and optional label for verbose output.
 func printStep(step config.Step) {
 	if step.Label != "" {
-		fmt.Printf("        %s %s\n", stepStyle.Render(step.Action), dimStyle.Render(step.Label))
+		out.Styled(
+			fmt.Sprintf("        %s %s %s", stepStyle.Render(step.Action), dimStyle.Render("›"), dimStyle.Render(step.Label)),
+			fmt.Sprintf("        %s › %s", step.Action, step.Label),
+		)
 	} else {
-		fmt.Printf("        %s\n", stepStyle.Render(step.Action))
+		out.Styled(
+			fmt.Sprintf("        %s", stepStyle.Render(step.Action)),
+			fmt.Sprintf("        %s", step.Action),
+		)
 	}
 }
 
@@ -527,6 +518,9 @@ func substituteString(s string, vars map[string]string) (string, error) {
 // execute runs each build phase in order against the resolved context,
 // using overlayfs layers for caching. Unchanged phases are skipped.
 func (b *Builder) execute(ctx *actions.BuildContext, buildDir string, overlay *OverlayManager) error {
+	out.StartStage(StageBuild)
+	buildStart := time.Now()
+
 	// Clean up any stale mounts and loops from a previous interrupted build
 	// so we don't fail on locked resources. Scoped to buildDir only — does
 	// not touch device mappers from other commands (e.g. QEMU).
@@ -562,7 +556,7 @@ func (b *Builder) execute(ctx *actions.BuildContext, buildDir string, overlay *O
 
 	// Clean cache if it was created with an older/incompatible format
 	if manifest.Version < CacheVersion && len(manifest.Phases) > 0 {
-		fmt.Printf("  Cache version mismatch (have %d, need %d), cleaning...\n", manifest.Version, CacheVersion)
+		out.Info("Cache version mismatch (have %d, need %d), cleaning...", manifest.Version, CacheVersion)
 		if err := overlay.CleanCache(); err != nil {
 			return fmt.Errorf("cleaning incompatible cache: %w", err)
 		}
@@ -570,14 +564,11 @@ func (b *Builder) execute(ctx *actions.BuildContext, buildDir string, overlay *O
 			return fmt.Errorf("reinitializing overlay: %w", err)
 		}
 		manifest = &Manifest{Version: CacheVersion, Phases: make(map[string]PhaseEntry)}
-		fmt.Println()
+		out.Blank()
 	}
 
 	// Set version for new caches
 	manifest.Version = CacheVersion
-
-	fmt.Println(headerStyle.Render("Executing build phases"))
-	fmt.Println()
 
 	// Execute each phase with cache checking
 	phaseFuncs := []func(*actions.BuildContext, string) error{
@@ -603,7 +594,7 @@ func (b *Builder) execute(ctx *actions.BuildContext, buildDir string, overlay *O
 
 		// Check cache
 		if IsPhaseCached(overlay.CacheDir(), i, hash, manifest) {
-			fmt.Printf("  %s %s\n", phaseStyle.Render(phaseName), cachedStyle.Render("cached"))
+			out.PhaseCached(phaseName)
 			continue
 		}
 
@@ -617,13 +608,17 @@ func (b *Builder) execute(ctx *actions.BuildContext, buildDir string, overlay *O
 			return fmt.Errorf("mounting overlay for %s: %w", phaseName, err)
 		}
 
-		fmt.Printf("  %s\n", phaseStyle.Render(phaseName))
+		out.Phase(phaseName)
+		phaseStart := time.Now()
 
 		// Execute the phase into the merged directory
 		if err := phaseFn(ctx, overlay.MergedDir()); err != nil {
+			out.PhaseFailed(phaseName)
 			overlay.Unmount()
 			return fmt.Errorf("phase %s: %w", phaseName, err)
 		}
+
+		out.PhaseComplete(phaseName, time.Since(phaseStart))
 
 		// Commit: unmount and save hash
 		if err := overlay.CommitPhase(i, hash, manifest); err != nil {
@@ -631,8 +626,8 @@ func (b *Builder) execute(ctx *actions.BuildContext, buildDir string, overlay *O
 		}
 	}
 
-	fmt.Println()
+	out.Blank()
+
+	out.EndStage(StageBuild, time.Since(buildStart))
 	return nil
 }
-
-

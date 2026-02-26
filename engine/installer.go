@@ -20,8 +20,8 @@ func (b *Builder) bundleInstaller(ctx *actions.BuildContext, buildDir string) er
 		return nil
 	}
 
-	fmt.Println()
-	fmt.Printf("  %s\n", phaseStyle.Render("Bundling installer"))
+	out.Blank()
+	out.Phase("Bundling installer")
 
 	// Find the root partition image to write into
 	rootImg := filepath.Join(buildDir, "root.img")
@@ -82,7 +82,7 @@ func (b *Builder) BundleInstallerToRootfs(ctx *actions.BuildContext, rootfs stri
 // its partition images (zstd-compressed) and manifest into the installer rootfs.
 func (b *Builder) bundlePayloads(ctx *actions.BuildContext, rootfs string) error {
 	for _, payload := range ctx.InstallerPayloads {
-		fmt.Printf("    payload: %s\n", payload.Target)
+		out.Info("payload: %s", payload.Target)
 
 		// Ensure the payload target is built and packaged — auto-builds
 		// if needed, then guarantees all .img files exist.
@@ -116,8 +116,9 @@ func (b *Builder) bundlePayloads(ctx *actions.BuildContext, rootfs string) error
 
 			zstFile := fmt.Sprintf("%s.img.zst", part.Name)
 			destImg := filepath.Join(payloadDir, zstFile)
-			fmt.Printf("      %s → %s (%s)\n", srcFile, zstFile, actions.FormatSize(part.Size))
-			if err := run("zstd", "-T0", "-9", "-f", srcImg, "-o", destImg); err != nil {
+			if err := out.RunWithSpinner(fmt.Sprintf("%s → %s (%s)", srcFile, zstFile, actions.FormatSize(part.Size)), func() error {
+				return runSilent("zstd", "-T0", "-9", "-f", srcImg, "-o", destImg)
+			}); err != nil {
 				return fmt.Errorf("compressing partition image %s: %w", srcFile, err)
 			}
 
@@ -150,7 +151,7 @@ func (b *Builder) bundlePayloads(ctx *actions.BuildContext, rootfs string) error
 // bundleServer copies the starforge-install-server binary into the rootfs
 // and creates a systemd service to start it at boot.
 func bundleServer(server *actions.InstallerServerDef, rootfs string) error {
-	fmt.Printf("    server (port %d)\n", server.Port)
+	out.Info("server (port %d)", server.Port)
 
 	// Find the server binary — look next to the running starforge binary first
 	serverBin, err := buildCompanionBinary("starforge-install-server")
@@ -207,7 +208,7 @@ WantedBy=multi-user.target
 // bundleClient copies the starforge-install binary into the rootfs and
 // creates an autologin getty override to run it on the configured tty.
 func bundleClient(client *actions.InstallerClientDef, server *actions.InstallerServerDef, rootfs string) error {
-	fmt.Printf("    client (auto_login: %s)\n", client.AutoLogin)
+	out.Info("client (auto_login: %s)", client.AutoLogin)
 
 	// Find the client binary
 	clientBin, err := buildCompanionBinary("starforge-install")
@@ -285,8 +286,9 @@ func buildCompanionBinary(name string) (string, error) {
 		return "", fmt.Errorf("cannot build %s: module root not found", name)
 	}
 
-	fmt.Printf("    building %s...\n", name)
-	if err := run("go", "build", "-C", modRoot, "-o", output, "./cmd/"+name+"/"); err != nil {
+	if err := out.RunWithSpinner(fmt.Sprintf("building %s", name), func() error {
+		return runSilent("go", "build", "-C", modRoot, "-o", output, "./cmd/"+name+"/")
+	}); err != nil {
 		return "", fmt.Errorf("building %s: %w", name, err)
 	}
 

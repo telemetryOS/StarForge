@@ -142,8 +142,13 @@ func setupDeviceMapper(parts []actions.PartitionDef, buildDir, dmName string) ([
 	cmd := exec.Command(resolveBin("dmsetup"), "create", dmName)
 	cmd.Env = vendorEnv()
 	cmd.Stdin = strings.NewReader(table)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if out != nil {
+		cmd.Stdout = out.LogWriter()
+		cmd.Stderr = out.LogWriter()
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	if err := cmd.Run(); err != nil {
 		cleanupDeviceMapper(dmName, loopDevs)
 		return nil, fmt.Errorf("dmsetup create: %w", err)
@@ -179,8 +184,13 @@ func writeSfdiskGPT(device string, entries []partEntry) error {
 	cmd := exec.Command(resolveBin("sfdisk"), device)
 	cmd.Env = vendorEnv()
 	cmd.Stdin = strings.NewReader(script.String())
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if out != nil {
+		cmd.Stdout = out.LogWriter()
+		cmd.Stderr = out.LogWriter()
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	return cmd.Run()
 }
 
@@ -385,8 +395,11 @@ func RunQEMU(targetName, buildDir, projectDir string, parts []actions.PartitionD
 	// Set up device mapper (skipped in boot-disk mode)
 	var loopDevs []string
 	if bootDisk == "" {
-		fmt.Println(headerStyle.Render("Assembling virtual disk"))
-		fmt.Printf("  device mapper: %s\n", dmName)
+		out.Header("Assembling virtual disk")
+		out.Styled(
+			fmt.Sprintf("  device mapper: %s", dmName),
+			fmt.Sprintf("  device mapper: %s", dmName),
+		)
 
 		var err error
 		loopDevs, err = setupDeviceMapper(parts, imageDir, dmName)
@@ -407,7 +420,10 @@ func RunQEMU(targetName, buildDir, projectDir string, parts []actions.PartitionD
 	if err != nil {
 		return err
 	}
-	fmt.Printf("  OVMF: %s\n", ovmfPath)
+	out.Styled(
+		fmt.Sprintf("  OVMF: %s", ovmfPath),
+		fmt.Sprintf("  OVMF: %s", ovmfPath),
+	)
 
 	// Resolve QEMU options (config overrides → defaults)
 	mem := 4096
@@ -438,7 +454,10 @@ func RunQEMU(targetName, buildDir, projectDir string, parts []actions.PartitionD
 		}
 	}
 
-	fmt.Printf("  memory: %dM, cpus: %d, gpu: %dM\n", mem, cpus, gpuMem)
+	out.Styled(
+		fmt.Sprintf("  memory: %dM, cpus: %d, gpu: %dM", mem, cpus, gpuMem),
+		fmt.Sprintf("  memory: %dM, cpus: %d, gpu: %dM", mem, cpus, gpuMem),
+	)
 
 	// Provision additional disks
 	if qemuCfg != nil && len(qemuCfg.Disks) > 0 {
@@ -468,7 +487,10 @@ func RunQEMU(targetName, buildDir, projectDir string, parts []actions.PartitionD
 		if _, err := os.Stat(bootImg); os.IsNotExist(err) {
 			return fmt.Errorf("boot disk not found: %s — available disks are in .starforge/<target>/disks/", bootImg)
 		}
-		fmt.Printf("  boot disk: %s\n", bootDisk)
+		out.Styled(
+			fmt.Sprintf("  boot disk: %s", bootDisk),
+			fmt.Sprintf("  boot disk: %s", bootDisk),
+		)
 		qemuArgs = append(qemuArgs,
 			"-drive", fmt.Sprintf("file=%s,format=raw,if=virtio,cache=writeback,aio=threads", bootImg),
 		)
@@ -507,13 +529,19 @@ func RunQEMU(targetName, buildDir, projectDir string, parts []actions.PartitionD
 		qemuArgs = append(qemuArgs, "-serial", "mon:stdio")
 	}
 
-	fmt.Println()
-	fmt.Println(headerStyle.Render("Booting QEMU"))
-	fmt.Printf("  SSH: ssh -p %d localhost\n", sshPort)
+	out.Blank()
+	out.Header("Booting QEMU")
+	out.Styled(
+		fmt.Sprintf("  SSH: ssh -p %d localhost", sshPort),
+		fmt.Sprintf("  SSH: ssh -p %d localhost", sshPort),
+	)
 	if serial {
-		fmt.Printf("  Serial: connected to terminal (Ctrl+A x to quit)\n")
+		out.Styled(
+			"  Serial: connected to terminal (Ctrl+A x to quit)",
+			"  Serial: connected to terminal (Ctrl+A x to quit)",
+		)
 	}
-	fmt.Println()
+	out.Blank()
 
 	// Intercept signals so defers run (cleanup device mapper, loops, gpt.img).
 	// Without this, Ctrl+C kills the process immediately and resources leak.
@@ -577,7 +605,7 @@ func ensureQEMUDisks(buildDir string, disks []config.QEMUDisk) error {
 	for _, disk := range disks {
 		imgPath := filepath.Join(diskDir, disk.Name+".img")
 		if _, err := os.Stat(imgPath); err == nil {
-			fmt.Printf("  disk: %s (existing)\n", disk.Name)
+			out.Info("disk: %s (existing)", disk.Name)
 			continue
 		}
 
@@ -596,7 +624,7 @@ func ensureQEMUDisks(buildDir string, disks []config.QEMUDisk) error {
 		}
 		f.Close()
 
-		fmt.Printf("  disk: %s (%s, new)\n", disk.Name, disk.Size)
+		out.Info("disk: %s (%s, new)", disk.Name, disk.Size)
 	}
 
 	return nil

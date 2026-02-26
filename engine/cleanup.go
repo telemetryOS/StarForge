@@ -43,12 +43,24 @@ func CleanupMounts(scope string) {
 		return len(mounts[i]) > len(mounts[j])
 	})
 
-	fmt.Println("  Cleaning up stale mounts")
+	if out != nil {
+		out.Info("cleaning up stale mounts")
+	} else {
+		fmt.Println("  Cleaning up stale mounts")
+	}
 	for _, mp := range mounts {
-		fmt.Printf("    umount %s\n", mp)
+		if out != nil {
+			out.SubInfo("umount %s", mp)
+		} else {
+			fmt.Printf("    umount %s\n", mp)
+		}
 		run("umount", "-R", mp)
 	}
-	fmt.Println()
+	if out != nil {
+		out.Blank()
+	} else {
+		fmt.Println()
+	}
 }
 
 // CleanupAll cleans up ALL stale resources: mounts under scope,
@@ -88,7 +100,11 @@ func cleanupDeviceMappers() {
 			}
 		}
 
-		fmt.Printf("  Cleaning up stale device mapper: %s\n", dmName)
+		if out != nil {
+			out.Info("cleaning up stale device mapper: %s", dmName)
+		} else {
+			fmt.Printf("  Cleaning up stale device mapper: %s\n", dmName)
+		}
 		cleanupStaleDeviceMapper(dmName)
 	}
 }
@@ -130,14 +146,14 @@ func cleanupStaleDeviceMapper(dmName string) {
 // It first unmounts any filesystems mounted from those loop devices, then
 // detaches the loop devices themselves.
 func cleanupLoops(dir string) {
-	out, err := runOutput("losetup", "-l", "-n", "-O", "NAME,BACK-FILE")
+	loopList, err := runOutput("losetup", "-l", "-n", "-O", "NAME,BACK-FILE")
 	if err != nil {
 		return
 	}
 
 	// Collect stale loop devices
 	var staleLoops []string
-	for _, line := range strings.Split(out, "\n") {
+	for _, line := range strings.Split(loopList, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
 			continue
@@ -167,7 +183,11 @@ func cleanupLoops(dir string) {
 				continue
 			}
 			if staleSet[fields[0]] {
+				if out != nil {
+				out.SubInfo("umount stale loop: %s", fields[1])
+			} else {
 				fmt.Printf("  Unmounting stale loop mount: %s\n", fields[1])
+			}
 				run("umount", fields[1])
 			}
 		}
@@ -175,7 +195,11 @@ func cleanupLoops(dir string) {
 
 	// Detach the loop devices
 	for _, loopDev := range staleLoops {
-		fmt.Printf("  Detaching stale loop: %s\n", loopDev)
+		if out != nil {
+			out.SubInfo("detach stale loop: %s", loopDev)
+		} else {
+			fmt.Printf("  Detaching stale loop: %s\n", loopDev)
+		}
 		run("losetup", "-d", loopDev)
 	}
 }

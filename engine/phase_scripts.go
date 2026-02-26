@@ -19,9 +19,12 @@ func (b *Builder) phaseScripts(ctx *actions.BuildContext, rootfs string) error {
 			label = "(inline)"
 		}
 		if script.User != "" {
-			fmt.Printf("    %s  %s\n", label, dimStyle.Render("user: "+script.User))
+			out.Styled(
+				fmt.Sprintf("    %s  %s", label, dimStyle.Render("user: "+script.User)),
+				fmt.Sprintf("    %s  user: %s", label, script.User),
+			)
 		} else {
-			fmt.Printf("    %s\n", label)
+			out.Info("%s", label)
 		}
 
 		// Use /var/tmp instead of /tmp — arch-chroot mounts a tmpfs on /tmp

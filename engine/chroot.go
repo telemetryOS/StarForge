@@ -33,7 +33,7 @@ func (b *Builder) Chroot(targetName string, args []string, overlayName string, p
 		return fmt.Errorf("target %q has not been built yet — run 'starforge build %s' first", targetName, targetName)
 	}
 
-	fmt.Println(headerStyle.Render(fmt.Sprintf("Entering chroot: %s", targetName)))
+	out.Header(fmt.Sprintf("Entering chroot: %s", targetName))
 
 	// Clean up any stale mounts from a previous session
 	CleanupMounts(buildDir)
@@ -59,7 +59,7 @@ func (b *Builder) Chroot(targetName string, args []string, overlayName string, p
 
 // chrootOverlay enters a chroot using loop-mounted partition images from a named overlay.
 func (b *Builder) chrootOverlay(targetName, buildDir string, args []string, overlayName string, parts []actions.PartitionDef) error {
-	fmt.Println(headerStyle.Render(fmt.Sprintf("Entering chroot: %s (overlay: %s)", targetName, overlayName)))
+	out.Header(fmt.Sprintf("Entering chroot: %s (overlay: %s)", targetName, overlayName))
 
 	overlayDir, err := EnsureNamedOverlay(buildDir, overlayName, parts)
 	if err != nil {
