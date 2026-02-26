@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/telemetryos/starforge/actions"
+	"github.com/telemetryos/starforge/config"
 )
 
 // PhaseNames lists the build phases in execution order.
@@ -318,9 +319,12 @@ func IsPhaseCached(cacheDir string, phaseIndex int, hash string, manifest *Manif
 }
 
 // HashPackaging computes a composite hash over all phase hashes, partition
-// definitions, and installer definitions. Any change to any input invalidates
-// the packaging artifacts (.img files).
-func HashPackaging(manifest *Manifest, ctx *actions.BuildContext) string {
+// definitions, installer definitions, and payload target manifests. Any
+// change to any input — including a payload target being rebuilt —
+// invalidates the packaging artifacts (.img files).
+//
+// project may be nil for testing; payload target hashes are skipped in that case.
+func HashPackaging(manifest *Manifest, ctx *actions.BuildContext, project *config.Project) string {
 	h := sha256.New()
 
 	// Include all phase hashes in order — the overlay content is the primary input.
@@ -346,6 +350,23 @@ func HashPackaging(manifest *Manifest, ctx *actions.BuildContext) string {
 	}
 	for _, p := range ctx.InstallerPayloads {
 		fmt.Fprintf(h, "installer-payload=%s,%s\n", p.Target, p.Path)
+
+		// Include the payload target's manifest so changes to its build
+		// (e.g. a config change in target B) invalidate this target's packaging.
+		if project != nil {
+			payloadBuildDir := project.TargetBuildDir(p.Target)
+			payloadCacheDir := filepath.Join(payloadBuildDir, "cache")
+			if pm, err := LoadManifest(payloadCacheDir); err == nil {
+				for _, phaseName := range PhaseNames {
+					if entry, ok := pm.Phases[phaseName]; ok {
+						fmt.Fprintf(h, "payload-phase=%s:%s:%s\n", p.Target, phaseName, entry.Hash)
+					}
+				}
+				if pm.Packaging != nil {
+					fmt.Fprintf(h, "payload-packaging=%s:%s\n", p.Target, pm.Packaging.Hash)
+				}
+			}
+		}
 	}
 
 	return hex.EncodeToString(h.Sum(nil))

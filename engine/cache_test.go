@@ -538,8 +538,8 @@ func TestHashPackaging_Deterministic(t *testing.T) {
 		},
 	}
 
-	h1 := HashPackaging(manifest, ctx)
-	h2 := HashPackaging(manifest, ctx)
+	h1 := HashPackaging(manifest, ctx, nil)
+	h2 := HashPackaging(manifest, ctx, nil)
 	if h1 != h2 {
 		t.Error("same inputs should produce same hash")
 	}
@@ -565,8 +565,8 @@ func TestHashPackaging_ChangesOnPhaseHash(t *testing.T) {
 		},
 	}
 
-	h1 := HashPackaging(m1, ctx)
-	h2 := HashPackaging(m2, ctx)
+	h1 := HashPackaging(m1, ctx, nil)
+	h2 := HashPackaging(m2, ctx, nil)
 	if h1 == h2 {
 		t.Error("different phase hash should produce different packaging hash")
 	}
@@ -589,8 +589,8 @@ func TestHashPackaging_ChangesOnPartitionDef(t *testing.T) {
 		{Name: "root", Filesystem: "ext4", Size: 8 << 30, MountPoint: "/"},
 	}
 
-	h1 := HashPackaging(manifest, ctx1)
-	h2 := HashPackaging(manifest, ctx2)
+	h1 := HashPackaging(manifest, ctx1, nil)
+	h2 := HashPackaging(manifest, ctx2, nil)
 	if h1 == h2 {
 		t.Error("different partition size should produce different packaging hash")
 	}
@@ -614,8 +614,8 @@ func TestHashPackaging_ChangesOnInstaller(t *testing.T) {
 	}
 	ctx2.InstallerServer = &actions.InstallerServerDef{Port: 8080, Path: "/opt/installer"}
 
-	h1 := HashPackaging(manifest, ctx1)
-	h2 := HashPackaging(manifest, ctx2)
+	h1 := HashPackaging(manifest, ctx1, nil)
+	h2 := HashPackaging(manifest, ctx2, nil)
 	if h1 == h2 {
 		t.Error("adding installer server should change packaging hash")
 	}

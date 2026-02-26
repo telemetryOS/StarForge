@@ -137,8 +137,12 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 		}
 	}
 
-	// If packaging is marked complete and .img files exist, we're done
-	if manifest.Packaging != nil && manifest.Packaging.Completed {
+	// Compute packaging hash including payload target manifests.
+	// This ensures changes to any payload target invalidate the installer's packaging.
+	ctx := buildResultToContext(result)
+	packagingHash := HashPackaging(manifest, ctx, b.project)
+
+	if manifest.Packaging != nil && manifest.Packaging.Completed && manifest.Packaging.Hash == packagingHash {
 		allExist := true
 		for _, p := range result.Partitions {
 			if _, err := os.Stat(filepath.Join(buildDir, p.Name+".img")); err != nil {
@@ -152,7 +156,7 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 		}
 	}
 
-	// Need to (re-)package from saved build result
+	// Need to (re-)package
 	fmt.Println(headerStyle.Render("Packaging images"))
 	fmt.Println()
 
@@ -185,7 +189,6 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 	}
 
 	// Bundle installer using a BuildContext from the saved result
-	ctx := buildResultToContext(result)
 	if err := b.bundleInstaller(ctx, buildDir); err != nil {
 		return nil, fmt.Errorf("installer bundling: %w", err)
 	}
@@ -194,8 +197,8 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 		return nil, fmt.Errorf("invalidating overlays: %w", err)
 	}
 
-	// Mark packaging complete
-	manifest.Packaging = &PackagingEntry{Hash: "packaged", Completed: true}
+	// Mark packaging complete with the content hash
+	manifest.Packaging = &PackagingEntry{Hash: packagingHash, Completed: true}
 	if err := manifest.Save(overlay.CacheDir()); err != nil {
 		return nil, fmt.Errorf("saving manifest: %w", err)
 	}
