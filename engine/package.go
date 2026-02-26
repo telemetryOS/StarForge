@@ -708,6 +708,19 @@ func SaveBuildResult(ctx *actions.BuildContext, buildDir string) error {
 	return os.WriteFile(filepath.Join(buildDir, "build-result.json"), data, 0o644)
 }
 
+// buildResultToContext converts a saved BuildResult into a BuildContext
+// with all fields populated (partitions, installer defs, ownership ops).
+func buildResultToContext(r *BuildResult) *actions.BuildContext {
+	return &actions.BuildContext{
+		Partitions:        r.Partitions,
+		FileOwnerships:    r.Ownerships,
+		FilePermissions:   r.Permissions,
+		InstallerPayloads: r.InstallerPayloads,
+		InstallerServer:   r.InstallerServer,
+		InstallerClient:   r.InstallerClient,
+	}
+}
+
 // LoadBuildResult reads the packaging context saved by a previous build.
 func LoadBuildResult(buildDir string) (*BuildResult, error) {
 	data, err := os.ReadFile(filepath.Join(buildDir, "build-result.json"))

@@ -154,7 +154,7 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 		}
 		if allExist {
 			fmt.Println(cachedStyle.Render("Packaging up to date"))
-			return &actions.BuildContext{Partitions: result.Partitions}, nil
+			return buildResultToContext(result), nil
 		}
 	}
 
@@ -190,13 +190,8 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 		return nil, fmt.Errorf("packaging: %w", err)
 	}
 
-	// Bundle installer using a minimal BuildContext from the saved result
-	ctx := &actions.BuildContext{
-		Partitions:        result.Partitions,
-		InstallerPayloads: result.InstallerPayloads,
-		InstallerServer:   result.InstallerServer,
-		InstallerClient:   result.InstallerClient,
-	}
+	// Bundle installer using a BuildContext from the saved result
+	ctx := buildResultToContext(result)
 	if err := b.bundleInstaller(ctx, buildDir); err != nil {
 		return nil, fmt.Errorf("installer bundling: %w", err)
 	}
