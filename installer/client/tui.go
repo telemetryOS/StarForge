@@ -14,7 +14,9 @@ import (
 
 // Styles — ember palette.
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#d07030"))
+	tuiBg     = lipgloss.Color("#1c1408")
+	tuiBgDark = lipgloss.Color("#120d08")
+
 	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#c8a028"))
 	normalStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#f0d0a0"))
 	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#7a5538"))
@@ -22,6 +24,16 @@ var (
 	progressStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e8b830"))
 	successStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#c8a028"))
 	warningStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e89030"))
+
+	// TUI chrome
+	tuiTitleStar  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e8b830")).Background(tuiBgDark)
+	tuiTitleForge = lipgloss.NewStyle().Foreground(lipgloss.Color("#d48820")).Background(tuiBgDark)
+	tuiTitleCmd   = lipgloss.NewStyle().Foreground(lipgloss.Color("#b08050")).Background(tuiBgDark).PaddingLeft(1)
+	tuiTitlePad   = lipgloss.NewStyle().Background(tuiBgDark)
+	tuiFooterDim  = lipgloss.NewStyle().Foreground(lipgloss.Color("#b08050")).Background(tuiBgDark)
+	tuiFooterKey  = lipgloss.NewStyle().Foreground(lipgloss.Color("#e89030")).Background(tuiBgDark)
+	tuiChromeBg   = lipgloss.NewStyle().Background(tuiBg)
+	tuiContentPad = lipgloss.NewStyle().PaddingLeft(2).Background(tuiBg)
 )
 
 // phase tracks the current TUI screen.
@@ -290,35 +302,65 @@ func (m model) View() tea.View {
 	v := tea.NewView("")
 	v.AltScreen = true
 
+	if m.width == 0 {
+		v.Content = "\n  Initializing..."
+		return v
+	}
+
+	var b strings.Builder
+
+	// Title bar
+	b.WriteString(tuiTitleBar("install", m.width))
+	b.WriteByte('\n')
+
+	// Content area
+	var content, footer string
 	switch m.phase {
 	case phaseLoading:
-		v.Content = m.viewLoading()
+		content = m.viewLoading()
+		footer = m.footerHelp("q quit")
 	case phasePayloadSelect:
-		v.Content = m.viewPayloadSelect()
+		content = m.viewPayloadSelect()
+		footer = m.footerHelp("↑/↓ select  enter confirm  q quit")
 	case phaseDiskSelect:
-		v.Content = m.viewDiskSelect()
+		content = m.viewDiskSelect()
+		footer = m.footerHelp("↑/↓ select  enter confirm  esc back  q quit")
 	case phaseConfirm:
-		v.Content = m.viewConfirm()
+		content = m.viewConfirm()
+		footer = m.footerHelp("y confirm  n cancel  q quit")
 	case phaseProgress:
-		v.Content = m.viewProgress()
+		content = m.viewProgress()
+		footer = m.footerProgress()
 	case phaseComplete:
-		v.Content = m.viewComplete()
+		content = m.viewComplete()
+		footer = m.footerHelp("r reboot  q quit")
 	case phaseError:
-		v.Content = m.viewError()
+		content = m.viewError()
+		footer = m.footerHelp("q quit")
 	}
+
+	contentHeight := max(m.height-2, 1) // title + footer
+	styled := tuiContentPad.
+		Width(m.width).
+		Height(contentHeight).
+		Render(content)
+	b.WriteString(styled)
+	b.WriteByte('\n')
+
+	// Footer bar
+	b.WriteString(footer)
+
+	v.Content = tuiFillScreen(b.String(), m.width, m.height)
 	return v
 }
 
 func (m model) viewLoading() string {
-	return "\n  Loading...\n"
+	return "\n Loading..."
 }
 
 func (m model) viewPayloadSelect() string {
 	var b strings.Builder
-	b.WriteString("\n")
-	b.WriteString(titleStyle.Render("  StarForge Installer"))
-	b.WriteString("\n\n")
-	b.WriteString("  Select a payload to install:\n\n")
+	b.WriteString("\nSelect a payload to install:\n\n")
 
 	for i, p := range m.payloads {
 		cursor := "  "
@@ -333,33 +375,27 @@ func (m model) viewPayloadSelect() string {
 			totalSize += part.Size
 		}
 
-		b.WriteString(fmt.Sprintf("  %s%s %s\n",
+		b.WriteString(fmt.Sprintf("%s%s %s\n",
 			cursor,
 			style.Render(p.Name),
 			dimStyle.Render(fmt.Sprintf("(%s)", diskutil.FormatSize(totalSize)))))
 		if p.Description != "" {
-			b.WriteString(fmt.Sprintf("      %s\n", dimStyle.Render(p.Description)))
+			b.WriteString(fmt.Sprintf("    %s\n", dimStyle.Render(p.Description)))
 		}
 	}
 
-	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("  Use arrow keys to select, Enter to confirm, q to quit"))
-	b.WriteString("\n")
 	return b.String()
 }
 
 func (m model) viewDiskSelect() string {
 	var b strings.Builder
-	b.WriteString("\n")
-	b.WriteString(titleStyle.Render("  StarForge Installer"))
-	b.WriteString("\n\n")
-	b.WriteString(fmt.Sprintf("  Payload: %s\n\n", selectedStyle.Render(m.payloads[m.payloadCursor].Name)))
-	b.WriteString("  Select a target disk:\n\n")
+	b.WriteString(fmt.Sprintf("\nPayload: %s\n\n", selectedStyle.Render(m.payloads[m.payloadCursor].Name)))
+	b.WriteString("Select a target disk:\n\n")
 
 	if len(m.disks) == 0 {
-		b.WriteString(warningStyle.Render("  No available disks found."))
+		b.WriteString(warningStyle.Render("No available disks found."))
 		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("  All disks are either mounted or the installer USB."))
+		b.WriteString(dimStyle.Render("All disks are either mounted or the installer USB."))
 		b.WriteString("\n")
 	} else {
 		for i, d := range m.disks {
@@ -370,23 +406,20 @@ func (m model) viewDiskSelect() string {
 				style = selectedStyle
 			}
 
-			model := d.Model
-			if model == "" {
-				model = "Unknown"
+			dmodel := d.Model
+			if dmodel == "" {
+				dmodel = "Unknown"
 			}
 
-			b.WriteString(fmt.Sprintf("  %s%s  %s  %s  %s\n",
+			b.WriteString(fmt.Sprintf("%s%s  %s  %s  %s\n",
 				cursor,
 				style.Render(fmt.Sprintf("/dev/%-8s", d.Name)),
-				dimStyle.Render(fmt.Sprintf("%-20s", model)),
+				dimStyle.Render(fmt.Sprintf("%-20s", dmodel)),
 				dimStyle.Render(diskutil.FormatSize(d.Size)),
 				dimStyle.Render(d.Transport)))
 		}
 	}
 
-	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("  Use arrow keys to select, Enter to confirm, Esc to go back"))
-	b.WriteString("\n")
 	return b.String()
 }
 
@@ -396,41 +429,35 @@ func (m model) viewConfirm() string {
 
 	var b strings.Builder
 	b.WriteString("\n")
-	b.WriteString(titleStyle.Render("  StarForge Installer"))
+	b.WriteString(warningStyle.Render("WARNING: All data on the target disk will be destroyed!"))
 	b.WriteString("\n\n")
-	b.WriteString(warningStyle.Render("  WARNING: All data on the target disk will be destroyed!"))
-	b.WriteString("\n\n")
-	b.WriteString(fmt.Sprintf("  Payload: %s\n", selectedStyle.Render(payload.Name)))
-	b.WriteString(fmt.Sprintf("  Disk:    %s (%s, %s)\n",
+	b.WriteString(fmt.Sprintf("Payload: %s\n", selectedStyle.Render(payload.Name)))
+	b.WriteString(fmt.Sprintf("Disk:    %s (%s, %s)\n",
 		selectedStyle.Render("/dev/"+disk.Name), disk.Model, diskutil.FormatSize(disk.Size)))
 	b.WriteString("\n")
-	b.WriteString("  Proceed with installation? ")
+	b.WriteString("Proceed with installation? ")
 	b.WriteString(selectedStyle.Render("[y/N]"))
-	b.WriteString("\n")
 	return b.String()
 }
 
 func (m model) viewProgress() string {
 	var b strings.Builder
-	b.WriteString("\n")
-	b.WriteString(titleStyle.Render("  StarForge Installer"))
-	b.WriteString("\n\n")
 
 	// Progress bar
 	barWidth := 40
 	if m.width > 60 {
-		barWidth = m.width - 20
+		barWidth = m.width - 24
 	}
 	filled := int(m.progress * float64(barWidth))
 	if filled > barWidth {
 		filled = barWidth
 	}
 	bar := strings.Repeat("=", filled) + strings.Repeat("-", barWidth-filled)
-	b.WriteString(fmt.Sprintf("  [%s] %.0f%%\n", progressStyle.Render(bar), m.progress*100))
-	b.WriteString(fmt.Sprintf("  Status: %s\n\n", m.status))
+	b.WriteString(fmt.Sprintf("\n[%s] %.0f%%\n", progressStyle.Render(bar), m.progress*100))
+	b.WriteString(fmt.Sprintf("Status: %s\n\n", normalStyle.Render(m.status)))
 
 	// Log lines (show last N that fit)
-	maxLines := m.height - 10
+	maxLines := m.height - 8
 	if maxLines < 5 {
 		maxLines = 5
 	}
@@ -439,7 +466,8 @@ func (m model) viewProgress() string {
 		start = len(m.logLines) - maxLines
 	}
 	for _, line := range m.logLines[start:] {
-		b.WriteString(fmt.Sprintf("  %s\n", dimStyle.Render(line)))
+		b.WriteString(dimStyle.Render(line))
+		b.WriteByte('\n')
 	}
 
 	return b.String()
@@ -448,13 +476,11 @@ func (m model) viewProgress() string {
 func (m model) viewComplete() string {
 	var b strings.Builder
 	b.WriteString("\n")
-	b.WriteString(titleStyle.Render("  StarForge Installer"))
-	b.WriteString("\n\n")
-	b.WriteString(successStyle.Render("  Installation complete!"))
+	b.WriteString(successStyle.Render("Installation complete!"))
 	b.WriteString("\n\n")
 
 	// Show log
-	maxLines := m.height - 10
+	maxLines := m.height - 8
 	if maxLines < 5 {
 		maxLines = 5
 	}
@@ -463,38 +489,31 @@ func (m model) viewComplete() string {
 		start = len(m.logLines) - maxLines
 	}
 	for _, line := range m.logLines[start:] {
-		b.WriteString(fmt.Sprintf("  %s\n", dimStyle.Render(line)))
+		b.WriteString(dimStyle.Render(line))
+		b.WriteByte('\n')
 	}
 
-	b.WriteString("\n")
-	b.WriteString("  Press ")
-	b.WriteString(selectedStyle.Render("r"))
-	b.WriteString(" to reboot, ")
-	b.WriteString(selectedStyle.Render("q"))
-	b.WriteString(" to quit\n")
 	return b.String()
 }
 
 func (m model) viewError() string {
 	var b strings.Builder
 	b.WriteString("\n")
-	b.WriteString(titleStyle.Render("  StarForge Installer"))
-	b.WriteString("\n\n")
-	b.WriteString(errorStyle.Render("  Error: "))
+	b.WriteString(errorStyle.Render("Error: "))
 	if m.loadErr != nil {
 		b.WriteString(errorStyle.Render(fmt.Sprintf("%v", m.loadErr)))
 	}
 	b.WriteString("\n")
 	if m.installErr != "" && (m.loadErr == nil || m.installErr != m.loadErr.Error()) {
-		b.WriteString(errorStyle.Render(fmt.Sprintf("  Detail: %s", m.installErr)))
+		b.WriteString(errorStyle.Render(fmt.Sprintf("Detail: %s", m.installErr)))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 
 	if len(m.logLines) > 0 {
-		b.WriteString(dimStyle.Render("  Log:"))
+		b.WriteString(dimStyle.Render("Log:"))
 		b.WriteString("\n")
-		maxLines := m.height - 12
+		maxLines := m.height - 10
 		if maxLines < 5 {
 			maxLines = 5
 		}
@@ -503,14 +522,69 @@ func (m model) viewError() string {
 			start = len(m.logLines) - maxLines
 		}
 		for _, line := range m.logLines[start:] {
-			b.WriteString(fmt.Sprintf("  %s\n", dimStyle.Render(line)))
+			b.WriteString(dimStyle.Render(line))
+			b.WriteByte('\n')
 		}
-		b.WriteString("\n")
 	}
 
-	b.WriteString(dimStyle.Render("  Press q to quit"))
-	b.WriteString("\n")
 	return b.String()
+}
+
+// TUI chrome helpers — matching build TUI appearance.
+
+func tuiTitleBar(cmd string, width int) string {
+	title := tuiTitleStar.Render("STAR") +
+		tuiTitleForge.Render("FORGE") +
+		tuiTitleCmd.Render(cmd)
+	titleW := lipgloss.Width(title)
+	if titleW < width {
+		title += tuiTitlePad.Render(strings.Repeat(" ", width-titleW))
+	}
+	return title
+}
+
+func tuiFillScreen(content string, width, height int) string {
+	fill := tuiChromeBg.Render
+	lines := strings.Split(content, "\n")
+
+	var out strings.Builder
+	for i, line := range lines {
+		visible := lipgloss.Width(line)
+		if visible < width {
+			line += fill(strings.Repeat(" ", width-visible))
+		}
+		out.WriteString(line)
+		if i < len(lines)-1 {
+			out.WriteByte('\n')
+		}
+	}
+
+	blankLine := fill(strings.Repeat(" ", width))
+	for i := len(lines); i < height; i++ {
+		out.WriteByte('\n')
+		out.WriteString(blankLine)
+	}
+
+	return out.String()
+}
+
+func tuiFooterBar(left, right string, width int) string {
+	fSp := lipgloss.NewStyle().Background(tuiBgDark)
+	leftW := lipgloss.Width(left)
+	rightW := lipgloss.Width(right)
+	gap := max(width-leftW-rightW, 0)
+	return left + fSp.Render(strings.Repeat(" ", gap)) + right
+}
+
+func (m model) footerHelp(help string) string {
+	return tuiFooterBar(tuiFooterDim.Render(" "+help), "", m.width)
+}
+
+func (m model) footerProgress() string {
+	left := tuiFooterDim.Render(" installing...")
+	right := tuiFooterKey.Render(fmt.Sprintf("%3.f%%", m.progress*100)) +
+		tuiFooterDim.Render(" ")
+	return tuiFooterBar(left, right, m.width)
 }
 
 // Commands

@@ -15,7 +15,7 @@ import (
 const sidebarWidth = 20
 
 // contentPad is applied to the left edge of the content panel.
-var contentPad = lipgloss.NewStyle().PaddingLeft(1)
+var contentPad = lipgloss.NewStyle().PaddingLeft(1).Background(tuiBg)
 
 type inspectModel struct {
 	ctx         *actions.BuildContext
@@ -204,7 +204,7 @@ func (m *inspectModel) resizeViewport() {
 		return
 	}
 	contentWidth := max(m.width-sidebarWidth-3, 20)
-	contentHeight := max(m.height-1, 1) // help bar
+	contentHeight := max(m.height-2, 1) // title + footer
 	m.viewport.SetWidth(contentWidth)
 	m.viewport.SetHeight(contentHeight)
 }
@@ -296,23 +296,34 @@ func (m inspectModel) View() tea.View {
 		return v
 	}
 
-	sidebar := m.renderSidebar()
-	content := m.viewport.View()
+	var b strings.Builder
 
+	// Title bar
+	b.WriteString(tuiTitleBar("inspect", m.target, m.width))
+	b.WriteByte('\n')
+
+	// Main area: sidebar | content
+	mainHeight := max(m.height-2, 1) // title + footer
+
+	sidebar := m.renderSidebar()
 	styledSidebar := sidebarBorder.
 		Width(sidebarWidth).
-		Height(m.height - 1).
+		Height(mainHeight).
 		Render(sidebar)
 
-	// Pad content panel with left margin
+	content := m.viewport.View()
 	styledContent := contentPad.
 		Width(m.viewport.Width() + 1).
-		Height(m.height - 1).
+		Height(mainHeight).
 		Render(content)
 
-	body := lipgloss.JoinHorizontal(lipgloss.Top, styledSidebar, styledContent)
-	helpBar := m.renderHelpBar()
-	v.Content = body + "\n" + helpBar
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, styledSidebar, styledContent))
+	b.WriteByte('\n')
+
+	// Footer bar
+	b.WriteString(m.renderHelpBar())
+
+	v.Content = tuiFillScreen(b.String(), m.width, m.height)
 	return v
 }
 
@@ -354,16 +365,22 @@ func (m inspectModel) renderSidebar() string {
 
 func (m inspectModel) renderHelpBar() string {
 	if m.searching {
-		return " " + m.searchInput.View()
+		return tuiFooterBar(
+			tuiFooterDim.Render(" ")+m.searchInput.View(),
+			"",
+			m.width,
+		)
 	}
 
-	pct := ""
+	left := tuiFooterDim.Render(" ↑/↓ scroll  tab section  l layers  / search  q quit")
+
+	var right string
 	if m.viewport.TotalLineCount() > 0 {
-		pct = fmt.Sprintf("%3.f%%", m.viewport.ScrollPercent()*100)
+		right = tuiFooterAccent.Render(fmt.Sprintf("%3.f%%", m.viewport.ScrollPercent()*100)) +
+			tuiFooterDim.Render(" ")
 	}
 
-	help := "↑/↓ scroll  tab section  l layers  / search  q quit"
-	return " " + cmdDim.Render(help) + "  " + pct
+	return tuiFooterBar(left, right, m.width)
 }
 
 func runInspectTUI(target string, ctx *actions.BuildContext, cursor int) error {
