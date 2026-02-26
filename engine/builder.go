@@ -437,6 +437,24 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 		ctx.Packages = unique
 	}
 
+	// Resolve pkgrel for pinned packages without an explicit pkgrel.
+	// Done here so the resolved version is included in the phase hash —
+	// a new pkgrel published upstream will change the hash and trigger a rebuild.
+	if !b.DryRun {
+		for i, pkg := range ctx.Packages {
+			if pkg.Version != "" && !strings.Contains(pkg.Version, "-") {
+				resolved, err := resolveLatestPkgrel(pkg.Name, pkg.Version)
+				if err != nil {
+					return nil, fmt.Errorf("resolving pkgrel for %s=%s: %w", pkg.Name, pkg.Version, err)
+				}
+				if verbose {
+					fmt.Printf("    resolved %s=%s → %s=%s\n", pkg.Name, pkg.Version, pkg.Name, resolved)
+				}
+				ctx.Packages[i].Version = resolved
+			}
+		}
+	}
+
 	// Print collection warnings
 	for _, w := range ctx.Warnings {
 		fmt.Printf("  warning: %s\n", w)

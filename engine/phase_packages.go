@@ -2,7 +2,11 @@ package engine
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/telemetryos/starforge/actions"
@@ -84,16 +88,79 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 }
 
 // installFromArchive installs a specific package version from the Arch Linux
-// Archive. Tries x86_64 first, then falls back to any architecture.
+// Archive. If the version doesn't include a pkgrel (no "-"), the latest
+// pkgrel is resolved automatically from the archive listing.
+// Tries x86_64 first, then falls back to any architecture.
 func installFromArchive(rootfs string, pkg actions.Package) error {
+	version := pkg.Version
+
+	// Auto-resolve pkgrel if not explicitly provided
+	if !strings.Contains(version, "-") {
+		resolved, err := resolveLatestPkgrel(pkg.Name, version)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("      resolved %s=%s → %s=%s\n", pkg.Name, version, pkg.Name, resolved)
+		version = resolved
+	}
+
 	for _, arch := range []string{"x86_64", "any"} {
 		url := fmt.Sprintf("%s/%s/%s/%s-%s-%s.pkg.tar.zst",
-			archiveURL, string(pkg.Name[0]), pkg.Name, pkg.Name, pkg.Version, arch)
+			archiveURL, string(pkg.Name[0]), pkg.Name, pkg.Name, version, arch)
 		if err := chrootRun(rootfs, "pacman", "-U", url, "--noconfirm"); err == nil {
 			return nil
 		}
 	}
-	return fmt.Errorf("package %s=%s not found in archive (tried x86_64 and any)", pkg.Name, pkg.Version)
+	return fmt.Errorf("package %s=%s not found in archive (tried x86_64 and any)", pkg.Name, version)
+}
+
+// resolveLatestPkgrel fetches the archive directory listing for a package
+// and finds the highest pkgrel for the given version.
+// e.g. version "5.85" with entries 5.85-1, 5.85-2 → returns "5.85-2".
+func resolveLatestPkgrel(name, version string) (string, error) {
+	dirURL := fmt.Sprintf("%s/%s/%s/", archiveURL, string(name[0]), name)
+	resp, err := http.Get(dirURL)
+	if err != nil {
+		return "", fmt.Errorf("fetching archive listing for %s: %w", name, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("archive listing for %s returned HTTP %d", name, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading archive listing for %s: %w", name, err)
+	}
+
+	// Match filenames like: name-version-pkgrel-arch.pkg.tar.zst
+	// in the HTML directory listing href attributes.
+	pattern := regexp.MustCompile(
+		regexp.QuoteMeta(name+"-"+version) + `\-(\d+)\-(?:x86_64|any)\.pkg\.tar\.zst"`,
+	)
+
+	matches := pattern.FindAllStringSubmatch(string(body), -1)
+	if len(matches) == 0 {
+		return "", fmt.Errorf("no archive entries found for %s version %s", name, version)
+	}
+
+	maxRel := 0
+	for _, m := range matches {
+		rel, err := strconv.Atoi(m[1])
+		if err != nil {
+			continue
+		}
+		if rel > maxRel {
+			maxRel = rel
+		}
+	}
+
+	if maxRel == 0 {
+		return "", fmt.Errorf("no valid pkgrel found for %s version %s", name, version)
+	}
+
+	return fmt.Sprintf("%s-%d", version, maxRel), nil
 }
 
 // pacmanConf creates a temporary pacman.conf that uses the given cache directory.
