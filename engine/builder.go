@@ -425,13 +425,12 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 	// Deduplicate packages by name — later layers win (can override/pin version)
 	if len(ctx.Packages) > 0 {
 		seen := make(map[string]int) // name → index in unique
-		var unique []string
+		var unique []actions.Package
 		for _, pkg := range ctx.Packages {
-			name := actions.PkgName(pkg)
-			if idx, ok := seen[name]; ok {
+			if idx, ok := seen[pkg.Name]; ok {
 				unique[idx] = pkg // later layer wins
 			} else {
-				seen[name] = len(unique)
+				seen[pkg.Name] = len(unique)
 				unique = append(unique, pkg)
 			}
 		}

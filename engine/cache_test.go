@@ -261,10 +261,10 @@ func TestHashPhase_Preinstall(t *testing.T) {
 
 func TestHashPhase_Packages_OrderIndependent(t *testing.T) {
 	ctx1 := actions.NewBuildContext()
-	ctx1.Packages = []string{"base", "linux", "vim"}
+	ctx1.Packages = []actions.Package{{Name: "base"}, {Name: "linux"}, {Name: "vim"}}
 
 	ctx2 := actions.NewBuildContext()
-	ctx2.Packages = []string{"vim", "base", "linux"}
+	ctx2.Packages = []actions.Package{{Name: "vim"}, {Name: "base"}, {Name: "linux"}}
 
 	h1, _ := HashPhase(1, ctx1)
 	h2, _ := HashPhase(1, ctx2)

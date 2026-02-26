@@ -21,9 +21,9 @@ func (a *PacmanRemove) Execute(step config.Step, layerDir string, ctx *BuildCont
 		remove[PkgName(pkg)] = true
 	}
 
-	var filtered []string
+	var filtered []Package
 	for _, pkg := range ctx.Packages {
-		if !remove[PkgName(pkg)] {
+		if !remove[pkg.Name] {
 			filtered = append(filtered, pkg)
 		}
 	}

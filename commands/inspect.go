@@ -275,9 +275,9 @@ func printPackages(ctx *actions.BuildContext) {
 		// Preserve layer order, deduplicate
 		seen := make(map[string]bool)
 		for _, pkg := range ctx.Packages {
-			if !seen[pkg] {
-				seen[pkg] = true
-				fmt.Printf("  %s\n", pkg)
+			if !seen[pkg.Name] {
+				seen[pkg.Name] = true
+				fmt.Printf("  %s\n", pkg.String())
 			}
 		}
 	}

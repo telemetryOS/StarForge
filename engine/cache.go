@@ -108,10 +108,12 @@ func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 		fmt.Fprintf(h, "keymap=%s\n", ctx.Keymap)
 
 	case 1: // packages
-		pkgs := make([]string, len(ctx.Packages))
+		pkgs := make([]actions.Package, len(ctx.Packages))
 		copy(pkgs, ctx.Packages)
-		sort.Strings(pkgs)
-		fmt.Fprintf(h, "packages=%s\n", strings.Join(pkgs, ","))
+		sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].Name < pkgs[j].Name })
+		for _, pkg := range pkgs {
+			fmt.Fprintf(h, "%s=%s,", pkg.Name, pkg.Version)
+		}
 
 	case 2: // sysconfig
 		fmt.Fprintf(h, "hostname=%s\n", ctx.Hostname)

@@ -39,7 +39,9 @@ func (a *InstallServer) Execute(step config.Step, layerDir string, ctx *BuildCon
 	}
 
 	// Add installer runtime dependencies to the package list
-	ctx.Packages = append(ctx.Packages, installerDeps...)
+	for _, dep := range installerDeps {
+		ctx.Packages = append(ctx.Packages, Package{Name: dep})
+	}
 	ctx.PackageGroups = append(ctx.PackageGroups, LayerGroup{
 		Layer: ctx.CurrentLayer,
 		Items: installerDeps,
