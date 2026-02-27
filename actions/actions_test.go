@@ -65,7 +65,7 @@ func TestPacmanAdd_EmptyError(t *testing.T) {
 func TestPacmanRemove_Filters(t *testing.T) {
 	ctx := NewBuildContext()
 	ctx.CurrentLayer = "base"
-	ctx.Packages = []string{"base", "linux", "sudo", "nano"}
+	ctx.Packages = []Package{{Name: "base"}, {Name: "linux"}, {Name: "sudo"}, {Name: "nano"}}
 	execAction(t, config.Step{
 		Action:      "pacman-remove",
 		PacmanRemove: &config.PacmanRemoveStep{Packages: []string{"nano", "sudo"}},
@@ -1292,7 +1292,7 @@ func TestInstallServer_Defaults(t *testing.T) {
 	}
 	found := map[string]bool{}
 	for _, p := range ctx.Packages {
-		found[p] = true
+		found[p.Name] = true
 	}
 	for _, dep := range []string{"dosfstools", "e2fsprogs", "zstd"} {
 		if !found[dep] {
@@ -1618,7 +1618,11 @@ func TestEdgeOS_DevelopmentLayerOverrides(t *testing.T) {
 			Password: "fiber-buffer-deploy-vault",
 		},
 	}, ctx)
-	ctx.Packages = []string{"base", "linux", "linux-firmware", "sudo", "networkmanager", "openssh", "plymouth", "intel-ucode", "util-linux"}
+	ctx.Packages = []Package{
+		{Name: "base"}, {Name: "linux"}, {Name: "linux-firmware"}, {Name: "sudo"},
+		{Name: "networkmanager"}, {Name: "openssh"}, {Name: "plymouth"},
+		{Name: "intel-ucode"}, {Name: "util-linux"},
+	}
 
 	// --- Apply development layer ---
 	ctx.CurrentLayer = "development"

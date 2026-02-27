@@ -31,7 +31,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 		name = args[0]
 	} else {
 		fmt.Print("Project name: ")
-		line, _ := reader.ReadString('\n')
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("reading project name: %w", err)
+		}
 		name = strings.TrimSpace(line)
 	}
 	if name == "" {
@@ -40,12 +43,18 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Description
 	fmt.Print("Description (optional): ")
-	descLine, _ := reader.ReadString('\n')
+	descLine, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("reading description: %w", err)
+	}
 	description := strings.TrimSpace(descLine)
 
 	// Target name
 	fmt.Print("First target name [distribution]: ")
-	targetLine, _ := reader.ReadString('\n')
+	targetLine, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("reading target name: %w", err)
+	}
 	targetName := strings.TrimSpace(targetLine)
 	if targetName == "" {
 		targetName = "distribution"

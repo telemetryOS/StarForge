@@ -166,7 +166,9 @@ func EnsureDeps(groups ...string) error {
 
 	// Patch pacstrap only if build group was requested
 	if containsGroup(groups, "build") {
-		patchPacstrap(VendorBinDir())
+		if err := patchPacstrap(VendorBinDir()); err != nil {
+			return fmt.Errorf("patching scripts: %w", err)
+		}
 	}
 
 	// Verify only checks relevant to the requested groups
@@ -222,7 +224,7 @@ func checkGroupMissing(vendorDir string, groups []string) []string {
 
 // patchPacstrap modifies the vendored pacstrap script to use our pacman binary
 // by injecting a PATH override at the top of the script.
-func patchPacstrap(binDir string) {
+func patchPacstrap(binDir string) error {
 	for _, script := range []string{"pacstrap", "arch-chroot", "genfstab"} {
 		path := filepath.Join(binDir, script)
 		data, err := os.ReadFile(path)
@@ -241,9 +243,12 @@ func patchPacstrap(binDir string) {
 		if len(lines) == 2 {
 			patched := fmt.Sprintf("%s\n%s\nexport PATH=\"%s:$PATH\"\n%s",
 				lines[0], marker, binDir, lines[1])
-			os.WriteFile(path, []byte(patched), 0o755)
+			if err := os.WriteFile(path, []byte(patched), 0o755); err != nil {
+				return fmt.Errorf("writing %s: %w", script, err)
+			}
 		}
 	}
+	return nil
 }
 
 // archPkgInfo is the JSON response from the Arch Linux package API.

@@ -13,7 +13,7 @@ type BuildContext struct {
 	Keymap   string
 
 	// Packages (accumulate + remove)
-	Packages      []string
+	Packages      []Package
 	PackageGroups []LayerGroup
 
 	// Partitions (accumulate + replace-on-name)
@@ -81,6 +81,20 @@ func NewBuildContext() *BuildContext {
 	return &BuildContext{
 		Services: ServiceOps{},
 	}
+}
+
+// Package represents a package to install, optionally pinned to a version.
+type Package struct {
+	Name    string
+	Version string // "" = latest from repos
+}
+
+// String returns "name" or "name=version" for display.
+func (p Package) String() string {
+	if p.Version != "" {
+		return p.Name + "=" + p.Version
+	}
+	return p.Name
 }
 
 // --- Operation types ---
@@ -276,9 +290,10 @@ type InstallerPayloadDef struct {
 
 // InstallerServerDef configures the installer server.
 type InstallerServerDef struct {
-	Port  int
-	Path  string
-	Layer string
+	Port     int
+	Path     string
+	Layer    string
+	EFILabel string
 }
 
 // InstallerClientDef configures the installer client TUI.

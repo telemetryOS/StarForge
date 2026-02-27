@@ -111,7 +111,7 @@ All registered in `actions/actions.go`. Each maps to a `config.*Step` type in `c
 ### Restored (compiles clean)
 - All 34 action implementations
 - Centralized `actions/register.go`
-- 5 stub commands: init, list, status, chroot, inspect
+- All 10 commands fully implemented: build, run, clean, export, write, init, list, status, chroot, inspect
 - Config fixes: `SystemUserStep.NoPassword`, `RunStep.Env`
 - `ParseSize` `+` suffix for growable partitions
 
@@ -127,8 +127,7 @@ Everything was reconstructed from AI conversation transcripts. The initial commi
 Subsequent recovery sessions restored the remaining 29 action files, stub commands, docs, and config fixes.
 
 ### Potentially Still Missing
-- Tests (no `_test.go` files exist anywhere)
+- Tests: 19 test files exist across `actions/`, `config/`, `engine/`; gaps remain (no command tests, no packaging/overlay/installer tests)
 - `docs/yaml-reference.md` (referenced but not present)
-- Possible additional docs
 - CI/CD configuration
 - Any tooling or scripts that lived outside the Go source tree

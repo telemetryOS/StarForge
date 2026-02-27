@@ -446,6 +446,13 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 
 	mt.Unmount()
 
+	// Set the installed OS as the EFI boot target so the device boots
+	// into the installed OS on next reboot rather than back into the
+	// installer USB.
+	if err := setEFIBootTarget(inst, disk.Path, parts, manifest.EFILabel); err != nil {
+		inst.addLog(fmt.Sprintf("Warning: could not set EFI boot target: %v", err))
+	}
+
 	inst.setStatus("complete", 1.0)
 	inst.addLog("Installation complete")
 }
@@ -542,4 +549,79 @@ func expandFilesystem(partDev, filesystem string) {
 		exec.Command("e2fsck", "-f", "-y", partDev).Run()
 		exec.Command("resize2fs", partDev).Run()
 	}
+}
+
+// setEFIBootTarget creates an EFI boot entry for the installed OS and sets
+// it as BootNext and first in BootOrder. This ensures the device boots into
+// the installed OS on next reboot rather than back into the installer USB.
+//
+// bootctl install (run inside arch-chroot during installation) creates NVRAM
+// entries with VenHw device paths instead of real HD() paths because the ESP
+// is mounted at a temp directory. The firmware can't reliably resolve VenHw
+// entries, so we create a proper entry using efibootmgr --create with the
+// actual disk device and partition number.
+func setEFIBootTarget(inst *Installation, diskPath string, parts []partDef, label string) error {
+	// Check if EFI variables are accessible
+	if _, err := os.Stat("/sys/firmware/efi/efivars"); err != nil {
+		return nil // not an EFI system or no access
+	}
+
+	// Find the EFI partition number (1-based)
+	efiPartNum := 0
+	for i, p := range parts {
+		if p.partType == "efi" {
+			efiPartNum = i + 1
+			break
+		}
+	}
+	if efiPartNum == 0 {
+		return nil // no EFI partition
+	}
+
+	if label == "" {
+		label = "Linux Boot Manager"
+	}
+
+	// Create a proper boot entry with a real HD() device path referencing
+	// the target disk's EFI partition and systemd-boot loader.
+	out, err := exec.Command("efibootmgr",
+		"--create",
+		"--disk", diskPath,
+		"--part", strconv.Itoa(efiPartNum),
+		"--loader", `\EFI\systemd\systemd-bootx64.efi`,
+		"--label", label,
+	).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("creating boot entry: %s: %w", string(out), err)
+	}
+
+	// efibootmgr --create adds the new entry to the front of BootOrder
+	// and prints the updated listing. Parse the new BootOrder to find the
+	// entry number (it's the first one).
+	var targetNum string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "BootOrder:") {
+			orderStr := strings.TrimSpace(strings.TrimPrefix(line, "BootOrder:"))
+			entries := strings.Split(orderStr, ",")
+			if len(entries) > 0 {
+				targetNum = strings.TrimSpace(entries[0])
+			}
+			break
+		}
+	}
+
+	if targetNum == "" {
+		inst.addLog("Created boot entry but could not determine entry number")
+		return nil
+	}
+
+	inst.addLog(fmt.Sprintf("Created EFI boot entry Boot%s (%s)", targetNum, label))
+
+	// Also set BootNext as a safety net for the immediate next reboot.
+	if err := exec.Command("efibootmgr", "--bootnext", targetNum).Run(); err != nil {
+		return fmt.Errorf("setting BootNext: %w", err)
+	}
+
+	return nil
 }

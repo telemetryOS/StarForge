@@ -58,16 +58,20 @@ func runChroot(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to elevate privileges: %w", err)
 	}
 
-	// Collect to get partition definitions (needed for named overlays)
+	// Incremental build — detects source changes via cache hashing
 	builder := engine.NewBuilder(proj)
-	ctx, err := builder.Collect(target, false)
-	if err != nil {
+	if err := builder.Build(targetName, target, false); err != nil {
 		return err
 	}
 
-	// Clean up stale mounts
 	buildDir := proj.TargetBuildDir(targetName)
+	result, err := engine.LoadBuildResult(buildDir)
+	if err != nil {
+		return fmt.Errorf("loading build result: %w", err)
+	}
+
+	// Clean up stale mounts
 	engine.CleanupAll(buildDir)
 
-	return builder.Chroot(targetName, chrootArgs, chrootOverlay, ctx.Partitions)
+	return builder.Chroot(targetName, chrootArgs, chrootOverlay, result.Partitions)
 }

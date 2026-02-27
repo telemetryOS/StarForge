@@ -100,9 +100,14 @@ func (b *Builder) bundlePayloads(ctx *actions.BuildContext, rootfs string) error
 		}
 
 		// Build manifest from payload's partition defs
+		var efiLabel string
+		if ctx.InstallerServer != nil {
+			efiLabel = ctx.InstallerServer.EFILabel
+		}
 		manifest := installer.PayloadManifest{
 			Name:        payload.Target,
 			Description: payload.Label,
+			EFILabel:    efiLabel,
 		}
 
 		for _, part := range payloadCtx.Partitions {

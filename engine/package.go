@@ -91,6 +91,87 @@ func WriteToDevice(parts []actions.PartitionDef, device, buildDir string) error 
 	return nil
 }
 
+// WriteToDiskImage creates a sparse disk image from pre-built partition images.
+// It calculates the minimum disk size from the partition layout, creates a
+// sparse file, attaches it as a loop device, and writes partition images using
+// the same WriteToDevice flow used for block devices.
+//
+// Returns the loop device path for additional operations (e.g. installer
+// bundling) and a cleanup function that detaches the loop device. The cleanup
+// function is idempotent and safe to call multiple times.
+func WriteToDiskImage(parts []actions.PartitionDef, buildDir, imagePath string) (loopDev string, cleanup func(), err error) {
+	fmt.Println()
+	fmt.Printf("  %s\n", phaseStyle.Render("Creating disk image"))
+
+	// Calculate minimum disk size: sum of partition sizes + GPT overhead
+	var totalSize uint64
+	for _, p := range parts {
+		totalSize += p.Size
+	}
+	totalSize += 2 * 1024 * 1024 // GPT overhead (1MB front + 1MB back)
+
+	// Round up to nearest MiB for alignment
+	const mib = 1024 * 1024
+	totalSize = ((totalSize + mib - 1) / mib) * mib
+
+	sizeLabel := actions.FormatSize(totalSize)
+	fmt.Printf("    %s (%s)\n", imagePath, sizeLabel)
+
+	// Create sparse file
+	f, err := os.Create(imagePath)
+	if err != nil {
+		return "", nil, fmt.Errorf("creating disk image: %w", err)
+	}
+	if err := f.Truncate(int64(totalSize)); err != nil {
+		f.Close()
+		return "", nil, fmt.Errorf("setting disk image size: %w", err)
+	}
+	f.Close()
+
+	// Attach loop device with partition scanning enabled
+	loopDev, err = runOutput("losetup", "--find", "--show", "--partscan", imagePath)
+	if err != nil {
+		os.Remove(imagePath)
+		return "", nil, fmt.Errorf("attaching loop device: %w", err)
+	}
+	fmt.Printf("    loop device: %s\n", loopDev)
+
+	var detached bool
+	cleanup = func() {
+		if !detached {
+			detached = true
+			fmt.Printf("    detaching %s\n", loopDev)
+			run("losetup", "-d", loopDev)
+		}
+	}
+
+	// Write partition images to the loop device
+	if err := WriteToDevice(parts, loopDev, buildDir); err != nil {
+		cleanup()
+		os.Remove(imagePath)
+		return "", nil, fmt.Errorf("writing to disk image: %w", err)
+	}
+
+	return loopDev, cleanup, nil
+}
+
+// CompressDiskImage compresses a raw disk image with gzip for compatibility
+// with flash tools (Balena Etcher, Rufus). Returns the path to the compressed
+// file. The original uncompressed file is removed on success.
+func CompressDiskImage(imagePath string) (string, error) {
+	fmt.Println()
+	fmt.Printf("  %s\n", phaseStyle.Render("Compressing disk image"))
+
+	gzPath := imagePath + ".gz"
+	fmt.Printf("    %s\n", gzPath)
+
+	if err := run("gzip", "-f", imagePath); err != nil {
+		return "", fmt.Errorf("compressing disk image: %w", err)
+	}
+
+	return gzPath, nil
+}
+
 // expandFilesystem grows a filesystem to fill its partition.
 func expandFilesystem(partDev, filesystem string) error {
 	switch filesystem {
@@ -586,19 +667,6 @@ func SavePartitions(parts []actions.PartitionDef, buildDir string) error {
 	return os.WriteFile(filepath.Join(buildDir, "partitions.json"), data, 0o644)
 }
 
-// LoadPartitions reads the partition layout saved by a previous build.
-func LoadPartitions(buildDir string) ([]actions.PartitionDef, error) {
-	data, err := os.ReadFile(filepath.Join(buildDir, "partitions.json"))
-	if err != nil {
-		return nil, fmt.Errorf("reading partitions.json: %w", err)
-	}
-	var parts []actions.PartitionDef
-	if err := json.Unmarshal(data, &parts); err != nil {
-		return nil, fmt.Errorf("parsing partitions.json: %w", err)
-	}
-	return parts, nil
-}
-
 // BuildResult captures the subset of BuildContext that packaging needs.
 // Saved by Build so EnsurePackaged can avoid re-running Collect.
 type BuildResult struct {
@@ -625,6 +693,19 @@ func SaveBuildResult(ctx *actions.BuildContext, buildDir string) error {
 		return fmt.Errorf("marshalling build result: %w", err)
 	}
 	return os.WriteFile(filepath.Join(buildDir, "build-result.json"), data, 0o644)
+}
+
+// buildResultToContext converts a saved BuildResult into a BuildContext
+// with all fields populated (partitions, installer defs, ownership ops).
+func buildResultToContext(r *BuildResult) *actions.BuildContext {
+	return &actions.BuildContext{
+		Partitions:        r.Partitions,
+		FileOwnerships:    r.Ownerships,
+		FilePermissions:   r.Permissions,
+		InstallerPayloads: r.InstallerPayloads,
+		InstallerServer:   r.InstallerServer,
+		InstallerClient:   r.InstallerClient,
+	}
 }
 
 // LoadBuildResult reads the packaging context saved by a previous build.

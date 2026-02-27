@@ -86,21 +86,15 @@ func (b *Builder) Build(targetName string, target config.Target, clean bool) err
 // like run and write that need images to exist without requiring a separate
 // build step.
 func (b *Builder) EnsureBuiltAndPackaged(targetName string) (*actions.BuildContext, error) {
-	// Fast path: try packaging from an existing build
-	ctx, err := b.EnsurePackaged(targetName)
-	if err == nil {
-		return ctx, nil
-	}
-
-	// Build needed — look up the target
 	target, ok := b.project.Targets[targetName]
 	if !ok {
 		return nil, fmt.Errorf("target %q not found in project", targetName)
 	}
 
-	fmt.Println(headerStyle.Render(fmt.Sprintf("Building target: %s (auto)", targetName)))
-	fmt.Println()
-
+	// Always run an incremental build. Build re-collects layers, hashes
+	// each phase against the manifest, and only rebuilds what changed.
+	// This correctly detects source file changes that EnsurePackaged alone
+	// would miss (it only checks whether .img files exist on disk).
 	if err := b.Build(targetName, target, false); err != nil {
 		return nil, err
 	}
@@ -143,8 +137,12 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 		}
 	}
 
-	// If packaging is marked complete and .img files exist, we're done
-	if manifest.Packaging != nil && manifest.Packaging.Completed {
+	// Compute packaging hash including payload target manifests.
+	// This ensures changes to any payload target invalidate the installer's packaging.
+	ctx := buildResultToContext(result)
+	packagingHash := HashPackaging(manifest, ctx, b.project)
+
+	if manifest.Packaging != nil && manifest.Packaging.Completed && manifest.Packaging.Hash == packagingHash {
 		allExist := true
 		for _, p := range result.Partitions {
 			if _, err := os.Stat(filepath.Join(buildDir, p.Name+".img")); err != nil {
@@ -154,11 +152,11 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 		}
 		if allExist {
 			fmt.Println(cachedStyle.Render("Packaging up to date"))
-			return &actions.BuildContext{Partitions: result.Partitions}, nil
+			return buildResultToContext(result), nil
 		}
 	}
 
-	// Need to (re-)package from saved build result
+	// Need to (re-)package
 	fmt.Println(headerStyle.Render("Packaging images"))
 	fmt.Println()
 
@@ -190,13 +188,7 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 		return nil, fmt.Errorf("packaging: %w", err)
 	}
 
-	// Bundle installer using a minimal BuildContext from the saved result
-	ctx := &actions.BuildContext{
-		Partitions:        result.Partitions,
-		InstallerPayloads: result.InstallerPayloads,
-		InstallerServer:   result.InstallerServer,
-		InstallerClient:   result.InstallerClient,
-	}
+	// Bundle installer using a BuildContext from the saved result
 	if err := b.bundleInstaller(ctx, buildDir); err != nil {
 		return nil, fmt.Errorf("installer bundling: %w", err)
 	}
@@ -205,8 +197,8 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 		return nil, fmt.Errorf("invalidating overlays: %w", err)
 	}
 
-	// Mark packaging complete
-	manifest.Packaging = &PackagingEntry{Hash: "packaged", Completed: true}
+	// Mark packaging complete with the content hash
+	manifest.Packaging = &PackagingEntry{Hash: packagingHash, Completed: true}
 	if err := manifest.Save(overlay.CacheDir()); err != nil {
 		return nil, fmt.Errorf("saving manifest: %w", err)
 	}
@@ -433,17 +425,37 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 		ctx.Vars = vars
 	}
 
-	// Deduplicate packages (data normalization belongs in collection)
+	// Deduplicate packages by name — later layers win (can override/pin version)
 	if len(ctx.Packages) > 0 {
-		seen := make(map[string]bool)
-		var unique []string
+		seen := make(map[string]int) // name → index in unique
+		var unique []actions.Package
 		for _, pkg := range ctx.Packages {
-			if !seen[pkg] {
-				seen[pkg] = true
+			if idx, ok := seen[pkg.Name]; ok {
+				unique[idx] = pkg // later layer wins
+			} else {
+				seen[pkg.Name] = len(unique)
 				unique = append(unique, pkg)
 			}
 		}
 		ctx.Packages = unique
+	}
+
+	// Resolve pkgrel for pinned packages without an explicit pkgrel.
+	// Done here so the resolved version is included in the phase hash —
+	// a new pkgrel published upstream will change the hash and trigger a rebuild.
+	if !b.DryRun {
+		for i, pkg := range ctx.Packages {
+			if pkg.Version != "" && !strings.Contains(pkg.Version, "-") {
+				resolved, err := resolveLatestPkgrel(pkg.Name, pkg.Version)
+				if err != nil {
+					return nil, fmt.Errorf("resolving pkgrel for %s=%s: %w", pkg.Name, pkg.Version, err)
+				}
+				if verbose {
+					fmt.Printf("    resolved %s=%s → %s=%s\n", pkg.Name, pkg.Version, pkg.Name, resolved)
+				}
+				ctx.Packages[i].Version = resolved
+			}
+		}
 	}
 
 	// Print collection warnings
