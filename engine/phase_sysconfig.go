@@ -45,7 +45,7 @@ func (b *Builder) phaseSysconfig(ctx *actions.BuildContext, rootfs string) error
 				return fmt.Errorf("writing locale.gen: %w", err)
 			}
 		}
-		if err := chrootRun(rootfs, "locale-gen"); err != nil {
+		if err := ChrootRun(rootfs, "locale-gen"); err != nil {
 			return fmt.Errorf("locale-gen: %w", err)
 		}
 	}

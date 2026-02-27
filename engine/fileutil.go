@@ -64,8 +64,8 @@ func CopyFile(src, dest string) error {
 	return out.Close()
 }
 
-// chrootRun executes a command inside the rootfs using arch-chroot.
-func chrootRun(rootfs string, args ...string) error {
+// ChrootRun executes a command inside the rootfs using arch-chroot.
+func ChrootRun(rootfs string, args ...string) error {
 	cmdArgs := append([]string{rootfs}, args...)
 	cmd := exec.Command(resolveBin("arch-chroot"), cmdArgs...)
 	cmd.Env = vendorEnv()

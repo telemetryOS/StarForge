@@ -21,7 +21,7 @@ func (b *Builder) phaseUsers(ctx *actions.BuildContext, rootfs string) error {
 		}
 		args = append(args, group.Name)
 		fmt.Printf("    group: %s\n", group.Name)
-		if err := chrootRun(rootfs, args...); err != nil {
+		if err := ChrootRun(rootfs, args...); err != nil {
 			return fmt.Errorf("creating group %s: %w", group.Name, err)
 		}
 	}
@@ -39,7 +39,7 @@ func (b *Builder) phaseUsers(ctx *actions.BuildContext, rootfs string) error {
 
 		// Create implicit groups from user group lists
 		for _, group := range user.Groups {
-			if err := chrootRun(rootfs, "groupadd", "-f", group); err != nil {
+			if err := ChrootRun(rootfs, "groupadd", "-f", group); err != nil {
 				return fmt.Errorf("creating group %s for user %s: %w", group, user.Name, err)
 			}
 		}
@@ -61,12 +61,12 @@ func (b *Builder) phaseUsers(ctx *actions.BuildContext, rootfs string) error {
 		}
 		args = append(args, user.Name)
 
-		if err := chrootRun(rootfs, args...); err != nil {
+		if err := ChrootRun(rootfs, args...); err != nil {
 			return fmt.Errorf("creating user %s: %w", user.Name, err)
 		}
 
 		if user.NoPassword {
-			if err := chrootRun(rootfs, "passwd", "-d", user.Name); err != nil {
+			if err := ChrootRun(rootfs, "passwd", "-d", user.Name); err != nil {
 				return fmt.Errorf("removing password for %s: %w", user.Name, err)
 			}
 		} else if user.Password != "" {

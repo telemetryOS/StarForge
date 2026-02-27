@@ -239,7 +239,7 @@ func applyImageOwnership(rootfs string, ops PackageOps) error {
 			args = append(args, "-R")
 		}
 		args = append(args, spec, own.Path)
-		if err := chrootRun(rootfs, args...); err != nil {
+		if err := ChrootRun(rootfs, args...); err != nil {
 			return fmt.Errorf("chown %s: %w", own.Path, err)
 		}
 	}
@@ -252,7 +252,7 @@ func applyImageOwnership(rootfs string, ops PackageOps) error {
 			args = append(args, "-R")
 		}
 		args = append(args, perm.Mode, perm.Path)
-		if err := chrootRun(rootfs, args...); err != nil {
+		if err := ChrootRun(rootfs, args...); err != nil {
 			return fmt.Errorf("chmod %s: %w", perm.Path, err)
 		}
 	}
@@ -449,7 +449,7 @@ func InstallBootloader(parts []actions.PartitionDef, rootfs string) error {
 	fmt.Printf("  %s\n", phaseStyle.Render("Installing bootloader"))
 
 	fmt.Printf("    bootctl install\n")
-	if err := chrootRun(rootfs, "bootctl", "install"); err != nil {
+	if err := ChrootRun(rootfs, "bootctl", "install"); err != nil {
 		return fmt.Errorf("bootctl install: %w", err)
 	}
 

@@ -26,7 +26,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 		}
 		if m.Owner != "" || m.Group != "" {
 			ownership := fmt.Sprintf("%s:%s", m.Owner, m.Group)
-			if err := chrootRun(rootfs, "chown", ownership, m.Path); err != nil {
+			if err := ChrootRun(rootfs, "chown", ownership, m.Path); err != nil {
 				return fmt.Errorf("chown %s: %w", m.Path, err)
 			}
 		}

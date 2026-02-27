@@ -433,6 +433,17 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 		return
 	}
 
+	// Regenerate the initramfs on the target so the autodetect hook picks
+	// up the actual hardware (storage drivers, etc.) and plymouth hooks
+	// are included. The build-time initramfs only has modules for the
+	// build machine.
+	inst.addLog("Regenerating initramfs")
+	if err := engine.ChrootRun(rootfs, "mkinitcpio", "-P"); err != nil {
+		mt.Unmount()
+		inst.fail(fmt.Errorf("regenerating initramfs: %w", err))
+		return
+	}
+
 	mt.Unmount()
 
 	inst.setStatus("complete", 1.0)

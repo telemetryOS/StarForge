@@ -9,21 +9,21 @@ import (
 func (b *Builder) phaseServices(ctx *actions.BuildContext, rootfs string) error {
 	for _, svc := range ctx.Services.Mask {
 		fmt.Printf("    mask:    %s\n", svc)
-		if err := chrootRun(rootfs, "systemctl", "mask", svc); err != nil {
+		if err := ChrootRun(rootfs, "systemctl", "mask", svc); err != nil {
 			return fmt.Errorf("masking %s: %w", svc, err)
 		}
 	}
 
 	for _, svc := range ctx.Services.Enable {
 		fmt.Printf("    enable:  %s\n", svc)
-		if err := chrootRun(rootfs, "systemctl", "enable", svc); err != nil {
+		if err := ChrootRun(rootfs, "systemctl", "enable", svc); err != nil {
 			return fmt.Errorf("enabling %s: %w", svc, err)
 		}
 	}
 
 	for _, svc := range ctx.Services.Disable {
 		fmt.Printf("    disable: %s\n", svc)
-		if err := chrootRun(rootfs, "systemctl", "disable", svc); err != nil {
+		if err := ChrootRun(rootfs, "systemctl", "disable", svc); err != nil {
 			return fmt.Errorf("disabling %s: %w", svc, err)
 		}
 	}
@@ -46,7 +46,7 @@ func (b *Builder) phaseServices(ctx *actions.BuildContext, rootfs string) error 
 
 	if ctx.DefaultTarget != "" {
 		fmt.Printf("    default: %s\n", ctx.DefaultTarget)
-		if err := chrootRun(rootfs, "systemctl", "set-default", ctx.DefaultTarget); err != nil {
+		if err := ChrootRun(rootfs, "systemctl", "set-default", ctx.DefaultTarget); err != nil {
 			return fmt.Errorf("setting default target %s: %w", ctx.DefaultTarget, err)
 		}
 	}
