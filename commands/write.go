@@ -32,7 +32,7 @@ Requires a prior 'starforge build' — this is a write-only operation.`,
 
 func runWrite(cmd *cobra.Command, args []string) error {
 	targetName := args[0]
-	output := args[1]
+	outputPath := args[1]
 
 	proj, err := config.FindProject()
 	if err != nil {
@@ -46,16 +46,28 @@ func runWrite(cmd *cobra.Command, args []string) error {
 
 	// Detect if output is an existing block device
 	isDevice := false
-	if info, statErr := os.Stat(output); statErr == nil {
+	if info, statErr := os.Stat(outputPath); statErr == nil {
 		isDevice = info.Mode()&os.ModeDevice != 0
 	}
 
 	// Paths under /dev/ that aren't block devices are an error
-	if !isDevice && strings.HasPrefix(output, "/dev/") {
-		if _, err := os.Stat(output); err != nil {
-			return fmt.Errorf("device %s not found", output)
+	if !isDevice && strings.HasPrefix(outputPath, "/dev/") {
+		if _, err := os.Stat(outputPath); err != nil {
+			return fmt.Errorf("device %s not found", outputPath)
 		}
-		return fmt.Errorf("%s is not a block device", output)
+		return fmt.Errorf("%s is not a block device", outputPath)
+	}
+
+	// Confirmation for device writes BEFORE entering bubbletea
+	if isDevice {
+		fmt.Printf("WARNING: All data on %s will be destroyed.\n", outputPath)
+		fmt.Print("Continue? [y/N] ")
+		var confirm string
+		fmt.Scanln(&confirm)
+		if strings.ToLower(confirm) != "y" {
+			fmt.Println("Aborted.")
+			return nil
+		}
 	}
 
 	// Elevate to root before fetching sources
@@ -63,35 +75,34 @@ func runWrite(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to elevate privileges: %w", err)
 	}
 
-	// Ensure partition images exist and are up to date.
-	// Auto-builds if no prior build exists.
-	builder := engine.NewBuilder(proj)
-	ctx, err := builder.EnsureBuiltAndPackaged(targetName)
+	buildDir := proj.TargetBuildDir(targetName)
+	os.MkdirAll(buildDir, 0o755)
+
+	output, err := engine.InitOutput(buildDir, "write", targetName)
 	if err != nil {
 		return err
 	}
-	engine.ChownToInvoker(proj.BuildDir())
+	defer output.Close()
 
-	buildDir := proj.TargetBuildDir(targetName)
+	return output.Run(func() error {
+		// Ensure partition images exist and are up to date.
+		builder := engine.NewBuilder(proj)
+		ctx, err := builder.EnsureBuiltAndPackaged(targetName)
+		if err != nil {
+			return err
+		}
+		engine.ChownToInvoker(proj.BuildDir())
 
-	if isDevice {
-		return writeToDevice(builder, ctx, buildDir, output)
-	}
-	return writeToFile(builder, ctx, buildDir, output)
+		if isDevice {
+			return writeToDevice(builder, ctx, buildDir, outputPath)
+		}
+		return writeToFile(builder, ctx, buildDir, outputPath)
+	})
 }
 
 // writeToDevice writes partition images directly to a block device.
+// Confirmation is handled by the caller before entering bubbletea.
 func writeToDevice(builder *engine.Builder, ctx *actions.BuildContext, buildDir, device string) error {
-	// Confirm destruction
-	fmt.Printf("WARNING: All data on %s will be destroyed.\n", device)
-	fmt.Print("Continue? [y/N] ")
-	var confirm string
-	fmt.Scanln(&confirm)
-	if strings.ToLower(confirm) != "y" {
-		fmt.Println("Aborted.")
-		return nil
-	}
-
 	// Write partition images to device
 	if err := engine.WriteToDevice(ctx.Partitions, device, buildDir); err != nil {
 		return fmt.Errorf("writing to device: %w", err)
@@ -153,17 +164,13 @@ func writeToFile(builder *engine.Builder, ctx *actions.BuildContext, buildDir, o
 	// Ensure the output file is owned by the invoking user
 	engine.ChownToInvoker(gzPath)
 
-	fmt.Println()
-	fmt.Printf("Disk image: %s\n", gzPath)
+	engine.OutputSuccess(fmt.Sprintf("Disk image: %s", gzPath))
 	return nil
 }
 
 // bundleInstaller mounts the partitions on a device (or loop device) and
 // bundles installer components into the rootfs.
 func bundleInstaller(builder *engine.Builder, ctx *actions.BuildContext, device string) error {
-	fmt.Println()
-	fmt.Printf("  Bundling installer\n")
-
 	rootfs, err := os.MkdirTemp("", "starforge-write-installer-*")
 	if err != nil {
 		return fmt.Errorf("creating temp mount: %w", err)

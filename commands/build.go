@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -47,13 +48,22 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to elevate privileges: %w", err)
 	}
 
-	builder := engine.NewBuilder(proj)
-	if err := builder.Build(targetName, target, cleanFlag); err != nil {
+	buildDir := proj.TargetBuildDir(targetName)
+	os.MkdirAll(buildDir, 0o755)
+
+	output, err := engine.InitOutput(buildDir, "build", targetName)
+	if err != nil {
 		return err
 	}
+	defer output.Close()
 
-	// Ensure build artifacts are owned by the invoking user, not root
-	engine.ChownToInvoker(proj.BuildDir())
-
-	return nil
+	return output.Run(func() error {
+		builder := engine.NewBuilder(proj)
+		if err := builder.Build(targetName, target, cleanFlag); err != nil {
+			return err
+		}
+		// Ensure build artifacts are owned by the invoking user, not root
+		engine.ChownToInvoker(proj.BuildDir())
+		return nil
+	})
 }

@@ -23,14 +23,14 @@ func (b *Builder) phaseBoot(ctx *actions.BuildContext, rootfs string) error {
 		ctx.Boot.Loader.Default,
 		ctx.Boot.Loader.Timeout,
 		boolToNo(ctx.Boot.Loader.Editor))
-	fmt.Printf("    loader.conf (default=%s, timeout=%d)\n",
+	out.Info("loader.conf (default=%s, timeout=%d)",
 		ctx.Boot.Loader.Default, ctx.Boot.Loader.Timeout)
 	if err := writeFile(filepath.Join(loaderDir, "loader.conf"), loader); err != nil {
 		return fmt.Errorf("writing loader.conf: %w", err)
 	}
 
 	for _, entry := range ctx.Boot.Entries {
-		fmt.Printf("    entry: %s (%s)\n", entry.Name, entry.Title)
+		out.Info("entry: %s (%s)", entry.Name, entry.Title)
 		content := fmt.Sprintf("title   %s\nlinux   %s\ninitrd  %s\noptions %s\n",
 			entry.Title, entry.Linux, entry.Initrd, entry.Options)
 		if err := writeFile(filepath.Join(entriesDir, entry.Name), content); err != nil {

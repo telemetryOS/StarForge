@@ -23,7 +23,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Println(proj.Name)
+	fmt.Println(cmdHeader.Render(proj.Name))
 	if proj.Description != "" {
 		fmt.Println(proj.Description)
 	}
@@ -38,9 +38,9 @@ func runList(cmd *cobra.Command, args []string) error {
 
 	for _, name := range names {
 		target := proj.Targets[name]
-		fmt.Printf("  %s\n", name)
+		fmt.Printf("  %s\n", cmdSuccess.Render(name))
 		for _, layer := range target.Layers {
-			fmt.Printf("    - %s\n", layer)
+			fmt.Printf("    - %s\n", cmdDim.Render(layer))
 		}
 	}
 

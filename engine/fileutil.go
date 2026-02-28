@@ -69,9 +69,14 @@ func ChrootRun(rootfs string, args ...string) error {
 	cmdArgs := append([]string{rootfs}, args...)
 	cmd := exec.Command(resolveBin("arch-chroot"), cmdArgs...)
 	cmd.Env = vendorEnv()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
+	if out != nil {
+		w := out.LogWriter()
+		cmd.Stdout = w
+		cmd.Stderr = w
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	return cmd.Run()
 }
 

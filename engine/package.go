@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -25,8 +26,8 @@ type PackageOps struct {
 // PackageToImages creates sparse partition images, formats them, and copies
 // the merged overlay tree into the appropriate partitions.
 func PackageToImages(mergedDir string, parts []actions.PartitionDef, buildDir string, ops PackageOps) error {
-	fmt.Println()
-	fmt.Printf("  %s\n", phaseStyle.Render("Packaging images"))
+	out.Blank()
+	out.Phase("Packaging images")
 
 	// Clean up stale rootfs mounts from previous packaging runs.
 	// Scope to rootfs/ only — buildDir/ also contains the merged overlay
@@ -59,8 +60,11 @@ func PackageToImages(mergedDir string, parts []actions.PartitionDef, buildDir st
 // This replaces PackageToDevice — no overlay mount or tar copy is needed
 // because the images already contain the complete filesystem.
 func WriteToDevice(parts []actions.PartitionDef, device, buildDir string) error {
-	fmt.Println()
-	fmt.Printf("  %s\n", phaseStyle.Render("Writing to device"))
+	out.StartStage(StageWrite)
+	writeStart := time.Now()
+
+	out.Blank()
+	out.Phase("Writing to device")
 
 	// Partition the device (GPT via sfdisk)
 	resolved, err := PartitionDevice(parts, device)
@@ -73,14 +77,15 @@ func WriteToDevice(parts []actions.PartitionDef, device, buildDir string) error 
 		partDev := partitionPath(device, i+1)
 		imgPath := filepath.Join(buildDir, fmt.Sprintf("%s.img", part.Name))
 
-		fmt.Printf("    dd %s -> %s\n", part.Name, partDev)
-		if err := run("dd", "if="+imgPath, "of="+partDev, "bs=4M", "oflag=direct"); err != nil {
+		if err := out.RunWithSpinner(fmt.Sprintf("dd %s -> %s", part.Name, partDev), func() error {
+			return runSilent("dd", "if="+imgPath, "of="+partDev, "bs=4M", "oflag=direct")
+		}); err != nil {
 			return fmt.Errorf("writing %s: %w", part.Name, err)
 		}
 
 		// Expand filesystem if the device partition is larger than the image
 		if resolved[i].Size > parts[i].Size {
-			fmt.Printf("    resize %s (%s -> %s)\n", part.Name,
+			out.Info("resize %s (%s -> %s)", part.Name,
 				actions.FormatSize(parts[i].Size), actions.FormatSize(resolved[i].Size))
 			if err := expandFilesystem(partDev, part.Filesystem); err != nil {
 				return fmt.Errorf("expanding %s: %w", part.Name, err)
@@ -88,6 +93,7 @@ func WriteToDevice(parts []actions.PartitionDef, device, buildDir string) error 
 		}
 	}
 
+	out.EndStage(StageWrite, time.Since(writeStart))
 	return nil
 }
 
@@ -100,8 +106,8 @@ func WriteToDevice(parts []actions.PartitionDef, device, buildDir string) error 
 // bundling) and a cleanup function that detaches the loop device. The cleanup
 // function is idempotent and safe to call multiple times.
 func WriteToDiskImage(parts []actions.PartitionDef, buildDir, imagePath string) (loopDev string, cleanup func(), err error) {
-	fmt.Println()
-	fmt.Printf("  %s\n", phaseStyle.Render("Creating disk image"))
+	out.Blank()
+	out.Phase("Creating disk image")
 
 	// Calculate minimum disk size: sum of partition sizes + GPT overhead
 	var totalSize uint64
@@ -115,7 +121,7 @@ func WriteToDiskImage(parts []actions.PartitionDef, buildDir, imagePath string) 
 	totalSize = ((totalSize + mib - 1) / mib) * mib
 
 	sizeLabel := actions.FormatSize(totalSize)
-	fmt.Printf("    %s (%s)\n", imagePath, sizeLabel)
+	out.Info("%s (%s)", imagePath, sizeLabel)
 
 	// Create sparse file
 	f, err := os.Create(imagePath)
@@ -134,13 +140,13 @@ func WriteToDiskImage(parts []actions.PartitionDef, buildDir, imagePath string) 
 		os.Remove(imagePath)
 		return "", nil, fmt.Errorf("attaching loop device: %w", err)
 	}
-	fmt.Printf("    loop device: %s\n", loopDev)
+	out.Info("loop device: %s", loopDev)
 
 	var detached bool
 	cleanup = func() {
 		if !detached {
 			detached = true
-			fmt.Printf("    detaching %s\n", loopDev)
+			out.Info("detaching %s", loopDev)
 			run("losetup", "-d", loopDev)
 		}
 	}
@@ -159,13 +165,14 @@ func WriteToDiskImage(parts []actions.PartitionDef, buildDir, imagePath string) 
 // with flash tools (Balena Etcher, Rufus). Returns the path to the compressed
 // file. The original uncompressed file is removed on success.
 func CompressDiskImage(imagePath string) (string, error) {
-	fmt.Println()
-	fmt.Printf("  %s\n", phaseStyle.Render("Compressing disk image"))
+	out.Blank()
+	out.Phase("Compressing disk image")
 
 	gzPath := imagePath + ".gz"
-	fmt.Printf("    %s\n", gzPath)
 
-	if err := run("gzip", "-f", imagePath); err != nil {
+	if err := out.RunWithSpinner(fmt.Sprintf("gzip %s", filepath.Base(gzPath)), func() error {
+		return runSilent("gzip", "-f", imagePath)
+	}); err != nil {
 		return "", fmt.Errorf("compressing disk image: %w", err)
 	}
 
@@ -189,12 +196,12 @@ func expandFilesystem(partDev, filesystem string) error {
 // PackageToDiskImage creates a single disk image file with a GPT partition table,
 // formats partitions, and copies the merged overlay tree into them.
 func PackageToDiskImage(mergedDir string, parts []actions.PartitionDef, diskSize uint64, outputPath string, ops PackageOps) error {
-	fmt.Println()
-	fmt.Printf("  %s\n", phaseStyle.Render("Creating disk image"))
+	out.Blank()
+	out.Phase("Creating disk image")
 
 	// Create sparse file
 	sizeLabel := actions.FormatSize(diskSize)
-	fmt.Printf("    %s (%s)\n", outputPath, sizeLabel)
+	out.Info("%s (%s)", outputPath, sizeLabel)
 
 	f, err := os.Create(outputPath)
 	if err != nil {
@@ -212,11 +219,11 @@ func PackageToDiskImage(mergedDir string, parts []actions.PartitionDef, diskSize
 		os.Remove(outputPath)
 		return fmt.Errorf("attaching loop device: %w", err)
 	}
-	fmt.Printf("    loop device: %s\n", loopDev)
+	out.Info("loop device: %s", loopDev)
 
 	// Detach loop device on exit
 	defer func() {
-		fmt.Printf("    detaching %s\n", loopDev)
+		out.Info("detaching %s", loopDev)
 		run("losetup", "-d", loopDev)
 	}()
 
@@ -249,21 +256,21 @@ func packagePipeline(mergedDir string, parts []actions.PartitionDef, mounts []Pa
 	// Mount partitions
 	mt := NewMountTable(rootfs)
 
-	fmt.Println()
-	fmt.Printf("  %s\n", phaseStyle.Render(fmt.Sprintf("Mounting %s", label)))
+	out.Blank()
+	out.Phase(fmt.Sprintf("Mounting %s", label))
 	if err := mt.MountAll(mounts); err != nil {
 		mt.Unmount()
 		return fmt.Errorf("mounting %s: %w", label, err)
 	}
 	defer func() {
-		fmt.Println()
-		fmt.Printf("  %s\n", phaseStyle.Render(fmt.Sprintf("Unmounting %s", label)))
+		out.Blank()
+		out.Phase(fmt.Sprintf("Unmounting %s", label))
 		mt.Unmount()
 	}()
 
 	// Copy merged tree into partitions
-	fmt.Println()
-	fmt.Printf("  %s\n", phaseStyle.Render(fmt.Sprintf("Copying to %s", label)))
+	out.Blank()
+	out.Phase(fmt.Sprintf("Copying to %s", label))
 	if err := copyToPartitions(mergedDir, parts, rootfs); err != nil {
 		return err
 	}
@@ -282,8 +289,8 @@ func packagePipeline(mergedDir string, parts []actions.PartitionDef, mounts []Pa
 	// This must run before applyImageOwnership because arch-chroot
 	// bind-mounts /proc, /sys, /dev into the rootfs which can pollute
 	// the mount table that genfstab reads.
-	fmt.Println()
-	fmt.Printf("  %s\n", phaseStyle.Render("Generating fstab"))
+	out.Blank()
+	out.Phase("Generating fstab")
 	if err := GenerateFstab(rootfs); err != nil {
 		return err
 	}
@@ -308,12 +315,12 @@ func applyImageOwnership(rootfs string, ops PackageOps) error {
 		return nil
 	}
 
-	fmt.Println()
-	fmt.Printf("  %s\n", phaseStyle.Render("Applying ownership & permissions"))
+	out.Blank()
+	out.Phase("Applying ownership & permissions")
 
 	for _, own := range ops.Ownerships {
 		spec := own.Owner + ":" + own.Group
-		fmt.Printf("    chown %s %s%s\n", spec, own.Path, labelSuffix(own.Label))
+		out.Info("chown %s %s%s", spec, own.Path, labelSuffix(own.Label))
 
 		args := []string{"chown"}
 		if own.Recursive {
@@ -326,7 +333,7 @@ func applyImageOwnership(rootfs string, ops PackageOps) error {
 	}
 
 	for _, perm := range ops.Permissions {
-		fmt.Printf("    chmod %s %s%s\n", perm.Mode, perm.Path, labelSuffix(perm.Label))
+		out.Info("chmod %s %s%s", perm.Mode, perm.Path, labelSuffix(perm.Label))
 
 		args := []string{"chmod"}
 		if perm.Recursive {
@@ -427,13 +434,13 @@ func CopyPartition(mergedDir string, part actions.PartitionDef, allParts []actio
 
 	// Check if there's content to copy
 	if _, err := os.Stat(srcDir); os.IsNotExist(err) {
-		fmt.Printf("    %s: (empty)\n", part.MountPoint)
+		out.Info("%s: (empty)", part.MountPoint)
 		return nil
 	}
 
 	excludes := DescendantMountPaths(part.MountPoint, allParts)
 
-	fmt.Printf("    %s -> %s (%s)\n", part.MountPoint, part.Name, part.Filesystem)
+	copyLabel := fmt.Sprintf("%s -> %s (%s)", part.MountPoint, part.Name, part.Filesystem)
 
 	// Build tar create args
 	tarCreate := []string{"-C", srcDir}
@@ -450,7 +457,9 @@ func CopyPartition(mergedDir string, part actions.PartitionDef, allParts []actio
 	}
 	tarExtract = append(tarExtract, "-xpf", "-")
 
-	if err := runPipe("tar", tarCreate, "tar", tarExtract); err != nil {
+	if err := out.RunWithSpinner(copyLabel, func() error {
+		return runPipeSilent("tar", tarCreate, "tar", tarExtract)
+	}); err != nil {
 		return fmt.Errorf("copying %s: %w", part.MountPoint, err)
 	}
 
@@ -526,10 +535,10 @@ func InstallBootloader(parts []actions.PartitionDef, rootfs string) error {
 		return nil
 	}
 
-	fmt.Println()
-	fmt.Printf("  %s\n", phaseStyle.Render("Installing bootloader"))
+	out.Blank()
+	out.Phase("Installing bootloader")
 
-	fmt.Printf("    bootctl install\n")
+	out.Info("bootctl install")
 	if err := ChrootRun(rootfs, "bootctl", "install"); err != nil {
 		return fmt.Errorf("bootctl install: %w", err)
 	}
@@ -547,7 +556,7 @@ func InstallBootloader(parts []actions.PartitionDef, rootfs string) error {
 		return fmt.Errorf("could not determine root filesystem UUID (is / mounted at %s?)", rootfs)
 	}
 
-	fmt.Printf("    root UUID: %s\n", uuid)
+	out.Info("root UUID: %s", uuid)
 
 	if err := patchBootEntries(rootfs, uuid); err != nil {
 		return fmt.Errorf("patching boot entries: %w", err)
@@ -594,7 +603,7 @@ func patchBootEntries(rootfs, rootUUID string) error {
 		}
 
 		if patched {
-			fmt.Printf("    patched %s\n", entry.Name())
+			out.Info("patched %s", entry.Name())
 			if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
 				return fmt.Errorf("writing %s: %w", entry.Name(), err)
 			}
@@ -633,7 +642,7 @@ func ConfigureInstallation(parts []actions.PartitionDef, rootfs string) error {
 		if err != nil || uuid == "" {
 			return nil // no UUID found, skip patching
 		}
-		fmt.Printf("    root UUID: %s\n", uuid)
+		out.Info("root UUID: %s", uuid)
 		if err := patchBootEntries(rootfs, uuid); err != nil {
 			return fmt.Errorf("patching boot entries: %w", err)
 		}

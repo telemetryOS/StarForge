@@ -126,8 +126,11 @@ func EnsureDeps(groups ...string) error {
 		return nil
 	}
 
-	fmt.Println(headerStyle.Render("Installing dependencies"))
-	fmt.Printf("  target: %s\n", vendorDir)
+	out.Header("Installing dependencies")
+	out.Styled(
+		fmt.Sprintf("  target: %s", vendorDir),
+		fmt.Sprintf("  target: %s", vendorDir),
+	)
 
 	cacheDir := filepath.Join(vendorDir, "pkg")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -140,28 +143,23 @@ func EnsureDeps(groups ...string) error {
 			continue
 		}
 
-		fmt.Printf("  %s ", pkg.name)
-
-		pkgURL, err := resolvePackageURL(pkg)
-		if err != nil {
-			fmt.Println("✗")
-			return fmt.Errorf("resolving %s: %w", pkg.name, err)
-		}
-
-		cachePath := filepath.Join(cacheDir, filepath.Base(pkgURL))
-		if _, err := os.Stat(cachePath); err != nil {
-			if err := downloadFile(pkgURL, cachePath); err != nil {
-				fmt.Println("✗")
-				return fmt.Errorf("downloading %s: %w", pkg.name, err)
+		if err := out.RunWithSpinner(pkg.name, func() error {
+			pkgURL, err := resolvePackageURL(pkg)
+			if err != nil {
+				return fmt.Errorf("resolving %s: %w", pkg.name, err)
 			}
-		}
 
-		if err := extractPkgTarZst(cachePath, vendorDir); err != nil {
-			fmt.Println("✗")
-			return fmt.Errorf("extracting %s: %w", pkg.name, err)
-		}
+			cachePath := filepath.Join(cacheDir, filepath.Base(pkgURL))
+			if _, err := os.Stat(cachePath); err != nil {
+				if err := downloadFile(pkgURL, cachePath); err != nil {
+					return fmt.Errorf("downloading %s: %w", pkg.name, err)
+				}
+			}
 
-		fmt.Println("✓")
+			return extractPkgTarZst(cachePath, vendorDir)
+		}); err != nil {
+			return err
+		}
 	}
 
 	// Patch pacstrap only if build group was requested
@@ -177,7 +175,7 @@ func EnsureDeps(groups ...string) error {
 		return fmt.Errorf("vendoring incomplete, missing: %s", strings.Join(missing, ", "))
 	}
 
-	fmt.Println()
+	out.Blank()
 	return nil
 }
 

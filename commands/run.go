@@ -2,9 +2,11 @@ package commands
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
+	"github.com/telemetryos/starforge/actions"
 	"github.com/telemetryos/starforge/config"
 	"github.com/telemetryos/starforge/engine"
 )
@@ -55,18 +57,41 @@ func runRun(cmd *cobra.Command, args []string) error {
 	buildDir := proj.TargetBuildDir(targetName)
 
 	if runBootDisk != "" {
-		// Boot directly from a named disk — no build or device mapper needed
+		// Boot directly from a named disk — no build or device mapper needed.
+		// Initialize output for QEMU info messages (runs outside bubbletea).
+		output, err := engine.InitOutput(buildDir, "run", targetName)
+		if err != nil {
+			return err
+		}
+		defer output.Close()
 		return engine.RunQEMU(targetName, buildDir, proj.Dir, nil, runSerial, runOverlay, runBootDisk, target.QEMU)
 	}
 
-	// Ensure partition images exist and are up to date.
-	// Auto-builds if no prior build exists.
-	builder := engine.NewBuilder(proj)
-	ctx, err := builder.EnsureBuiltAndPackaged(targetName)
+	os.MkdirAll(buildDir, 0o755)
+
+	output, err := engine.InitOutput(buildDir, "run", targetName)
 	if err != nil {
 		return err
 	}
-	engine.ChownToInvoker(proj.BuildDir())
+	defer output.Close()
 
+	// Build and package inside bubbletea; QEMU runs after.
+	var ctx *actions.BuildContext
+	err = output.Run(func() error {
+		builder := engine.NewBuilder(proj)
+		var buildErr error
+		ctx, buildErr = builder.EnsureBuiltAndPackaged(targetName)
+		if buildErr != nil {
+			return buildErr
+		}
+		engine.ChownToInvoker(proj.BuildDir())
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Bubbletea is done — QEMU runs with direct terminal access.
+	// out.* methods still work (fall back to fmt.Println).
 	return engine.RunQEMU(targetName, buildDir, proj.Dir, ctx.Partitions, runSerial, runOverlay, runBootDisk, target.QEMU)
 }

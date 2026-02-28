@@ -10,7 +10,7 @@ import (
 
 func (b *Builder) phaseSysconfig(ctx *actions.BuildContext, rootfs string) error {
 	if ctx.Hostname != "" {
-		fmt.Printf("    hostname: %s\n", ctx.Hostname)
+		out.Info("hostname: %s", ctx.Hostname)
 		if err := writeFile(filepath.Join(rootfs, "etc/hostname"), ctx.Hostname+"\n"); err != nil {
 			return fmt.Errorf("writing hostname: %w", err)
 		}
@@ -18,7 +18,7 @@ func (b *Builder) phaseSysconfig(ctx *actions.BuildContext, rootfs string) error
 
 	if ctx.Locale != "" || len(ctx.Locales) > 0 {
 		if ctx.Locale != "" {
-			fmt.Printf("    locale:   %s\n", ctx.Locale)
+			out.Info("locale:   %s", ctx.Locale)
 			if err := writeFile(filepath.Join(rootfs, "etc/locale.conf"), fmt.Sprintf("LANG=%s\n", ctx.Locale)); err != nil {
 				return fmt.Errorf("writing locale.conf: %w", err)
 			}
@@ -40,7 +40,7 @@ func (b *Builder) phaseSysconfig(ctx *actions.BuildContext, rootfs string) error
 
 		localeGen := filepath.Join(rootfs, "etc/locale.gen")
 		for _, loc := range allLocales {
-			fmt.Printf("    locale-gen: %s\n", loc)
+			out.Info("locale-gen: %s", loc)
 			if err := appendFile(localeGen, fmt.Sprintf("%s UTF-8\n", loc)); err != nil {
 				return fmt.Errorf("writing locale.gen: %w", err)
 			}
@@ -51,7 +51,7 @@ func (b *Builder) phaseSysconfig(ctx *actions.BuildContext, rootfs string) error
 	}
 
 	if ctx.Timezone != "" {
-		fmt.Printf("    timezone: %s\n", ctx.Timezone)
+		out.Info("timezone: %s", ctx.Timezone)
 		tzLink := filepath.Join(rootfs, "etc/localtime")
 		_ = os.Remove(tzLink)
 		if err := os.Symlink(filepath.Join("/usr/share/zoneinfo", ctx.Timezone), tzLink); err != nil {
@@ -60,7 +60,7 @@ func (b *Builder) phaseSysconfig(ctx *actions.BuildContext, rootfs string) error
 	}
 
 	if ctx.Keymap != "" {
-		fmt.Printf("    keymap:   %s\n", ctx.Keymap)
+		out.Info("keymap:   %s", ctx.Keymap)
 	}
 
 	return nil

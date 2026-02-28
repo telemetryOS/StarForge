@@ -20,7 +20,7 @@ func (b *Builder) phaseUsers(ctx *actions.BuildContext, rootfs string) error {
 			args = append(args, "-g", fmt.Sprintf("%d", group.GID))
 		}
 		args = append(args, group.Name)
-		fmt.Printf("    group: %s\n", group.Name)
+		out.Info("group: %s", group.Name)
 		if err := ChrootRun(rootfs, args...); err != nil {
 			return fmt.Errorf("creating group %s: %w", group.Name, err)
 		}
@@ -35,7 +35,7 @@ func (b *Builder) phaseUsers(ctx *actions.BuildContext, rootfs string) error {
 		if user.System {
 			label += " (system)"
 		}
-		fmt.Printf("    %s%s\n", label, groups)
+		out.Info("%s%s", label, groups)
 
 		// Create implicit groups from user group lists
 		for _, group := range user.Groups {
@@ -73,8 +73,14 @@ func (b *Builder) phaseUsers(ctx *actions.BuildContext, rootfs string) error {
 			cmd := exec.Command(resolveBin("arch-chroot"), rootfs, "chpasswd")
 			cmd.Env = vendorEnv()
 			cmd.Stdin = strings.NewReader(fmt.Sprintf("%s:%s\n", user.Name, user.Password))
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
+			if out != nil {
+				w := out.LogWriter()
+				cmd.Stdout = w
+				cmd.Stderr = w
+			} else {
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+			}
 			if err := cmd.Run(); err != nil {
 				return fmt.Errorf("setting password for %s: %w", user.Name, err)
 			}

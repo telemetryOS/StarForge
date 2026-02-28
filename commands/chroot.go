@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 
 	"github.com/spf13/cobra"
@@ -58,13 +59,25 @@ func runChroot(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to elevate privileges: %w", err)
 	}
 
-	// Incremental build — detects source changes via cache hashing
-	builder := engine.NewBuilder(proj)
-	if err := builder.Build(targetName, target, false); err != nil {
+	buildDir := proj.TargetBuildDir(targetName)
+	os.MkdirAll(buildDir, 0o755)
+
+	output, err := engine.InitOutput(buildDir, "chroot", targetName)
+	if err != nil {
+		return err
+	}
+	defer output.Close()
+
+	// Build inside bubbletea
+	err = output.Run(func() error {
+		builder := engine.NewBuilder(proj)
+		return builder.Build(targetName, target, false)
+	})
+	if err != nil {
 		return err
 	}
 
-	buildDir := proj.TargetBuildDir(targetName)
+	// Chroot needs direct terminal access (like QEMU)
 	result, err := engine.LoadBuildResult(buildDir)
 	if err != nil {
 		return fmt.Errorf("loading build result: %w", err)
@@ -73,5 +86,6 @@ func runChroot(cmd *cobra.Command, args []string) error {
 	// Clean up stale mounts
 	engine.CleanupAll(buildDir)
 
+	builder := engine.NewBuilder(proj)
 	return builder.Chroot(targetName, chrootArgs, chrootOverlay, result.Partitions)
 }

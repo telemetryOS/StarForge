@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/telemetryos/starforge/actions"
@@ -13,13 +12,6 @@ import (
 )
 
 var inspectLayers bool
-
-var (
-	inspectHeader     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	inspectDim        = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	inspectOverridden = lipgloss.NewStyle().Strikethrough(true).Foreground(lipgloss.Color("8"))
-	inspectActive     = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-)
 
 var validConcerns = []string{
 	"partitions", "packages", "groups", "users", "services",
@@ -92,16 +84,126 @@ func runInspect(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if !engine.IsInteractive() {
+		// Non-interactive: print directly
+		if concern != "" {
+			return printConcern(concern, ctx)
+		}
+		for _, c := range displayOrder {
+			printConcern(c, ctx)
+		}
+		return nil
+	}
+
+	// Interactive: split-pane TUI
+	cursor := 0
 	if concern != "" {
-		return printConcern(concern, ctx)
+		for i, s := range displayOrder {
+			if s == concern {
+				cursor = i
+				break
+			}
+		}
 	}
+	return runInspectTUI(targetName, ctx, cursor)
+}
 
-	// Print all concerns in display order, skipping empty sections
-	for _, c := range displayOrder {
-		printConcern(c, ctx)
+// section represents a sidebar entry in the inspect TUI.
+type section struct {
+	name  string // display name (e.g. "Partitions")
+	key   string // matches displayOrder key
+	count int    // item count; -1 = always show (system)
+	empty bool
+}
+
+// sectionCount returns the item count for a concern, or -1 for "always show".
+func sectionCount(key string, ctx *actions.BuildContext) int {
+	switch key {
+	case "partitions":
+		return len(ctx.Partitions)
+	case "packages":
+		return len(ctx.Packages)
+	case "system":
+		return -1
+	case "groups":
+		return len(ctx.Groups)
+	case "users":
+		return len(ctx.Users)
+	case "files":
+		return len(ctx.FileMkdirs) + len(ctx.LayerCopies) + len(ctx.FileCreates) +
+			len(ctx.FileEdits) + len(ctx.FileCopies) + len(ctx.FileMoves) +
+			len(ctx.FileLinks) + len(ctx.FileDeletes)
+	case "permissions":
+		return len(ctx.FileOwnerships) + len(ctx.FilePermissions)
+	case "services":
+		n := len(ctx.Services.Enable) + len(ctx.Services.Disable) + len(ctx.Services.Mask) +
+			len(ctx.Services.UserEnable) + len(ctx.Services.UserDisable)
+		if ctx.DefaultTarget != "" {
+			n++
+		}
+		return n
+	case "boot":
+		if ctx.Boot != nil {
+			return 1
+		}
+		return 0
+	case "scripts":
+		return len(ctx.Scripts)
+	case "installer":
+		n := len(ctx.InstallerPayloads)
+		if ctx.InstallerServer != nil {
+			n++
+		}
+		if ctx.InstallerClient != nil {
+			n++
+		}
+		return n
 	}
+	return 0
+}
 
-	return nil
+// sectionDisplayName returns a title-case display name for a concern key.
+func sectionDisplayName(key string) string {
+	switch key {
+	case "partitions":
+		return "Partitions"
+	case "packages":
+		return "Packages"
+	case "system":
+		return "System"
+	case "groups":
+		return "Groups"
+	case "users":
+		return "Users"
+	case "files":
+		return "Files"
+	case "permissions":
+		return "Permissions"
+	case "services":
+		return "Services"
+	case "boot":
+		return "Boot"
+	case "scripts":
+		return "Scripts"
+	case "installer":
+		return "Installer"
+	}
+	return key
+}
+
+// buildSections creates the sidebar section list from a BuildContext.
+func buildSections(ctx *actions.BuildContext) []section {
+	sections := make([]section, len(displayOrder))
+	for i, key := range displayOrder {
+		count := sectionCount(key, ctx)
+		sections[i] = section{
+			name:  sectionDisplayName(key),
+			key:   key,
+			count: count,
+			empty: count == 0,
+		}
+	}
+	return sections
 }
 
 func isValidConcern(s string) bool {
@@ -113,59 +215,80 @@ func isValidConcern(s string) bool {
 	return false
 }
 
+// printConcern renders a single concern to stdout.
 func printConcern(concern string, ctx *actions.BuildContext) error {
+	var w strings.Builder
+	renderConcern(&w, concern, ctx)
+	fmt.Print(w.String())
+	return nil
+}
+
+// renderConcerns renders all concerns (or a single named one) to a string
+// for use by the viewport TUI.
+func renderConcerns(concern string, ctx *actions.BuildContext) string {
+	var w strings.Builder
+	if concern != "" {
+		renderConcern(&w, concern, ctx)
+	} else {
+		for _, c := range displayOrder {
+			renderConcern(&w, c, ctx)
+		}
+	}
+	return w.String()
+}
+
+func renderConcern(w *strings.Builder, concern string, ctx *actions.BuildContext) {
 	switch concern {
 	case "system":
-		printSystem(ctx)
+		renderSystem(w, ctx)
 	case "partitions":
 		if len(ctx.Partitions) == 0 {
-			return nil
+			return
 		}
-		printPartitions(ctx)
+		renderPartitions(w, ctx)
 	case "packages":
 		if len(ctx.Packages) == 0 {
-			return nil
+			return
 		}
-		printPackages(ctx)
+		renderPackages(w, ctx)
 	case "groups":
 		if len(ctx.Groups) == 0 {
-			return nil
+			return
 		}
-		printGroups(ctx)
+		renderGroups(w, ctx)
 	case "users":
 		if len(ctx.Users) == 0 {
-			return nil
+			return
 		}
-		printUsers(ctx)
+		renderUsers(w, ctx)
 	case "services":
-		printServices(ctx)
+		renderServices(w, ctx)
 	case "files":
 		if isConcernEmpty("files", ctx) {
-			return nil
+			return
 		}
-		printFiles(ctx)
+		renderFiles(w, ctx)
 	case "permissions":
 		if len(ctx.FileOwnerships) == 0 && len(ctx.FilePermissions) == 0 {
-			return nil
+			return
 		}
-		printPermissions(ctx)
+		renderPermissions(w, ctx)
 	case "boot":
 		if ctx.Boot == nil {
-			return nil
+			return
 		}
-		printBoot(ctx)
+		renderBoot(w, ctx)
 	case "scripts":
 		if len(ctx.Scripts) == 0 {
-			return nil
+			return
 		}
-		printScripts(ctx)
+		renderScripts(w, ctx)
 	case "installer":
 		if len(ctx.InstallerPayloads) == 0 && ctx.InstallerServer == nil && ctx.InstallerClient == nil {
-			return nil
+			return
 		}
-		printInstaller(ctx)
+		renderInstaller(w, ctx)
 	}
-	return nil
 }
 
 func isConcernEmpty(concern string, ctx *actions.BuildContext) bool {
@@ -178,26 +301,26 @@ func isConcernEmpty(concern string, ctx *actions.BuildContext) bool {
 	return false
 }
 
-func printSystem(ctx *actions.BuildContext) {
-	fmt.Println(inspectHeader.Render("System"))
-	defer fmt.Println()
-	printReplaceField("hostname", ctx.Hostname, ctx.HostnameHistory)
-	printReplaceField("locale", ctx.Locale, ctx.LocaleHistory)
-	printReplaceField("timezone", ctx.Timezone, ctx.TimezoneHistory)
-	printReplaceField("keymap", ctx.Keymap, ctx.KeymapHistory)
+func renderSystem(w *strings.Builder, ctx *actions.BuildContext) {
+	fmt.Fprintln(w, inspectHeader.Render("System"))
+	defer fmt.Fprintln(w)
+	renderReplaceField(w, "hostname", ctx.Hostname, ctx.HostnameHistory)
+	renderReplaceField(w, "locale", ctx.Locale, ctx.LocaleHistory)
+	renderReplaceField(w, "timezone", ctx.Timezone, ctx.TimezoneHistory)
+	renderReplaceField(w, "keymap", ctx.Keymap, ctx.KeymapHistory)
 
 	if len(ctx.Locales) > 0 {
-		fmt.Printf("  %-12s %s\n", "locales:", strings.Join(ctx.Locales, ", "))
+		fmt.Fprintf(w, "  %-12s %s\n", "locales:", strings.Join(ctx.Locales, ", "))
 	}
 }
 
-func printReplaceField(label, value string, history []actions.LayerValue) {
+func renderReplaceField(w *strings.Builder, label, value string, history []actions.LayerValue) {
 	if value == "" && len(history) == 0 {
 		return
 	}
 
 	if !inspectLayers {
-		fmt.Printf("  %-12s %s\n", label+":", value)
+		fmt.Fprintf(w, "  %-12s %s\n", label+":", value)
 		return
 	}
 
@@ -207,37 +330,37 @@ func printReplaceField(label, value string, history []actions.LayerValue) {
 		if len(history) == 1 {
 			layer = history[0].Layer
 		}
-		fmt.Printf("  %-12s %s  %s\n", label+":", value, inspectDim.Render(layer))
+		fmt.Fprintf(w, "  %-12s %s  %s\n", label+":", value, inspectDim.Render(layer))
 		return
 	}
 
 	// Show history with overrides
 	for i, h := range history {
 		if i < len(history)-1 {
-			fmt.Printf("  %-12s %s  %s\n", label+":",
+			fmt.Fprintf(w, "  %-12s %s  %s\n", label+":",
 				inspectOverridden.Render(h.Value),
 				inspectDim.Render(fmt.Sprintf("← %s (overridden)", h.Layer)))
 		} else {
-			fmt.Printf("  %-12s %s  %s\n", label+":",
+			fmt.Fprintf(w, "  %-12s %s  %s\n", label+":",
 				inspectActive.Render(h.Value),
 				inspectDim.Render(fmt.Sprintf("← %s (active)", h.Layer)))
 		}
 	}
 }
 
-func printPartitions(ctx *actions.BuildContext) {
-	fmt.Println(inspectHeader.Render("Partitions"))
-	defer fmt.Println()
+func renderPartitions(w *strings.Builder, ctx *actions.BuildContext) {
+	fmt.Fprintln(w, inspectHeader.Render("Partitions"))
+	defer fmt.Fprintln(w)
 
 	if len(ctx.Partitions) == 0 {
-		fmt.Println("  (none)")
+		fmt.Fprintln(w, "  (none)")
 		return
 	}
 
 	if inspectLayers && len(ctx.PartitionHistory) > 0 {
 		// Show the active (last) layer on its own line before partition data
 		activeLayer := ctx.PartitionHistory[len(ctx.PartitionHistory)-1].Layer
-		fmt.Printf("  %s\n", inspectDim.Render(activeLayer))
+		fmt.Fprintf(w, "  %s\n", inspectDim.Render(activeLayer))
 	}
 
 	for _, p := range ctx.Partitions {
@@ -249,26 +372,26 @@ func printPartitions(ctx *actions.BuildContext) {
 		if pType == "" {
 			pType = "-"
 		}
-		fmt.Printf("  %-12s %-6s %-8s %-12s %s\n",
+		fmt.Fprintf(w, "  %-12s %-6s %-8s %-12s %s\n",
 			p.Name, p.Filesystem, sizeStr, p.MountPoint, pType)
 	}
 }
 
-func printPackages(ctx *actions.BuildContext) {
-	fmt.Println(inspectHeader.Render("Packages"))
-	defer fmt.Println()
+func renderPackages(w *strings.Builder, ctx *actions.BuildContext) {
+	fmt.Fprintln(w, inspectHeader.Render("Packages"))
+	defer fmt.Fprintln(w)
 
 	if len(ctx.Packages) == 0 {
-		fmt.Println("  (none)")
+		fmt.Fprintln(w, "  (none)")
 		return
 	}
 
 	if inspectLayers && len(ctx.PackageGroups) > 0 {
 		// Group by layer (layer name as header, packages indented)
 		for _, g := range ctx.PackageGroups {
-			fmt.Printf("  %s\n", inspectDim.Render(g.Layer))
+			fmt.Fprintf(w, "  %s\n", inspectDim.Render(g.Layer))
 			for _, pkg := range g.Items {
-				fmt.Printf("    %s\n", pkg)
+				fmt.Fprintf(w, "    %s\n", pkg)
 			}
 		}
 	} else {
@@ -277,18 +400,18 @@ func printPackages(ctx *actions.BuildContext) {
 		for _, pkg := range ctx.Packages {
 			if !seen[pkg.Name] {
 				seen[pkg.Name] = true
-				fmt.Printf("  %s\n", pkg.String())
+				fmt.Fprintf(w, "  %s\n", pkg.String())
 			}
 		}
 	}
 }
 
-func printGroups(ctx *actions.BuildContext) {
-	fmt.Println(inspectHeader.Render("Groups"))
-	defer fmt.Println()
+func renderGroups(w *strings.Builder, ctx *actions.BuildContext) {
+	fmt.Fprintln(w, inspectHeader.Render("Groups"))
+	defer fmt.Fprintln(w)
 
 	if len(ctx.Groups) == 0 {
-		fmt.Println("  (none)")
+		fmt.Fprintln(w, "  (none)")
 		return
 	}
 
@@ -304,16 +427,16 @@ func printGroups(ctx *actions.BuildContext) {
 		if inspectLayers && g.Layer != "" {
 			layerInfo = "  " + inspectDim.Render(g.Layer)
 		}
-		fmt.Printf("  %s%s%s\n", g.Name, extra, layerInfo)
+		fmt.Fprintf(w, "  %s%s%s\n", g.Name, extra, layerInfo)
 	}
 }
 
-func printUsers(ctx *actions.BuildContext) {
-	fmt.Println(inspectHeader.Render("Users"))
-	defer fmt.Println()
+func renderUsers(w *strings.Builder, ctx *actions.BuildContext) {
+	fmt.Fprintln(w, inspectHeader.Render("Users"))
+	defer fmt.Fprintln(w)
 
 	if len(ctx.Users) == 0 {
-		fmt.Println("  (none)")
+		fmt.Fprintln(w, "  (none)")
 		return
 	}
 
@@ -326,7 +449,7 @@ func printUsers(ctx *actions.BuildContext) {
 			if len(u.Groups) > 0 {
 				line += fmt.Sprintf("  groups: %s", strings.Join(u.Groups, ", "))
 			}
-			fmt.Println(line)
+			fmt.Fprintln(w, line)
 		} else {
 			line := fmt.Sprintf("  %-12s", u.Name)
 			if u.Shell != "" {
@@ -335,72 +458,72 @@ func printUsers(ctx *actions.BuildContext) {
 			if len(u.Groups) > 0 {
 				line += fmt.Sprintf("  groups: %s", strings.Join(u.Groups, ", "))
 			}
-			fmt.Println(line)
+			fmt.Fprintln(w, line)
 		}
 	}
 }
 
-func printServices(ctx *actions.BuildContext) {
-	fmt.Println(inspectHeader.Render("Services"))
-	defer fmt.Println()
+func renderServices(w *strings.Builder, ctx *actions.BuildContext) {
+	fmt.Fprintln(w, inspectHeader.Render("Services"))
+	defer fmt.Fprintln(w)
 
 	if len(ctx.Services.Enable) > 0 {
 		if inspectLayers && len(ctx.EnableGroups) > 0 {
-			fmt.Println("  enable")
+			fmt.Fprintln(w, "  enable")
 			for _, g := range ctx.EnableGroups {
 				for _, svc := range g.Items {
-					fmt.Printf("    %s\n", inspectDim.Render(g.Layer))
-					fmt.Printf("      %s\n", svc)
+					fmt.Fprintf(w, "    %s\n", inspectDim.Render(g.Layer))
+					fmt.Fprintf(w, "      %s\n", svc)
 				}
 			}
 		} else {
-			fmt.Printf("  enable:   %s\n", strings.Join(ctx.Services.Enable, ", "))
+			fmt.Fprintf(w, "  enable:   %s\n", strings.Join(ctx.Services.Enable, ", "))
 		}
 	}
 
 	if len(ctx.Services.Disable) > 0 {
 		if inspectLayers && len(ctx.DisableGroups) > 0 {
-			fmt.Println("  disable")
+			fmt.Fprintln(w, "  disable")
 			for _, g := range ctx.DisableGroups {
 				for _, svc := range g.Items {
-					fmt.Printf("    %s\n", inspectDim.Render(g.Layer))
-					fmt.Printf("      %s\n", svc)
+					fmt.Fprintf(w, "    %s\n", inspectDim.Render(g.Layer))
+					fmt.Fprintf(w, "      %s\n", svc)
 				}
 			}
 		} else {
-			fmt.Printf("  disable:  %s\n", strings.Join(ctx.Services.Disable, ", "))
+			fmt.Fprintf(w, "  disable:  %s\n", strings.Join(ctx.Services.Disable, ", "))
 		}
 	}
 
 	if len(ctx.Services.Mask) > 0 {
 		if inspectLayers && len(ctx.MaskGroups) > 0 {
-			fmt.Println("  mask")
+			fmt.Fprintln(w, "  mask")
 			for _, g := range ctx.MaskGroups {
 				for _, svc := range g.Items {
-					fmt.Printf("    %s\n", inspectDim.Render(g.Layer))
-					fmt.Printf("      %s\n", svc)
+					fmt.Fprintf(w, "    %s\n", inspectDim.Render(g.Layer))
+					fmt.Fprintf(w, "      %s\n", svc)
 				}
 			}
 		} else {
-			fmt.Printf("  mask:     %s\n", strings.Join(ctx.Services.Mask, ", "))
+			fmt.Fprintf(w, "  mask:     %s\n", strings.Join(ctx.Services.Mask, ", "))
 		}
 	}
 
 	if len(ctx.Services.UserEnable) > 0 {
 		if inspectLayers {
-			fmt.Println("  user enable")
+			fmt.Fprintln(w, "  user enable")
 			for _, op := range ctx.Services.UserEnable {
 				layer := ""
 				if op.Layer != "" {
 					layer = op.Layer
 				}
-				fmt.Printf("    %s\n", inspectDim.Render(fmt.Sprintf("%s (user: %s)", layer, op.User)))
-				fmt.Printf("      %s\n", op.Service)
+				fmt.Fprintf(w, "    %s\n", inspectDim.Render(fmt.Sprintf("%s (user: %s)", layer, op.User)))
+				fmt.Fprintf(w, "      %s\n", op.Service)
 			}
 		} else {
 			byUser := groupUserServices(ctx.Services.UserEnable)
 			for _, ug := range byUser {
-				fmt.Printf("  enable:   %s (user: %s)\n",
+				fmt.Fprintf(w, "  enable:   %s (user: %s)\n",
 					strings.Join(ug.services, ", "), ug.user)
 			}
 		}
@@ -408,19 +531,19 @@ func printServices(ctx *actions.BuildContext) {
 
 	if len(ctx.Services.UserDisable) > 0 {
 		if inspectLayers {
-			fmt.Println("  user disable")
+			fmt.Fprintln(w, "  user disable")
 			for _, op := range ctx.Services.UserDisable {
 				layer := ""
 				if op.Layer != "" {
 					layer = op.Layer
 				}
-				fmt.Printf("    %s\n", inspectDim.Render(fmt.Sprintf("%s (user: %s)", layer, op.User)))
-				fmt.Printf("      %s\n", op.Service)
+				fmt.Fprintf(w, "    %s\n", inspectDim.Render(fmt.Sprintf("%s (user: %s)", layer, op.User)))
+				fmt.Fprintf(w, "      %s\n", op.Service)
 			}
 		} else {
 			byUser := groupUserServices(ctx.Services.UserDisable)
 			for _, ug := range byUser {
-				fmt.Printf("  disable:  %s (user: %s)\n",
+				fmt.Fprintf(w, "  disable:  %s (user: %s)\n",
 					strings.Join(ug.services, ", "), ug.user)
 			}
 		}
@@ -429,9 +552,9 @@ func printServices(ctx *actions.BuildContext) {
 	if ctx.DefaultTarget != "" {
 		if inspectLayers && len(ctx.DefaultTargetHistory) > 0 {
 			layer := ctx.DefaultTargetHistory[len(ctx.DefaultTargetHistory)-1].Layer
-			fmt.Printf("  target:      %s  %s\n", ctx.DefaultTarget, inspectDim.Render(layer))
+			fmt.Fprintf(w, "  target:      %s  %s\n", ctx.DefaultTarget, inspectDim.Render(layer))
 		} else {
-			fmt.Printf("  target:      %s\n", ctx.DefaultTarget)
+			fmt.Fprintf(w, "  target:      %s\n", ctx.DefaultTarget)
 		}
 	}
 }
@@ -459,9 +582,9 @@ func groupUserServices(ops []actions.UserServiceOp) []userServiceGroup {
 	return groups
 }
 
-func printFiles(ctx *actions.BuildContext) {
-	fmt.Println(inspectHeader.Render("Files"))
-	defer fmt.Println()
+func renderFiles(w *strings.Builder, ctx *actions.BuildContext) {
+	fmt.Fprintln(w, inspectHeader.Render("Files"))
+	defer fmt.Fprintln(w)
 
 	empty := len(ctx.FileMkdirs) == 0 && len(ctx.FileCreates) == 0 &&
 		len(ctx.FileEdits) == 0 && len(ctx.LayerCopies) == 0 &&
@@ -469,14 +592,14 @@ func printFiles(ctx *actions.BuildContext) {
 		len(ctx.FileDeletes) == 0 && len(ctx.FileCopies) == 0
 
 	if empty {
-		fmt.Println("  (none)")
+		fmt.Fprintln(w, "  (none)")
 		return
 	}
 
 	// Copies (directory copies from layer_path/layer_source) are shown as "create ... (dir copy)"
 	for _, cp := range ctx.LayerCopies {
 		desc := fmt.Sprintf("%s -> %s  (dir copy)", cp.FromPath, cp.ToPath)
-		printFileLine("create", desc, cp.Label, cp.Layer)
+		renderFileLine(w, "create", desc, cp.Label, cp.Layer)
 	}
 
 	for _, fc := range ctx.FileCreates {
@@ -485,7 +608,7 @@ func printFiles(ctx *actions.BuildContext) {
 			mode = " " + fc.Mode
 		}
 		desc := fmt.Sprintf("%-30s%s", fc.Path, mode)
-		printFileLine("create", desc, fc.Label, fc.Layer)
+		renderFileLine(w, "create", desc, fc.Label, fc.Layer)
 	}
 
 	for _, fe := range ctx.FileEdits {
@@ -496,19 +619,19 @@ func printFiles(ctx *actions.BuildContext) {
 		if fe.Pattern != "" {
 			extra += fmt.Sprintf(" pattern=%q", fe.Pattern)
 		}
-		printFileLine("edit", fe.Path+extra, fe.Label, fe.Layer)
+		renderFileLine(w, "edit", fe.Path+extra, fe.Label, fe.Layer)
 	}
 
 	for _, ic := range ctx.FileCopies {
-		printFileLine("icopy", fmt.Sprintf("%s -> %s", ic.FromPath, ic.ToPath), ic.Label, ic.Layer)
+		renderFileLine(w, "icopy", fmt.Sprintf("%s -> %s", ic.FromPath, ic.ToPath), ic.Label, ic.Layer)
 	}
 
 	for _, mv := range ctx.FileMoves {
-		printFileLine("move", fmt.Sprintf("%s -> %s", mv.FromPath, mv.ToPath), mv.Label, mv.Layer)
+		renderFileLine(w, "move", fmt.Sprintf("%s -> %s", mv.FromPath, mv.ToPath), mv.Label, mv.Layer)
 	}
 
 	for _, ln := range ctx.FileLinks {
-		printFileLine("link", fmt.Sprintf("%s -> %s (%s)", ln.ToPath, ln.FromPath, ln.Type), ln.Label, ln.Layer)
+		renderFileLine(w, "link", fmt.Sprintf("%s -> %s (%s)", ln.ToPath, ln.FromPath, ln.Type), ln.Label, ln.Layer)
 	}
 
 	for _, r := range ctx.FileDeletes {
@@ -516,7 +639,7 @@ func printFiles(ctx *actions.BuildContext) {
 		if r.Recursive {
 			extra = " (recursive)"
 		}
-		printFileLine("delete", r.Path+extra, r.Label, r.Layer)
+		renderFileLine(w, "delete", r.Path+extra, r.Label, r.Layer)
 	}
 
 	for _, m := range ctx.FileMkdirs {
@@ -527,30 +650,30 @@ func printFiles(ctx *actions.BuildContext) {
 		if m.Owner != "" {
 			extra += " owner=" + m.Owner
 		}
-		printFileLine("mkdir", m.Path+extra, m.Label, m.Layer)
+		renderFileLine(w, "mkdir", m.Path+extra, m.Label, m.Layer)
 	}
 }
 
-// printFileLine prints a single file operation line.
+// renderFileLine renders a single file operation line.
 // When --layers is set, the layer path is prefixed; otherwise it's omitted.
-func printFileLine(op, desc, label, layer string) {
+func renderFileLine(w *strings.Builder, op, desc, label, layer string) {
 	labelStr := ""
 	if label != "" {
 		labelStr = "  " + label
 	}
 	if inspectLayers && layer != "" {
-		fmt.Printf("  %-21s %-7s %s%s\n", layer, op, desc, labelStr)
+		fmt.Fprintf(w, "  %-21s %-7s %s%s\n", layer, op, desc, labelStr)
 	} else {
-		fmt.Printf("  %-7s %s%s\n", op, desc, labelStr)
+		fmt.Fprintf(w, "  %-7s %s%s\n", op, desc, labelStr)
 	}
 }
 
-func printPermissions(ctx *actions.BuildContext) {
-	fmt.Println(inspectHeader.Render("Permissions"))
-	defer fmt.Println()
+func renderPermissions(w *strings.Builder, ctx *actions.BuildContext) {
+	fmt.Fprintln(w, inspectHeader.Render("Permissions"))
+	defer fmt.Fprintln(w)
 
 	if len(ctx.FileOwnerships) == 0 && len(ctx.FilePermissions) == 0 {
-		fmt.Println("  (none)")
+		fmt.Fprintln(w, "  (none)")
 		return
 	}
 
@@ -564,9 +687,9 @@ func printPermissions(ctx *actions.BuildContext) {
 			label = "  " + o.Label
 		}
 		if inspectLayers && o.Layer != "" {
-			fmt.Printf("  %-21s %-30s chown %s:%s%s%s\n", o.Layer, o.Path, o.Owner, o.Group, extra, label)
+			fmt.Fprintf(w, "  %-21s %-30s chown %s:%s%s%s\n", o.Layer, o.Path, o.Owner, o.Group, extra, label)
 		} else {
-			fmt.Printf("  %-30s chown %s:%s%s%s\n", o.Path, o.Owner, o.Group, extra, label)
+			fmt.Fprintf(w, "  %-30s chown %s:%s%s%s\n", o.Path, o.Owner, o.Group, extra, label)
 		}
 	}
 
@@ -580,43 +703,43 @@ func printPermissions(ctx *actions.BuildContext) {
 			label = "  " + p.Label
 		}
 		if inspectLayers && p.Layer != "" {
-			fmt.Printf("  %-21s %-30s chmod %s%s%s\n", p.Layer, p.Path, p.Mode, extra, label)
+			fmt.Fprintf(w, "  %-21s %-30s chmod %s%s%s\n", p.Layer, p.Path, p.Mode, extra, label)
 		} else {
-			fmt.Printf("  %-30s chmod %s%s%s\n", p.Path, p.Mode, extra, label)
+			fmt.Fprintf(w, "  %-30s chmod %s%s%s\n", p.Path, p.Mode, extra, label)
 		}
 	}
 }
 
-func printBoot(ctx *actions.BuildContext) {
-	fmt.Println(inspectHeader.Render("Boot"))
-	defer fmt.Println()
+func renderBoot(w *strings.Builder, ctx *actions.BuildContext) {
+	fmt.Fprintln(w, inspectHeader.Render("Boot"))
+	defer fmt.Fprintln(w)
 
 	if ctx.Boot == nil {
-		fmt.Println("  (not configured)")
+		fmt.Fprintln(w, "  (not configured)")
 		return
 	}
 
 	if inspectLayers && ctx.Boot.Layer != "" {
-		fmt.Printf("  %s\n", inspectDim.Render(fmt.Sprintf("%s (active)", ctx.Boot.Layer)))
+		fmt.Fprintf(w, "  %s\n", inspectDim.Render(fmt.Sprintf("%s (active)", ctx.Boot.Layer)))
 	}
 
-	fmt.Printf("  loader: default=%s timeout=%d editor=%v\n",
+	fmt.Fprintf(w, "  loader: default=%s timeout=%d editor=%v\n",
 		ctx.Boot.Loader.Default, ctx.Boot.Loader.Timeout, ctx.Boot.Loader.Editor)
 	for _, e := range ctx.Boot.Entries {
-		fmt.Printf("  entry:  %s\n", e.Name)
-		fmt.Printf("    title:   %s\n", e.Title)
-		fmt.Printf("    linux:   %s\n", e.Linux)
-		fmt.Printf("    initrd:  %s\n", e.Initrd)
-		fmt.Printf("    options: %s\n", e.Options)
+		fmt.Fprintf(w, "  entry:  %s\n", e.Name)
+		fmt.Fprintf(w, "    title:   %s\n", e.Title)
+		fmt.Fprintf(w, "    linux:   %s\n", e.Linux)
+		fmt.Fprintf(w, "    initrd:  %s\n", e.Initrd)
+		fmt.Fprintf(w, "    options: %s\n", e.Options)
 	}
 }
 
-func printScripts(ctx *actions.BuildContext) {
-	fmt.Println(inspectHeader.Render("Scripts"))
-	defer fmt.Println()
+func renderScripts(w *strings.Builder, ctx *actions.BuildContext) {
+	fmt.Fprintln(w, inspectHeader.Render("Scripts"))
+	defer fmt.Fprintln(w)
 
 	if len(ctx.Scripts) == 0 {
-		fmt.Println("  (none)")
+		fmt.Fprintln(w, "  (none)")
 		return
 	}
 
@@ -632,33 +755,33 @@ func printScripts(ctx *actions.BuildContext) {
 		}
 
 		if inspectLayers && s.Layer != "" {
-			fmt.Printf("  %-21s %s%s\n", s.Layer, desc, extra)
+			fmt.Fprintf(w, "  %-21s %s%s\n", s.Layer, desc, extra)
 		} else {
-			fmt.Printf("  %s%s\n", desc, extra)
+			fmt.Fprintf(w, "  %s%s\n", desc, extra)
 		}
 	}
 }
 
-func printInstaller(ctx *actions.BuildContext) {
-	fmt.Println(inspectHeader.Render("Installer"))
-	defer fmt.Println()
+func renderInstaller(w *strings.Builder, ctx *actions.BuildContext) {
+	fmt.Fprintln(w, inspectHeader.Render("Installer"))
+	defer fmt.Fprintln(w)
 
 	if len(ctx.InstallerPayloads) == 0 && ctx.InstallerServer == nil && ctx.InstallerClient == nil {
-		fmt.Println("  (not configured)")
+		fmt.Fprintln(w, "  (not configured)")
 		return
 	}
 
 	if len(ctx.InstallerPayloads) > 0 {
-		fmt.Println("  payloads")
+		fmt.Fprintln(w, "  payloads")
 		for _, p := range ctx.InstallerPayloads {
 			label := ""
 			if p.Label != "" {
 				label = " " + p.Label
 			}
 			if inspectLayers && p.Layer != "" {
-				fmt.Printf("    %s  %s%s\n", p.Layer, p.Target, label)
+				fmt.Fprintf(w, "    %s  %s%s\n", p.Layer, p.Target, label)
 			} else {
-				fmt.Printf("    %s%s\n", p.Target, label)
+				fmt.Fprintf(w, "    %s%s\n", p.Target, label)
 			}
 		}
 	}
@@ -668,7 +791,7 @@ func printInstaller(ctx *actions.BuildContext) {
 		if inspectLayers && ctx.InstallerServer.Layer != "" {
 			layerInfo = "  " + inspectDim.Render(ctx.InstallerServer.Layer)
 		}
-		fmt.Printf("  server  port: %d%s\n", ctx.InstallerServer.Port, layerInfo)
+		fmt.Fprintf(w, "  server  port: %d%s\n", ctx.InstallerServer.Port, layerInfo)
 	}
 
 	if ctx.InstallerClient != nil {
@@ -677,9 +800,9 @@ func printInstaller(ctx *actions.BuildContext) {
 			layerInfo = "  " + inspectDim.Render(ctx.InstallerClient.Layer)
 		}
 		if ctx.InstallerClient.AutoLogin != "" {
-			fmt.Printf("  client  auto_login: %s%s\n", ctx.InstallerClient.AutoLogin, layerInfo)
+			fmt.Fprintf(w, "  client  auto_login: %s%s\n", ctx.InstallerClient.AutoLogin, layerInfo)
 		} else {
-			fmt.Printf("  client%s\n", layerInfo)
+			fmt.Fprintf(w, "  client%s\n", layerInfo)
 		}
 	}
 }
