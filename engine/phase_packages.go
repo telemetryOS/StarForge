@@ -107,7 +107,7 @@ func installFromArchive(rootfs string, pkg actions.Package) error {
 	for _, arch := range []string{"x86_64", "any"} {
 		url := fmt.Sprintf("%s/%s/%s/%s-%s-%s.pkg.tar.zst",
 			archiveURL, string(pkg.Name[0]), pkg.Name, pkg.Name, version, arch)
-		if err := chrootRun(rootfs, "pacman", "-U", url, "--noconfirm"); err == nil {
+		if err := ChrootRun(rootfs, "pacman", "-U", url, "--noconfirm"); err == nil {
 			return nil
 		}
 	}
