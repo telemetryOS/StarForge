@@ -85,6 +85,18 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 		return fmt.Errorf("pacman-key --populate: %w", err)
 	}
 
+	// pacman-key --populate forks gpg-agent as a background daemon inside
+	// the chroot. If left running, it holds the overlay's bind-mounts open
+	// (proc, dev, etc.), preventing a clean umount. The lazy fallback umount
+	// then leaves the phase-1 upperdir marked "in use" by the kernel's
+	// overlayfs, causing EBUSY when phase 2 tries to use it as a lowerdir.
+	// Kill gpg-agent before returning so CommitPhase can unmount cleanly.
+	out.Styled(
+		fmt.Sprintf("    gpgconf %s", dimStyle.Render("--kill gpg-agent")),
+		"    gpgconf --kill gpg-agent",
+	)
+	run("arch-chroot", rootfs, "gpgconf", "--homedir", "/etc/pacman.d/gnupg", "--kill", "gpg-agent")
+
 	// Install pinned packages from the Arch Linux Archive
 	for _, pkg := range pinned {
 		out.Styled(
