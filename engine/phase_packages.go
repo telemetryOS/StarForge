@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -35,11 +37,28 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 		return fmt.Errorf("creating pacman cache dir: %w", err)
 	}
 
-	confFile, err := pacmanConf(cacheDir)
+	// Initialize the pacman keyring on the host before pacstrap.
+	// Uses vendored gpg + gpg-agent + archlinux-keyring so this works
+	// on any distro without a host pacman installation.
+	gpgDir, err := os.MkdirTemp("", "starforge-keyring-*")
+	if err != nil {
+		return fmt.Errorf("creating keyring dir: %w", err)
+	}
+	defer os.RemoveAll(gpgDir)
+
+	confFile, err := pacmanConf(cacheDir, gpgDir)
 	if err != nil {
 		return fmt.Errorf("creating pacman.conf: %w", err)
 	}
 	defer os.Remove(confFile)
+
+	out.Styled(
+		fmt.Sprintf("    pacman-key %s", dimStyle.Render("--init, --populate archlinux")),
+		"    pacman-key --init, --populate archlinux",
+	)
+	if err := initKeyring(gpgDir, confFile); err != nil {
+		return err
+	}
 
 	// Install unpinned packages via pacstrap
 	if len(unpinned) > 0 {
@@ -52,11 +71,11 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 			fmt.Sprintf("    pacstrap %s", strings.Join(names, ", ")),
 		)
 
-		// -C: use our config with custom CacheDir
-		// -c: use host cache mode (passes CacheDir as --cachedir to pacman,
-		//     which is an absolute host path rather than relative to rootfs)
-		// -K: initialize an empty pacman keyring in the target
-		args := append([]string{"-C", confFile, "-c", "-K", rootfs}, names...)
+		// -C: use our generated config (CacheDir, GPGDir, repos)
+		// -c: use host cache mode (absolute host path for --cachedir)
+		// -G: skip copying host pacman keyring (we initialized our own above)
+		// -M: skip copying host mirrorlist (our config uses direct Server entries)
+		args := append([]string{"-C", confFile, "-c", "-G", "-M", rootfs}, names...)
 		if err := run("pacstrap", args...); err != nil {
 			return err
 		}
@@ -67,22 +86,19 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 			fmt.Sprintf("    pacstrap %s", dimStyle.Render("(base only)")),
 			"    pacstrap (base only)",
 		)
-		if err := run("pacstrap", "-C", confFile, "-c", "-K", rootfs); err != nil {
+		if err := run("pacstrap", "-C", confFile, "-c", "-G", "-M", rootfs); err != nil {
 			return err
 		}
 	}
 
-	// Initialize and populate the pacman keyring so the installed system
-	// can verify package signatures without manual key imports.
-	out.Styled(
-		fmt.Sprintf("    pacman-key %s", dimStyle.Render("--init, --populate archlinux")),
-		"    pacman-key --init, --populate archlinux",
-	)
-	if err := run("arch-chroot", rootfs, "pacman-key", "--init"); err != nil {
-		return fmt.Errorf("pacman-key --init: %w", err)
+	// Re-initialize a proper system keyring inside the chroot so the
+	// installed OS has its own master key and locally-signed trust chain.
+	// The chroot has gnupg + archlinux-keyring from pacstrap.
+	if err := ChrootRun(rootfs, "pacman-key", "--init"); err != nil {
+		return fmt.Errorf("system pacman-key --init: %w", err)
 	}
-	if err := run("arch-chroot", rootfs, "pacman-key", "--populate", "archlinux"); err != nil {
-		return fmt.Errorf("pacman-key --populate: %w", err)
+	if err := ChrootRun(rootfs, "pacman-key", "--populate", "archlinux"); err != nil {
+		return fmt.Errorf("system pacman-key --populate: %w", err)
 	}
 
 	// pacman-key --populate forks gpg-agent as a background daemon inside
@@ -187,47 +203,82 @@ func resolveLatestPkgrel(name, version string) (string, error) {
 	return fmt.Sprintf("%s-%d", version, maxRel), nil
 }
 
-// pacmanConf creates a temporary pacman.conf that uses the given cache directory.
-// It includes the system config for repos/mirrors and overrides CacheDir.
-func pacmanConf(cacheDir string) (string, error) {
-	// Read the system pacman.conf as the base
-	base, err := os.ReadFile("/etc/pacman.conf")
-	if err != nil {
-		return "", fmt.Errorf("reading /etc/pacman.conf: %w", err)
-	}
+// pacmanConf creates a temporary pacman.conf with the given cache and GPG
+// directories. Generated from scratch so it works on any host.
+func pacmanConf(cacheDir, gpgDir string) (string, error) {
+	conf := fmt.Sprintf(`[options]
+HoldPkg = pacman glibc
+Architecture = auto
+SigLevel = Required DatabaseOptional
+CacheDir = %s
+GPGDir = %s
 
-	// Build a config that sets CacheDir before including the rest.
-	// pacman uses the last CacheDir directive, but a standalone directive
-	// before the [options] section doesn't work — we need to replace the
-	// existing CacheDir line or inject into [options].
-	content := string(base)
-	var result strings.Builder
-	replaced := false
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "CacheDir") && strings.Contains(trimmed, "=") {
-			result.WriteString(fmt.Sprintf("CacheDir = %s\n", cacheDir))
-			replaced = true
-			continue
-		}
-		result.WriteString(line)
-		result.WriteString("\n")
-		// If we hit [options] and haven't replaced yet, inject CacheDir
-		if !replaced && trimmed == "[options]" {
-			result.WriteString(fmt.Sprintf("CacheDir = %s\n", cacheDir))
-			replaced = true
-		}
-	}
+[core]
+Server = %s/$repo/os/$arch
+
+[extra]
+Server = %s/$repo/os/$arch
+`, cacheDir, gpgDir, archMirror, archMirror)
 
 	f, err := os.CreateTemp("", "starforge-pacman-*.conf")
 	if err != nil {
 		return "", err
 	}
-	if _, err := f.WriteString(result.String()); err != nil {
+	if _, err := f.WriteString(conf); err != nil {
 		f.Close()
 		os.Remove(f.Name())
 		return "", err
 	}
 	f.Close()
 	return f.Name(), nil
+}
+
+// initKeyring initializes a pacman keyring at gpgDir using vendored tools.
+// Writes a gpg.conf that directs GnuPG to our vendored gpg-agent (the
+// compiled-in path won't exist on non-Arch hosts), then runs pacman-key
+// --init (generates master signing key) and --populate (imports + lsigns
+// the Arch Linux developer keys from the vendored archlinux-keyring).
+func initKeyring(gpgDir, confFile string) error {
+	// Override GnuPG's compiled-in gpg-agent path so it finds our vendored one.
+	gpgConf := filepath.Join(gpgDir, "gpg.conf")
+	agentPath := filepath.Join(VendorBinDir(), "gpg-agent")
+	if err := os.WriteFile(gpgConf, []byte("agent-program "+agentPath+"\n"), 0o600); err != nil {
+		return fmt.Errorf("writing gpg.conf: %w", err)
+	}
+
+	pacmanKey := resolveBin("pacman-key")
+	keyringsDir := filepath.Join(VendorDir(), "usr", "share", "pacman", "keyrings")
+
+	// pacman-key --init: create the master signing key (needs gpg-agent)
+	cmd := exec.Command(pacmanKey, "--gpgdir", gpgDir, "--config", confFile, "--init")
+	cmd.Env = vendorEnv()
+	if out != nil {
+		cmd.Stdout = out.LogWriter()
+		cmd.Stderr = out.LogWriter()
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("pacman-key --init: %w", err)
+	}
+
+	// pacman-key --populate: import keys from vendored archlinux-keyring
+	// and locally sign the trusted ones. --populate-from overrides the
+	// default /usr/share/pacman/keyrings/ which won't exist on non-Arch.
+	cmd = exec.Command(pacmanKey, "--gpgdir", gpgDir, "--config", confFile,
+		"--populate-from", keyringsDir, "--populate", "archlinux")
+	cmd.Env = vendorEnv()
+	if out != nil {
+		cmd.Stdout = out.LogWriter()
+		cmd.Stderr = out.LogWriter()
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("pacman-key --populate: %w", err)
+	}
+
+	return nil
 }

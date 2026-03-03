@@ -1057,9 +1057,32 @@ func (m buildModel) printSummary(err error) {
 
 	fmt.Fprintln(w)
 	if err != nil {
-		fmt.Fprintf(w, "  %s  %s\n\n",
+		fmt.Fprintf(w, "  %s  %s\n",
 			failStyle.Render("failed"),
 			dim.Render(formatDuration(totalElapsed)))
+		fmt.Fprintf(w, "  %s\n",
+			failStyle.Render(err.Error()))
+
+		// Show tail of build output for error context — this output
+		// was visible in the TUI alt screen but lost when it closed.
+		if n := len(m.logLines); n > 0 {
+			tail := m.logLines
+			if n > 100 {
+				tail = tail[n-100:]
+			}
+			// Trim trailing empty/whitespace-only lines
+			for len(tail) > 0 && strings.TrimSpace(tail[len(tail)-1]) == "" {
+				tail = tail[:len(tail)-1]
+			}
+			if len(tail) > 0 {
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "  %s\n", dim.Render("output:"))
+				for _, line := range tail {
+					fmt.Fprintln(w, line)
+				}
+			}
+		}
+		fmt.Fprintln(w)
 	} else {
 		fmt.Fprintf(w, "  %s  %s\n\n",
 			successStyle.Render("done"),

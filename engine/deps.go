@@ -54,6 +54,8 @@ var vendorPackages = []vendorPkg{
 	{"nettle", "core", "x86_64", []string{"build"}},
 	{"sqlite", "core", "x86_64", []string{"build"}},
 	{"readline", "core", "x86_64", []string{"build"}},
+	// Arch Linux keyring (for pacman-key --populate on non-Arch hosts)
+	{"archlinux-keyring", "core", "any", []string{"build"}},
 	// Filesystem tools
 	{"e2fsprogs", "core", "x86_64", []string{"build"}},
 	{"dosfstools", "core", "x86_64", []string{"build"}},
@@ -86,6 +88,7 @@ var vendorChecks = []vendorCheck{
 	{"usr/bin/sgdisk", []string{"build"}},
 	{"usr/bin/partprobe", []string{"build", "run"}},
 	{"usr/bin/dmsetup", []string{"run"}},
+	{"usr/share/pacman/keyrings/archlinux.gpg", []string{"build"}},
 	{"usr/share/edk2/x64/OVMF_CODE.4m.fd", []string{"run"}},
 }
 
@@ -223,7 +226,7 @@ func checkGroupMissing(vendorDir string, groups []string) []string {
 // patchPacstrap modifies the vendored pacstrap script to use our pacman binary
 // by injecting a PATH override at the top of the script.
 func patchPacstrap(binDir string) error {
-	for _, script := range []string{"pacstrap", "arch-chroot", "genfstab"} {
+	for _, script := range []string{"pacstrap", "arch-chroot", "genfstab", "pacman-key"} {
 		path := filepath.Join(binDir, script)
 		data, err := os.ReadFile(path)
 		if err != nil {
