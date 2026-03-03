@@ -58,7 +58,12 @@ func runWrite(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s is not a block device", outputPath)
 	}
 
-	// Confirmation for device writes BEFORE entering bubbletea
+	// Elevate to root before fetching sources
+	if err := engine.EnsureRootExec(); err != nil {
+		return fmt.Errorf("failed to elevate privileges: %w", err)
+	}
+
+	// Confirmation for device writes (after elevation so we only ask once)
 	if isDevice {
 		fmt.Printf("WARNING: All data on %s will be destroyed.\n", outputPath)
 		fmt.Print("Continue? [y/N] ")
@@ -68,11 +73,6 @@ func runWrite(cmd *cobra.Command, args []string) error {
 			fmt.Println("Aborted.")
 			return nil
 		}
-	}
-
-	// Elevate to root before fetching sources
-	if err := engine.EnsureRootExec(); err != nil {
-		return fmt.Errorf("failed to elevate privileges: %w", err)
 	}
 
 	buildDir := proj.TargetBuildDir(targetName)
