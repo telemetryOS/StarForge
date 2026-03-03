@@ -23,6 +23,8 @@ func init() {
 	rootCmd.AddCommand(writeCmd)
 	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(cleanCmd)
+	rootCmd.AddCommand(installServerCmd)
+	rootCmd.AddCommand(installCmd)
 }
 
 func Execute() error {

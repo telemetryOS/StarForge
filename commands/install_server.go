@@ -1,8 +1,7 @@
-package main
+package commands
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/RobertWHurst/navaros"
 	navarosjson "github.com/RobertWHurst/navaros/middleware/json"
+	"github.com/spf13/cobra"
 
 	"github.com/telemetryos/starforge/installer"
 	"github.com/telemetryos/starforge/installer/diskutil"
@@ -20,46 +20,53 @@ import (
 	"github.com/telemetryos/starforge/installer/server/routes/payloads"
 )
 
-func main() {
-	port := flag.Int("port", 8100, "HTTP listen port")
-	payloadDir := flag.String("payload-dir", "/payloads", "directory containing payload images")
-	flag.Parse()
+var installServerCmd = &cobra.Command{
+	Use:    "install-server",
+	Short:  "Run the StarForge installer HTTP server",
+	Hidden: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		port, _ := cmd.Flags().GetInt("port")
+		payloadDir, _ := cmd.Flags().GetString("payload-dir")
 
-	if _, err := os.Stat(*payloadDir); err != nil {
-		log.Fatalf("payload directory %q: %v", *payloadDir, err)
-	}
+		if _, err := os.Stat(payloadDir); err != nil {
+			return fmt.Errorf("payload directory %q: %w", payloadDir, err)
+		}
 
-	manager := installations.NewManager(*payloadDir)
+		manager := installations.NewManager(payloadDir)
 
-	router := navaros.NewRouter()
+		router := navaros.NewRouter()
 
-	// JSON request/response middleware.
-	router.Use(navarosjson.Middleware(nil))
+		// JSON request/response middleware.
+		router.Use(navarosjson.Middleware(nil))
 
-	// Inject dependencies into request context.
-	router.Use(func(ctx *navaros.Context) {
-		ctx.Set("manager", manager)
-		ctx.Set("payloadDir", *payloadDir)
-		ctx.Next()
-	})
+		// Inject dependencies into request context.
+		router.Use(func(ctx *navaros.Context) {
+			ctx.Set("manager", manager)
+			ctx.Set("payloadDir", payloadDir)
+			ctx.Next()
+		})
 
-	// Payload routes.
-	router.Use(payloadRouter(*payloadDir))
+		// Payload routes.
+		router.Use(payloadRouter(payloadDir))
 
-	// Disk routes.
-	router.Use(diskRouter())
+		// Disk routes.
+		router.Use(diskRouter())
 
-	// System routes.
-	router.Use(systemRouter())
+		// System routes.
+		router.Use(systemRouter())
 
-	// Installation routes.
-	router.Use(installations.Router())
+		// Installation routes.
+		router.Use(installations.Router())
 
-	addr := fmt.Sprintf(":%d", *port)
-	log.Printf("starforge-install-server listening on %s (payloads: %s)", addr, *payloadDir)
-	if err := http.ListenAndServe(addr, router); err != nil {
-		log.Fatal(err)
-	}
+		addr := fmt.Sprintf(":%d", port)
+		log.Printf("starforge-install-server listening on %s (payloads: %s)", addr, payloadDir)
+		return http.ListenAndServe(addr, router)
+	},
+}
+
+func init() {
+	installServerCmd.Flags().Int("port", 8100, "HTTP listen port")
+	installServerCmd.Flags().String("payload-dir", "/payloads", "directory containing payload images")
 }
 
 func payloadRouter(payloadDir string) *navaros.Router {
@@ -181,4 +188,3 @@ func systemRouter() *navaros.Router {
 
 	return r
 }
-

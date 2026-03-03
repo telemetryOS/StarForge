@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime/debug"
-	"strings"
 
 	"github.com/telemetryos/starforge/actions"
 	"github.com/telemetryos/starforge/installer"
@@ -61,14 +59,21 @@ func (b *Builder) BundleInstallerToRootfs(ctx *actions.BuildContext, rootfs stri
 		}
 	}
 
-	// Bundle server binary and service
+	// Copy the starforge binary once if server or client needs it
+	if ctx.InstallerServer != nil || ctx.InstallerClient != nil {
+		if err := bundleStarforgeBinary(rootfs); err != nil {
+			return err
+		}
+	}
+
+	// Bundle server systemd service
 	if ctx.InstallerServer != nil {
 		if err := bundleServer(ctx.InstallerServer, rootfs); err != nil {
 			return err
 		}
 	}
 
-	// Bundle client binary and autologin
+	// Bundle client autologin
 	if ctx.InstallerClient != nil {
 		if err := bundleClient(ctx.InstallerClient, ctx.InstallerServer, rootfs); err != nil {
 			return err
@@ -148,28 +153,33 @@ func (b *Builder) bundlePayloads(ctx *actions.BuildContext, rootfs string) error
 	return nil
 }
 
-// bundleServer copies the starforge-install-server binary into the rootfs
-// and creates a systemd service to start it at boot.
-func bundleServer(server *actions.InstallerServerDef, rootfs string) error {
-	out.Info("server (port %d)", server.Port)
-
-	// Find the server binary — look next to the running starforge binary first
-	serverBin, err := buildCompanionBinary("starforge-install-server")
+// bundleStarforgeBinary copies the running starforge binary into the rootfs
+// at /usr/bin/starforge. Both the server and client subcommands are embedded
+// in the main binary (busybox-style).
+func bundleStarforgeBinary(rootfs string) error {
+	exe, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("locating starforge-install-server binary: %w", err)
+		return fmt.Errorf("locating running starforge binary: %w", err)
 	}
 
-	// Copy binary
-	destBin := filepath.Join(rootfs, "usr/bin/starforge-install-server")
+	destBin := filepath.Join(rootfs, "usr/bin/starforge")
 	if err := os.MkdirAll(filepath.Dir(destBin), 0o755); err != nil {
 		return err
 	}
-	if err := CopyFile(serverBin, destBin); err != nil {
-		return fmt.Errorf("copying server binary: %w", err)
+	if err := CopyFile(exe, destBin); err != nil {
+		return fmt.Errorf("copying starforge binary: %w", err)
 	}
 	if err := os.Chmod(destBin, 0o755); err != nil {
 		return err
 	}
+
+	return nil
+}
+
+// bundleServer creates a systemd service that runs `starforge install-server`
+// at boot.
+func bundleServer(server *actions.InstallerServerDef, rootfs string) error {
+	out.Info("server (port %d)", server.Port)
 
 	// Create systemd service
 	unitContent := fmt.Sprintf(`[Unit]
@@ -177,7 +187,7 @@ Description=StarForge Installer Daemon
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/starforge-install-server --port %d --payload-dir %s
+ExecStart=/usr/bin/starforge install-server --port %d --payload-dir %s
 
 [Install]
 WantedBy=multi-user.target
@@ -205,28 +215,10 @@ WantedBy=multi-user.target
 	return nil
 }
 
-// bundleClient copies the starforge-install binary into the rootfs and
-// creates an autologin getty override to run it on the configured tty.
+// bundleClient creates an autologin getty override and a .bash_profile that
+// execs `starforge install` on the configured tty.
 func bundleClient(client *actions.InstallerClientDef, server *actions.InstallerServerDef, rootfs string) error {
 	out.Info("client (auto_login: %s)", client.AutoLogin)
-
-	// Find the client binary
-	clientBin, err := buildCompanionBinary("starforge-install")
-	if err != nil {
-		return fmt.Errorf("locating starforge-install binary: %w", err)
-	}
-
-	// Copy binary
-	destBin := filepath.Join(rootfs, "usr/bin/starforge-install")
-	if err := os.MkdirAll(filepath.Dir(destBin), 0o755); err != nil {
-		return err
-	}
-	if err := CopyFile(clientBin, destBin); err != nil {
-		return fmt.Errorf("copying client binary: %w", err)
-	}
-	if err := os.Chmod(destBin, 0o755); err != nil {
-		return err
-	}
 
 	// Create autologin getty override
 	dropinDir := filepath.Join(rootfs, fmt.Sprintf(
@@ -261,7 +253,7 @@ ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
 	}
 	bashProfile := fmt.Sprintf(`# StarForge installer auto-start
 if [ "$(tty)" = "/dev/%s" ]; then
-    exec /usr/bin/starforge-install %s
+    exec /usr/bin/starforge install %s
 fi
 `, client.AutoLogin, args)
 
@@ -272,112 +264,3 @@ fi
 
 	return nil
 }
-
-// buildCompanionBinary builds a companion binary from source so it is always
-// up to date with the current starforge code. The output is placed next to the
-// running starforge binary.
-func buildCompanionBinary(name string) (string, error) {
-	exe, _ := os.Executable()
-	binDir := filepath.Dir(exe)
-	output := filepath.Join(binDir, name)
-
-	modRoot := findModuleRoot()
-	if modRoot == "" {
-		return "", fmt.Errorf("cannot build %s: module root not found", name)
-	}
-
-	if err := out.RunWithSpinner(fmt.Sprintf("building %s", name), func() error {
-		return runSilent("go", "build", "-C", modRoot, "-o", output, "./cmd/"+name+"/")
-	}); err != nil {
-		return "", fmt.Errorf("building %s: %w", name, err)
-	}
-
-	return output, nil
-}
-
-// findModuleRoot locates the source directory of the starforge module by
-// reading the running binary's build info and searching likely locations.
-func findModuleRoot() string {
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return ""
-	}
-	modulePath := info.Main.Path // e.g. "github.com/telemetryos/starforge"
-	if modulePath == "" {
-		return ""
-	}
-
-	// Check GOPATH/src/<module>
-	gopath := os.Getenv("GOPATH")
-	if gopath == "" {
-		home, _ := os.UserHomeDir()
-		gopath = filepath.Join(home, "go")
-	}
-	if dir := filepath.Join(gopath, "src", modulePath); isModuleRoot(dir, modulePath) {
-		return dir
-	}
-
-	// Walk up from executable directory
-	if exe, err := os.Executable(); err == nil {
-		if dir := walkUpForModule(filepath.Dir(exe), modulePath); dir != "" {
-			return dir
-		}
-	}
-
-	// Walk up from CWD, also checking sibling directories at each level
-	if cwd, err := os.Getwd(); err == nil {
-		dir := cwd
-		for {
-			if isModuleRoot(dir, modulePath) {
-				return dir
-			}
-			// Check siblings
-			if entries, err := os.ReadDir(dir); err == nil {
-				for _, e := range entries {
-					if e.IsDir() {
-						sibling := filepath.Join(dir, e.Name())
-						if isModuleRoot(sibling, modulePath) {
-							return sibling
-						}
-					}
-				}
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
-		}
-	}
-
-	return ""
-}
-
-func walkUpForModule(dir, modulePath string) string {
-	for {
-		if isModuleRoot(dir, modulePath) {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
-}
-
-func isModuleRoot(dir, modulePath string) bool {
-	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
-	if err != nil {
-		return false
-	}
-	// Check first line: "module <path>"
-	for _, line := range strings.SplitN(string(data), "\n", 5) {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module")) == modulePath
-		}
-	}
-	return false
-}
-
