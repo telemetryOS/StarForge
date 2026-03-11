@@ -91,6 +91,15 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 		}
 	}
 
+	// pacstrap -M skips copying the host mirrorlist and the stock
+	// pacman-mirrorlist package ships with all servers commented out.
+	// Write a working mirrorlist so the installed system can use pacman.
+	mirrorlist := filepath.Join(rootfs, "etc", "pacman.d", "mirrorlist")
+	mirrorContent := fmt.Sprintf("Server = %s/$repo/os/$arch\n", archMirror)
+	if err := os.WriteFile(mirrorlist, []byte(mirrorContent), 0o644); err != nil {
+		return fmt.Errorf("writing mirrorlist: %w", err)
+	}
+
 	// Re-initialize a proper system keyring inside the chroot so the
 	// installed OS has its own master key and locally-signed trust chain.
 	// The chroot has gnupg + archlinux-keyring from pacstrap.
