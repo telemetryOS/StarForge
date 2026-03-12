@@ -6,8 +6,10 @@ import (
 	"image/color"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
@@ -187,9 +189,11 @@ func (o *Output) Run(fn func() error) error {
 		return fn()
 	}
 
+	fnDone := make(chan struct{})
 	var fnErr error
 	go func() {
 		fnErr = fn()
+		close(fnDone)
 		o.program.Send(buildDoneMsg{})
 	}()
 
@@ -202,6 +206,24 @@ func (o *Output) Run(fn func() error) error {
 
 	if err != nil {
 		return err
+	}
+
+	// Check if build is still running (user pressed Ctrl+C)
+	select {
+	case <-fnDone:
+		// Build finished naturally
+	default:
+		// Build still running — user interrupted
+		if m, ok := finalModel.(buildModel); ok {
+			m.printSummary(fmt.Errorf("interrupted"))
+		}
+		// Kill child processes by sending SIGTERM to our process group
+		if pgid, err := syscall.Getpgid(0); err == nil {
+			signal.Ignore(syscall.SIGTERM, syscall.SIGINT)
+			syscall.Kill(-pgid, syscall.SIGTERM)
+		}
+		os.Exit(130) // 128 + SIGINT(2)
+		return fmt.Errorf("interrupted") // unreachable, satisfies compiler
 	}
 
 	// Print summary to stderr after alt screen exits
@@ -757,6 +779,9 @@ func (m buildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		switch msg.String() {
+		case "ctrl+c":
+			m.quitting = true
+			return m, tea.Quit
 		case "pgup":
 			m.autoScroll = false
 			m.viewport.HalfPageUp()
