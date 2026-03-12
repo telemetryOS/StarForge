@@ -25,6 +25,7 @@ func init() {
 	rootCmd.AddCommand(cleanCmd)
 	rootCmd.AddCommand(installServerCmd)
 	rootCmd.AddCommand(installCmd)
+	rootCmd.AddCommand(upgradeCmd)
 }
 
 func Execute() error {
