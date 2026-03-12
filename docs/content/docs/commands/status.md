@@ -4,7 +4,7 @@ weight: 9
 ---
 
 
-Show project info and build state.
+Show project and build status.
 
 ## Synopsis
 

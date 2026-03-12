@@ -4,7 +4,7 @@ weight: 5
 ---
 
 
-Enter the built filesystem interactively.
+Enter the target filesystem interactively.
 
 ## Usage
 
@@ -29,7 +29,7 @@ starforge chroot [flags] <target> [-- command...]
 
 Mounts the built target's overlayfs layers and enters the filesystem using `arch-chroot`. By default, opens an interactive shell. If a command is provided after `--`, it is executed instead.
 
-Requires a prior `starforge build`.
+The target is built automatically if needed.
 
 ## Examples
 

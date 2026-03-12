@@ -429,8 +429,9 @@ func RunQEMU(targetName, buildDir, projectDir string, parts []actions.PartitionD
 	mem := 4096
 	cpus := 4
 	gpuMem := 512
-	display := "gtk,gl=on,show-cursor=off"
+	display := "gtk,gl=on,show-cursor=off,zoom-to-fit=on"
 	cpuModel := "host"
+	audioDriver := detectAudioDriver()
 	sshPort := 2222
 
 	if qemuCfg != nil {
@@ -449,14 +450,17 @@ func RunQEMU(targetName, buildDir, projectDir string, parts []actions.PartitionD
 		if qemuCfg.CPU != "" {
 			cpuModel = qemuCfg.CPU
 		}
+		if qemuCfg.Audio != "" {
+			audioDriver = qemuCfg.Audio
+		}
 		if qemuCfg.SSHPort > 0 {
 			sshPort = qemuCfg.SSHPort
 		}
 	}
 
 	out.Styled(
-		fmt.Sprintf("  memory: %dM, cpus: %d, gpu: %dM", mem, cpus, gpuMem),
-		fmt.Sprintf("  memory: %dM, cpus: %d, gpu: %dM", mem, cpus, gpuMem),
+		fmt.Sprintf("  memory: %dM, cpus: %d, gpu: %dM, audio: %s", mem, cpus, gpuMem, audioDriver),
+		fmt.Sprintf("  memory: %dM, cpus: %d, gpu: %dM, audio: %s", mem, cpus, gpuMem, audioDriver),
 	)
 
 	// Provision additional disks
@@ -472,13 +476,22 @@ func RunQEMU(targetName, buildDir, projectDir string, parts []actions.PartitionD
 		"-smp", strconv.Itoa(cpus),
 		"-cpu", cpuModel,
 		"-drive", fmt.Sprintf("if=pflash,format=raw,readonly=on,file=%s", ovmfPath),
-		"-device", fmt.Sprintf("virtio-vga-gl,max_hostmem=%dM", gpuMem),
+		"-device", fmt.Sprintf("virtio-vga-gl,max_hostmem=%dM,blob=on,edid=on,xres=1920,yres=1080", gpuMem),
 		"-display", display,
 		"-device", "virtio-rng-pci",
 		"-device", "virtio-balloon-pci",
 		"-usb", "-device", "usb-tablet",
 		"-netdev", fmt.Sprintf("user,id=net0,hostfwd=tcp::%d-:22", sshPort),
 		"-device", "virtio-net-pci,netdev=net0",
+	}
+
+	// Audio: virtual sound card so the guest PipeWire stack can produce sound
+	if audioDriver != "none" {
+		qemuArgs = append(qemuArgs,
+			"-audiodev", fmt.Sprintf("%s,id=snd0", audioDriver),
+			"-device", "intel-hda",
+			"-device", "hda-duplex,audiodev=snd0",
+		)
 	}
 
 	if bootDisk != "" {
@@ -592,6 +605,25 @@ func qemuDriveOption(dmName, overlayName string) string {
 		return base + ",snapshot=on"
 	}
 	return base
+}
+
+// detectAudioDriver returns the best available QEMU audio backend for the host.
+// Checks for PipeWire first (via runtime socket), then falls back to SDL.
+// When running under sudo, checks the invoking user's runtime directory.
+func detectAudioDriver() string {
+	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
+	if runtimeDir == "" {
+		// Running with sudo — try the invoking user's runtime dir
+		if sudoUID := os.Getenv("SUDO_UID"); sudoUID != "" {
+			runtimeDir = "/run/user/" + sudoUID
+		}
+	}
+	if runtimeDir != "" {
+		if _, err := os.Stat(filepath.Join(runtimeDir, "pipewire-0")); err == nil {
+			return "pipewire"
+		}
+	}
+	return "sdl"
 }
 
 // ensureQEMUDisks creates any additional disk images that don't already exist.

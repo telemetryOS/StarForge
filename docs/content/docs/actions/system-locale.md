@@ -36,5 +36,5 @@ Phase 2 (`sysconfig`). Writes `/etc/locale.conf` and modifies `/etc/locale.gen`,
 ## Notes
 
 - The `locale` field sets `LANG=<locale>` in `/etc/locale.conf`.
-- The `locales` list adds entries to `/etc/locale.gen`. Use just the locale name (e.g., `en_GB.UTF-8`) -- the ` UTF-8` encoding suffix is appended automatically.
+- The `locales` list adds entries to `/etc/locale.gen`. Provide the full locale name (e.g., `en_GB.UTF-8`) -- the ` UTF-8` encoding column is appended automatically to produce the correct `locale.gen` format.
 - The primary `locale` is automatically included in `locale.gen`, so it does not need to be repeated in the `locales` list.

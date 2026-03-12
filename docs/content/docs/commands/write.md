@@ -4,12 +4,12 @@ weight: 4
 ---
 
 
-Write a built target to a storage device.
+Write a target to a device or disk image.
 
 ## Usage
 
 ```
-starforge write <target> <device>
+starforge write <target> <output>
 ```
 
 ## Arguments
@@ -17,15 +17,15 @@ starforge write <target> <device>
 | Argument | Description |
 |----------|-------------|
 | `target` | Name of the target to write. |
-| `device` | Block device path (e.g., `/dev/sdb`, `/dev/mmcblk0`). |
+| `output` | Block device path (e.g. `/dev/sdb`) or file path for a compressed disk image (e.g. `./release/device.img.gz`). |
 
 ## Description
 
-Writes the pre-built partition images from the last build directly to a block device. Creates a GPT partition table and writes each partition image using `dd`. Growable partitions are expanded to fill available space on the device.
+Writes partition images to a block device or compressed disk image. Creates a GPT partition table and writes each partition image using `dd`. Growable partitions are expanded to fill available space on the device.
 
-Requires a prior `starforge build`.
+The target is built automatically if needed.
 
-## Example
+## Examples
 
 ```bash
 # Write to a USB drive
@@ -33,6 +33,9 @@ starforge write device /dev/sdb
 
 # Write to an SD card
 starforge write device /dev/mmcblk0
+
+# Create a compressed disk image file
+starforge write device ./release/device.img.gz
 ```
 
 ## Notes

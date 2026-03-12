@@ -11,6 +11,7 @@ Configure the installer TUI client. The client provides an interactive terminal 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `auto_login` | string | No | The TTY to configure for autologin. Defaults to `tty1`. |
+| `unattended` | bool | No | Run the installer in unattended mode (no user interaction required). |
 
 ## Example
 

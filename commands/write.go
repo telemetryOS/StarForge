@@ -15,17 +15,16 @@ import (
 
 var writeCmd = &cobra.Command{
 	Use:   "write <target> <output>",
-	Short: "Write a built target to a device or disk image",
-	Long: `Write a previously built target to a block device or compressed disk image.
+	Short: "Write a target to a device or disk image",
+	Long: `Write a target to a block device or compressed disk image.
+The target is built automatically if needed.
 
 For block devices (e.g. /dev/sda), partition images are written directly
 using dd and growable partitions are expanded to fill available space.
 
 For file paths, a compressed disk image (.img.gz) is created that can be
 flashed with tools like Balena Etcher or Rufus. Parent directories are
-created automatically if they don't exist.
-
-Requires a prior 'starforge build' — this is a write-only operation.`,
+created automatically if they don't exist.`,
 	Args: cobra.ExactArgs(2),
 	RunE: runWrite,
 }

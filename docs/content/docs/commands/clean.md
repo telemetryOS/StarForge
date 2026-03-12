@@ -11,13 +11,14 @@ Remove build artifacts.
 ```
 starforge clean <target> [scope]
 starforge clean deps
+starforge clean pacman
 ```
 
 ## Arguments
 
 | Argument | Description |
 |----------|-------------|
-| `target` | Name of the target to clean, or `deps` for vendored dependencies. |
+| `target` | Name of the target to clean, or `deps`/`pacman` for global cleanup. |
 | `scope` | Optional scope: `cache`, `images`, or `disks`. Without a scope, removes everything. |
 
 ## Scopes
@@ -29,6 +30,7 @@ starforge clean deps
 | `images` | Remove only partition images (`*.img` files) and rootfs. |
 | `disks` | Remove extra QEMU disks (`.starforge/<target>/disks/`). |
 | `deps` | Remove vendored dependencies (`~/.local/share/starforge/`). |
+| `pacman` | Remove persistent pacman package cache (`~/.local/state/starforge/pacman/`). |
 
 ## Examples
 
@@ -47,6 +49,9 @@ starforge clean device disks
 
 # Remove vendored tools (re-downloaded on next build)
 starforge clean deps
+
+# Remove persistent pacman package cache
+starforge clean pacman
 ```
 
 ## Notes

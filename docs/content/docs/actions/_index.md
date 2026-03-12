@@ -215,7 +215,7 @@ Actions are collected during the Collect stage and then executed in these phases
 |-------|------|-----------------|
 | 0 | `preinstall` | `system-keymap` (writes vconsole.conf before pacstrap) |
 | 1 | `packages` | `pacman-add` (runs pacstrap with deduplicated package list) |
-| 2 | `sysconfig` | `system-hostname`, `system-locale`, `system-timezone`, `system-keymap` |
+| 2 | `sysconfig` | `system-hostname`, `system-locale`, `system-timezone`, `system-keymap` (summary only) |
 | 3 | `users` | `system-group`, `system-user` |
 | 4 | `files` | `file-mkdir`, `file-create` (layer copies and inline), `file-edit`, `file-copy`, `file-move`, `file-link`, `file-delete`, all systemd unit file creation |
 | 5 | `permissions` | `file-ownership`, `file-permissions` |

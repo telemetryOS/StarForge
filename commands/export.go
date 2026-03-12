@@ -31,7 +31,7 @@ var exportDiskSize string
 var exportCmd = &cobra.Command{
 	Use:   "export <target> <type>",
 	Short: "Export build artifacts as images",
-	Long: `Export a previously built target as disk images.
+	Long: `Export a target as disk images. The target is built automatically if needed.
 
 Type must be "disk" or "partitions".
 
@@ -39,9 +39,7 @@ Type must be "disk" or "partitions".
   starforge export device partitions --output ./release/
 
 Use "disk" to create a single bootable disk image with a GPT partition table.
-Use "partitions" to produce individual partition image files.
-
-Requires a prior 'starforge build'.`,
+Use "partitions" to produce individual partition image files.`,
 	Args: cobra.ExactArgs(2),
 	RunE: runExport,
 }

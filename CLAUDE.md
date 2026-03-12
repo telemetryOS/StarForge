@@ -25,7 +25,7 @@ StarForge is a declarative Arch Linux OS image builder. It reads a `starforge.ya
 cmd/starforge/       Entry point
 commands/            Cobra CLI commands (build, run, clean, export, write, init, list, status, chroot, inspect)
 config/              YAML parsing: Project, Target, Layer, Step types, variable substitution, remote fetching
-actions/             Declarative action implementations (34 actions + registry + helpers)
+actions/             Declarative action implementations (31 registered actions + layer-run (handled by builder) + registry + helpers)
 engine/              Build orchestration: overlay management, phase execution, packaging, QEMU, deps
 installer/           Installer server/client for writing images to devices
 docs/                Restored documentation (actions reference, YAML reference)
@@ -78,7 +78,7 @@ starforge build <target>
 | `!truncate_before` / `!truncate_after` | `file-edit` content | Remove content around match |
 | `!replace` | Systemd unit section values | Clear-then-set for drop-in overrides |
 
-## Actions (34 total)
+## Actions (31 registered + layer-run)
 
 All registered in `actions/actions.go`. Each maps to a `config.*Step` type in `config/layer.go`.
 
@@ -89,7 +89,7 @@ All registered in `actions/actions.go`. Each maps to a `config.*Step` type in `c
 | System | `system-hostname`, `system-locale`, `system-timezone`, `system-keymap`, `system-user`, `system-group` |
 | Systemd | `systemd-service`, `systemd-mount`, `systemd-timer`, `systemd-socket`, `systemd-slice`, `systemd-target`, `systemd-boot-install` |
 | Partitions | `partition-add`, `partition-remove`, `partition-change` |
-| Scripts | `run` |
+| Scripts | `run`, `layer-run` (builder-handled) |
 | Installer | `install-server`, `install-client`, `install-payload` |
 
 ### Shared Helpers
@@ -128,6 +128,5 @@ Subsequent recovery sessions restored the remaining 29 action files, stub comman
 
 ### Potentially Still Missing
 - Tests: 19 test files exist across `actions/`, `config/`, `engine/`; gaps remain (no command tests, no packaging/overlay/installer tests)
-- `docs/yaml-reference.md` (referenced but not present)
 - CI/CD configuration
 - Any tooling or scripts that lived outside the Go source tree

@@ -61,7 +61,7 @@ starforge export device partitions --output ./release/
 
 ## Notes
 
-- Requires a prior `starforge build`.
+- The target is built automatically if needed.
 - Requires root access (elevates automatically).
 - For `disk` type, the `--size` flag is required and must be large enough to fit all partitions.
 - Without `--output`, disk images are written to `.starforge/<target>/disk.img` and partition images stay in `.starforge/<target>/`.

@@ -4,7 +4,7 @@ weight: 3
 ---
 
 
-Boot a built target in QEMU for testing.
+Boot a target in QEMU for testing.
 
 ## Usage
 
@@ -30,7 +30,7 @@ starforge run [flags] <target>
 
 Assembles partition images into a virtual disk via device mapper and boots in QEMU with OVMF UEFI firmware and virtio devices.
 
-Requires a prior `starforge build`.
+The target is built automatically if needed (incremental). Use `starforge build --clean` first to force a full rebuild.
 
 SSH is forwarded on port 2222:
 

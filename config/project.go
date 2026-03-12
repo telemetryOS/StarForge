@@ -34,6 +34,7 @@ type QEMUConfig struct {
 	GPUMemory int        `yaml:"gpu_memory,omitempty"`
 	Display   string     `yaml:"display,omitempty"`
 	CPU       string     `yaml:"cpu,omitempty"`
+	Audio     string     `yaml:"audio,omitempty"`
 	SSHPort   int        `yaml:"ssh_port,omitempty"`
 	Disks     []QEMUDisk `yaml:"disks,omitempty"`
 	Args      []string   `yaml:"args,omitempty"`

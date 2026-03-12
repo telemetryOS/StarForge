@@ -27,7 +27,7 @@ menu:
       params:
         type: search
     - name: GitHub
-      url: "https://github.com/telemetryos/starforge"
+      url: "https://github.com/telemetrytv/StarForge"
       weight: 6
       params:
         icon: github
@@ -51,7 +51,7 @@ params:
 
   editURL:
     enable: true
-    base: "https://github.com/telemetryos/starforge/edit/main/new-docs/content"
+    base: "https://github.com/telemetrytv/StarForge/edit/master/docs/content"
 
   displayUpdatedDate: true
   dateFormat: "January 2, 2006"

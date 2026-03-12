@@ -11,14 +11,14 @@ StarForge provides commands for creating, building, testing, and deploying OS im
 | Command | Description |
 |---------|-------------|
 | [init](init/) | Create a new StarForge project |
-| [build](build/) | Build disk images for a target |
-| [run](run/) | Boot a built target in QEMU |
-| [write](write/) | Write a built target to a storage device |
+| [build](build/) | Build overlay layers for a target |
+| [run](run/) | Boot a target in QEMU |
+| [write](write/) | Write a target to a device or disk image |
 | [export](export/) | Export build artifacts as disk or partition images |
 | [inspect](inspect/) | Inspect the resolved build context |
-| [chroot](chroot/) | Enter the built filesystem interactively |
+| [chroot](chroot/) | Enter the target filesystem interactively |
 | [list](list/) | List targets defined in the project |
-| [status](status/) | Show project info and build state |
+| [status](status/) | Show project and build status |
 | [clean](clean/) | Remove build artifacts |
 
 ## Typical Workflow

@@ -12,6 +12,7 @@ Configure the installer REST API server. The server provides endpoints for paylo
 |-------|------|----------|-------------|
 | `port` | integer | No | Port the server listens on. Defaults to `8100`. |
 | `path` | string | No | Directory where payload images are stored inside the target. Must match the directory structure used by `install-payload`. Defaults to `/usr/lib/starforge/payloads`. |
+| `efi_label` | string | No | Label for the EFI boot entry created by the installer. |
 
 ## Example
 
@@ -41,5 +42,5 @@ Collected during Collect. Configured during the Package phase, after partition i
 - Installs the `starforge-install-server` binary to `/usr/bin/starforge-install-server` inside the target image.
 - Creates a systemd service (`starforge-install-server.service`) that starts the server at boot, listening on the configured port and serving payloads from the configured path.
 - The service is enabled via a symlink in `multi-user.target.wants`.
-- Installer runtime packages (`dosfstools`, `e2fsprogs`, `arch-install-scripts`, `zstd`) are automatically added to the package list.
+- Installer runtime packages (`dosfstools`, `e2fsprogs`, `efibootmgr`, `arch-install-scripts`, `zstd`) are automatically added to the package list.
 - See [install-payload](install-payload/) for bundling target images and [install-client](install-client/) for the TUI client.

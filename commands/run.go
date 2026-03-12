@@ -17,9 +17,9 @@ var runBootDisk string
 
 var runCmd = &cobra.Command{
 	Use:   "run <target>",
-	Short: "Boot a built target in QEMU",
+	Short: "Boot a target in QEMU",
 	Long: `Assemble partition images into a virtual disk via device mapper and boot
-in QEMU for testing. Requires a prior 'starforge build'.
+in QEMU for testing. The target is built automatically if needed (incremental build).
 
 The virtual disk is assembled from individual partition images using
 device mapper, with a GPT partition table written via sfdisk. QEMU boots

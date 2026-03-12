@@ -12,6 +12,7 @@ Modify existing files in the target filesystem. Supports appending, prepending, 
 |-------|------|----------|-------------|
 | `path` | string | Yes | Absolute path to the file to edit in the target filesystem. |
 | `content` | tagged string | Yes | Content to insert, with a YAML tag specifying the edit mode. |
+| `layer_path` | string | No | Path to a file (relative to the layer directory) whose content is used as the edit value. Alternative to inline `content`. |
 
 The `content` field supports these YAML tags:
 

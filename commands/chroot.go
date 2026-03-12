@@ -17,16 +17,15 @@ var chrootOverlay string
 
 var chrootCmd = &cobra.Command{
 	Use:   "chroot <target> [-- command...]",
-	Short: "Open a chroot shell in a built target",
-	Long: `Enter the built target filesystem interactively using arch-chroot.
+	Short: "Open a chroot shell in a target",
+	Long: `Enter the target filesystem interactively using arch-chroot.
+The target is built automatically if needed.
 
 Without a command, opens an interactive shell. With a command after '--',
 executes it and returns.
 
 Use --overlay to create a named overlay with persistent changes across
-sessions. Without --overlay, changes are discarded on exit.
-
-Requires a prior 'starforge build'.`,
+sessions. Without --overlay, changes are discarded on exit.`,
 	Args:              cobra.MinimumNArgs(1),
 	DisableFlagParsing: false,
 	RunE:              runChroot,
