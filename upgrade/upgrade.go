@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -86,18 +87,35 @@ func getLatestTag() (string, error) {
 		return "", err
 	}
 
-	versionRegex := regexp.MustCompile(`refs/tags/(v\d+\.\d+\.\d+)$`)
+	versionRegex := regexp.MustCompile(`refs/tags/(v(\d+)\.(\d+)\.(\d+))$`)
 	lines := strings.Split(string(output), "\n")
 
 	var latestTag string
+	var latestMajor, latestMinor, latestPatch int
+	found := false
+
 	for _, line := range lines {
 		matches := versionRegex.FindStringSubmatch(line)
-		if len(matches) > 1 {
+		if len(matches) < 5 {
+			continue
+		}
+
+		major, _ := strconv.Atoi(matches[2])
+		minor, _ := strconv.Atoi(matches[3])
+		patch, _ := strconv.Atoi(matches[4])
+
+		if !found || major > latestMajor ||
+			(major == latestMajor && minor > latestMinor) ||
+			(major == latestMajor && minor == latestMinor && patch > latestPatch) {
 			latestTag = matches[1]
+			latestMajor = major
+			latestMinor = minor
+			latestPatch = patch
+			found = true
 		}
 	}
 
-	if latestTag == "" {
+	if !found {
 		return "", fmt.Errorf("no version tags found")
 	}
 
