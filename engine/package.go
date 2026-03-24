@@ -223,7 +223,8 @@ func formatAndWriteImages(parts []actions.PartitionDef, device, buildDir string)
 
 		imgPath := filepath.Join(buildDir, fmt.Sprintf("%s.img", part.Name))
 		if err := out.RunWithSpinner(fmt.Sprintf("dd %s -> %s", part.Name, partDev), func() error {
-			return runSilent("dd", "if="+imgPath, "of="+partDev, "bs=4M", "oflag=direct")
+			// omit oflag=direct: device mapper targets don't support O_DIRECT
+			return runSilent("dd", "if="+imgPath, "of="+partDev, "bs=4M")
 		}); err != nil {
 			return fmt.Errorf("writing %s: %w", part.Name, err)
 		}
