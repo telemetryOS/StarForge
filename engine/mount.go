@@ -411,11 +411,26 @@ func formatFilesystem(path, filesystem, name string) error {
 }
 
 // partitionPath returns the device path for a numbered partition.
-// Handles both /dev/sdX and /dev/nvmeXnY naming conventions.
+// Handles both /dev/sdX and /dev/nvmeXnY naming conventions, with a
+// fallback to kpartx device mapper paths (/dev/mapper/loopNpM) for
+// kernels that don't create standard partition nodes for loop devices.
 func partitionPath(device string, num int) string {
 	base := filepath.Base(device)
+	var p string
 	if strings.HasPrefix(base, "nvme") || strings.HasPrefix(base, "loop") || strings.HasPrefix(base, "mmcblk") {
-		return fmt.Sprintf("%sp%d", device, num)
+		p = fmt.Sprintf("%sp%d", device, num)
+	} else {
+		p = fmt.Sprintf("%s%d", device, num)
 	}
-	return fmt.Sprintf("%s%d", device, num)
+	if _, err := os.Stat(p); err != nil {
+		if mapper := fmt.Sprintf("/dev/mapper/%sp%d", base, num); fileExists(mapper) {
+			return mapper
+		}
+	}
+	return p
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

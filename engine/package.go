@@ -175,10 +175,17 @@ func WriteToDiskImage(parts []actions.PartitionDef, buildDir, imagePath string) 
 	}
 	out.Info("loop device: %s", loopDev)
 
+	// On kernels where the loop driver is built-in with max_part=0 (e.g.
+	// Azure), --partscan does not create /dev/loopNpM partition nodes.
+	// kpartx creates /dev/mapper/loopNpM mappings as a fallback.
+	// partitionPath falls back to these mapper paths automatically.
+	run("kpartx", "-av", loopDev)
+
 	var detached bool
 	cleanup = func() {
 		if !detached {
 			detached = true
+			run("kpartx", "-dv", loopDev)
 			out.Info("detaching %s", loopDev)
 			run("losetup", "-d", loopDev)
 		}
