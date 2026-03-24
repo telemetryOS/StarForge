@@ -348,9 +348,6 @@ func PartitionDevice(parts []actions.PartitionDef, device string) ([]actions.Par
 	}
 
 	run("partprobe", device)
-	// partx explicitly adds partition device nodes — more reliable than
-	// partprobe alone in container environments where udev events may not fire.
-	run("partx", "-a", device)
 
 	return resolved, nil
 }
@@ -411,26 +408,11 @@ func formatFilesystem(path, filesystem, name string) error {
 }
 
 // partitionPath returns the device path for a numbered partition.
-// Handles both /dev/sdX and /dev/nvmeXnY naming conventions, with a
-// fallback to kpartx device mapper paths (/dev/mapper/loopNpM) for
-// kernels that don't create standard partition nodes for loop devices.
+// Handles both /dev/sdX and /dev/nvmeXnY naming conventions.
 func partitionPath(device string, num int) string {
 	base := filepath.Base(device)
-	var p string
 	if strings.HasPrefix(base, "nvme") || strings.HasPrefix(base, "loop") || strings.HasPrefix(base, "mmcblk") {
-		p = fmt.Sprintf("%sp%d", device, num)
-	} else {
-		p = fmt.Sprintf("%s%d", device, num)
+		return fmt.Sprintf("%sp%d", device, num)
 	}
-	if _, err := os.Stat(p); err != nil {
-		if mapper := fmt.Sprintf("/dev/mapper/%sp%d", base, num); fileExists(mapper) {
-			return mapper
-		}
-	}
-	return p
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+	return fmt.Sprintf("%s%d", device, num)
 }

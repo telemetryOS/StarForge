@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -135,39 +134,7 @@ func WriteToDiskImage(parts []actions.PartitionDef, buildDir, imagePath string) 
 	}
 	f.Close()
 
-	// Write the GPT partition table to the file before attaching it as a loop
-	// device. sfdisk works on regular files. This ensures the partition table
-	// exists when losetup --partscan runs, so the kernel creates partition
-	// device nodes (e.g. /dev/loop0p1) immediately on attachment — avoiding
-	// the race where partprobe/partx fails to add partitions after the fact
-	// in container environments.
-	resolved := ResolvePartitionSizes(parts, totalSize-2*1024*1024)
-	var script strings.Builder
-	script.WriteString("label: gpt\n")
-	for _, part := range resolved {
-		sizeSectors := part.Size / 512
-		sizeLabel := actions.FormatSize(part.Size)
-		out.Info("partition: %s (%s, %s)", part.Name, sizeLabel, part.Filesystem)
-		fmt.Fprintf(&script, "size=%d, type=%s, name=%q\n",
-			sizeSectors, sfdiskTypeAlias(part.Type), part.Name)
-	}
-	sfdiskCmd := exec.Command(resolveBin("sfdisk"), "--force", imagePath)
-	sfdiskCmd.Env = vendorEnv()
-	sfdiskCmd.Stdin = strings.NewReader(script.String())
-	if out != nil {
-		sfdiskCmd.Stdout = out.LogWriter()
-		sfdiskCmd.Stderr = out.LogWriter()
-	} else {
-		sfdiskCmd.Stdout = os.Stdout
-		sfdiskCmd.Stderr = os.Stderr
-	}
-	if err := sfdiskCmd.Run(); err != nil {
-		os.Remove(imagePath)
-		return "", nil, fmt.Errorf("writing partition table to disk image: %w", err)
-	}
-
-	// Attach loop device — the partition table already exists so --partscan
-	// creates partition device nodes immediately on attachment.
+	// Attach loop device with partition scanning enabled
 	loopDev, err = runOutput("losetup", "--find", "--show", "--partscan", imagePath)
 	if err != nil {
 		os.Remove(imagePath)
@@ -175,63 +142,23 @@ func WriteToDiskImage(parts []actions.PartitionDef, buildDir, imagePath string) 
 	}
 	out.Info("loop device: %s", loopDev)
 
-	// On kernels where the loop driver is built-in with max_part=0 (e.g.
-	// Azure), --partscan does not create /dev/loopNpM partition nodes.
-	// kpartx creates /dev/mapper/loopNpM mappings as a fallback.
-	// partitionPath falls back to these mapper paths automatically.
-	run("kpartx", "-av", loopDev)
-
 	var detached bool
 	cleanup = func() {
 		if !detached {
 			detached = true
-			run("kpartx", "-dv", loopDev)
 			out.Info("detaching %s", loopDev)
 			run("losetup", "-d", loopDev)
 		}
 	}
 
-	// Format partitions and write images. Skip re-partitioning since the
-	// partition table was already written to the file above.
-	if err := formatAndWriteImages(resolved, loopDev, buildDir); err != nil {
+	// Write partition images to the loop device
+	if err := WriteToDevice(parts, loopDev, buildDir); err != nil {
 		cleanup()
 		os.Remove(imagePath)
 		return "", nil, fmt.Errorf("writing to disk image: %w", err)
 	}
 
 	return loopDev, cleanup, nil
-}
-
-// formatAndWriteImages formats each partition on the loop device and writes
-// the pre-built partition image files into them. Unlike WriteToDevice it does
-// NOT re-partition the device — the caller must have already written the
-// partition table (e.g. via WriteToDiskImage which writes GPT to the file
-// before attaching the loop device).
-func formatAndWriteImages(parts []actions.PartitionDef, device, buildDir string) error {
-	out.StartStage(StageWrite)
-	writeStart := time.Now()
-
-	out.Blank()
-	out.Phase("Writing to device")
-
-	for i, part := range parts {
-		partDev := partitionPath(device, i+1)
-
-		if err := formatFilesystem(partDev, part.Filesystem, part.Name); err != nil {
-			return fmt.Errorf("formatting %s: %w", part.Name, err)
-		}
-
-		imgPath := filepath.Join(buildDir, fmt.Sprintf("%s.img", part.Name))
-		if err := out.RunWithSpinner(fmt.Sprintf("dd %s -> %s", part.Name, partDev), func() error {
-			// omit oflag=direct: device mapper targets don't support O_DIRECT
-			return runSilent("dd", "if="+imgPath, "of="+partDev, "bs=4M")
-		}); err != nil {
-			return fmt.Errorf("writing %s: %w", part.Name, err)
-		}
-	}
-
-	out.EndStage(StageWrite, time.Since(writeStart))
-	return nil
 }
 
 // CompressDiskImage compresses a raw disk image with gzip for compatibility
