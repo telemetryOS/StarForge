@@ -348,6 +348,9 @@ func PartitionDevice(parts []actions.PartitionDef, device string) ([]actions.Par
 	}
 
 	run("partprobe", device)
+	// partx explicitly adds partition device nodes — more reliable than
+	// partprobe alone in container environments where udev events may not fire.
+	run("partx", "-a", device)
 
 	return resolved, nil
 }
