@@ -34,11 +34,17 @@ func (a *FileEdit) Execute(step config.Step, layerDir string, ctx *BuildContext)
 			op.Insert = "prepend"
 			op.Content = s.Content.Value
 		case "before":
+			if s.Content.Pattern == "" {
+				return fmt.Errorf("file-edit %s: !before requires a pattern", s.Path)
+			}
 			op.Insert = "before"
 			op.Pattern = s.Content.Pattern
 			op.Match = s.Content.Match
 			op.Content = s.Content.Value
 		case "after":
+			if s.Content.Pattern == "" {
+				return fmt.Errorf("file-edit %s: !after requires a pattern", s.Path)
+			}
 			op.Insert = "after"
 			op.Pattern = s.Content.Pattern
 			op.Match = s.Content.Match

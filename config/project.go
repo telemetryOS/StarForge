@@ -118,8 +118,18 @@ func (p *Project) BuildDir() string {
 }
 
 // TargetBuildDir returns the build directory for a specific target.
+// Target names must be simple identifiers (no path separators or ".." components)
+// to prevent escaping the build directory.
 func (p *Project) TargetBuildDir(target string) string {
-	return filepath.Join(p.BuildDir(), target)
+	// Sanitize the target name to a single safe path component so that a
+	// name like "../../etc" cannot escape the build directory.
+	// Use only the final component of the cleaned path, and replace unsafe
+	// base names (".", "..") with a safe placeholder.
+	clean := filepath.Base(filepath.Clean(target))
+	if clean == "." || clean == ".." || clean == "" {
+		clean = "_"
+	}
+	return filepath.Join(p.BuildDir(), clean)
 }
 
 // ResolveLayerPath resolves a layer path relative to the project directory.

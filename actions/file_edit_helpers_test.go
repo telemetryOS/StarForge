@@ -161,3 +161,46 @@ func TestTruncatePattern_InvalidRegex(t *testing.T) {
 		t.Fatal("TruncatePattern with invalid regex should return error")
 	}
 }
+
+func TestInsertPattern_EmptyContent(t *testing.T) {
+	got, err := InsertPattern("", "^line$", "inserted", "before", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// No match possible in empty content — returns unchanged (empty)
+	if got != "" {
+		t.Errorf("InsertPattern on empty content = %q, want empty", got)
+	}
+}
+
+func TestInsertPattern_SingleLine(t *testing.T) {
+	got, err := InsertPattern("only-line", "^only-line$", "new-line", "before", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "new-line\nonly-line"
+	if got != want {
+		t.Errorf("InsertPattern single-line before:\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
+func TestInsertPattern_SingleLine_After(t *testing.T) {
+	got, err := InsertPattern("only-line", "^only-line$", "new-line", "after", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "only-line\nnew-line"
+	if got != want {
+		t.Errorf("InsertPattern single-line after:\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
+func TestTruncatePattern_EmptyContent(t *testing.T) {
+	got, err := TruncatePattern("", "^match$", "truncate_before", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "" {
+		t.Errorf("TruncatePattern on empty content = %q, want empty", got)
+	}
+}

@@ -44,6 +44,12 @@ func (b *Builder) phaseUsers(ctx *actions.BuildContext, rootfs string) error {
 			}
 		}
 
+		// Validate password before any system calls so the error is immediate
+		// and the check works even when useradd / arch-chroot are unavailable.
+		if user.Password != "" && strings.ContainsAny(user.Password, "\n\r") {
+			return fmt.Errorf("password for %s must not contain newline characters", user.Name)
+		}
+
 		args := []string{"useradd"}
 		if user.System {
 			args = append(args, "-r", "-M") // system user, no home directory

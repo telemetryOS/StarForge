@@ -59,10 +59,13 @@ func executeSystemdUnit(
 	// Build unit content
 	var content string
 	if layerPath != "" {
-		var err error
-		content, err = ReadLayerFile(layerPath, layerDir, ctx)
-		if err != nil {
-			return fmt.Errorf("%s: %w", actionName, err)
+		// Skip download in dry-run (inspect) mode; unit files are never written.
+		if !ctx.DryRun {
+			var err error
+			content, err = ReadLayerFile(layerPath, layerDir, ctx)
+			if err != nil {
+				return fmt.Errorf("%s: %w", actionName, err)
+			}
 		}
 	} else {
 		sections := map[string]map[string]any{}

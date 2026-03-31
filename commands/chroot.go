@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/telemetryos/starforge/config"
 	"github.com/telemetryos/starforge/engine"
 )
 
@@ -43,14 +42,9 @@ func runChroot(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid overlay name %q — must match %s", chrootOverlay, overlayNameRe.String())
 	}
 
-	proj, err := config.FindProject()
+	proj, target, err := loadProjectAndTarget(targetName)
 	if err != nil {
 		return err
-	}
-
-	target, ok := proj.Targets[targetName]
-	if !ok {
-		return fmt.Errorf("unknown target %q", targetName)
 	}
 
 	// Elevate to root — overlay mounts and arch-chroot require it

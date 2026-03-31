@@ -25,8 +25,20 @@ var installServerCmd = &cobra.Command{
 	Short:  "Run the StarForge installer HTTP server",
 	Hidden: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		port, _ := cmd.Flags().GetInt("port")
-		payloadDir, _ := cmd.Flags().GetString("payload-dir")
+		port, err := cmd.Flags().GetInt("port")
+		if err != nil {
+			return fmt.Errorf("reading --port flag: %w", err)
+		}
+		if port <= 0 || port > 65535 {
+			return fmt.Errorf("invalid port %d: must be 1–65535", port)
+		}
+		payloadDir, err := cmd.Flags().GetString("payload-dir")
+		if err != nil {
+			return fmt.Errorf("reading --payload-dir flag: %w", err)
+		}
+		if payloadDir == "" {
+			return fmt.Errorf("--payload-dir is required")
+		}
 
 		if _, err := os.Stat(payloadDir); err != nil {
 			return fmt.Errorf("payload directory %q: %w", payloadDir, err)

@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/telemetryos/starforge/actions"
-	"github.com/telemetryos/starforge/config"
 	"github.com/telemetryos/starforge/engine"
 )
 
@@ -44,14 +43,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to elevate privileges: %w", err)
 	}
 
-	proj, err := config.FindProject()
+	proj, target, err := loadProjectAndTarget(targetName)
 	if err != nil {
 		return err
-	}
-
-	target, ok := proj.Targets[targetName]
-	if !ok {
-		return fmt.Errorf("unknown target %q", targetName)
 	}
 
 	buildDir := proj.TargetBuildDir(targetName)

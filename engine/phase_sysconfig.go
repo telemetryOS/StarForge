@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/telemetryos/starforge/actions"
 )
@@ -38,12 +39,16 @@ func (b *Builder) phaseSysconfig(ctx *actions.BuildContext, rootfs string) error
 			}
 		}
 
+		// Build the full locale.gen content at once and overwrite the file
+		// so that re-running the phase produces the same result (idempotent).
 		localeGen := filepath.Join(rootfs, "etc/locale.gen")
+		var localeGenContent strings.Builder
 		for _, loc := range allLocales {
 			out.Info("locale-gen: %s", loc)
-			if err := appendFile(localeGen, fmt.Sprintf("%s UTF-8\n", loc)); err != nil {
-				return fmt.Errorf("writing locale.gen: %w", err)
-			}
+			fmt.Fprintf(&localeGenContent, "%s UTF-8\n", loc)
+		}
+		if err := writeFile(localeGen, localeGenContent.String()); err != nil {
+			return fmt.Errorf("writing locale.gen: %w", err)
 		}
 		if err := ChrootRun(rootfs, "locale-gen"); err != nil {
 			return fmt.Errorf("locale-gen: %w", err)
@@ -53,6 +58,9 @@ func (b *Builder) phaseSysconfig(ctx *actions.BuildContext, rootfs string) error
 	if ctx.Timezone != "" {
 		out.Info("timezone: %s", ctx.Timezone)
 		tzLink := filepath.Join(rootfs, "etc/localtime")
+		if err := os.MkdirAll(filepath.Dir(tzLink), 0o755); err != nil {
+			return fmt.Errorf("creating etc for timezone: %w", err)
+		}
 		_ = os.Remove(tzLink)
 		if err := os.Symlink(filepath.Join("/usr/share/zoneinfo", ctx.Timezone), tzLink); err != nil {
 			return fmt.Errorf("setting timezone: %w", err)

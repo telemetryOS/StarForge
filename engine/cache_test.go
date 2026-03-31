@@ -620,3 +620,117 @@ func TestHashPackaging_ChangesOnInstaller(t *testing.T) {
 		t.Error("adding installer server should change packaging hash")
 	}
 }
+
+func TestHashPhase_Files_Mkdir(t *testing.T) {
+	ctx := actions.NewBuildContext()
+	ctx.FileMkdirs = []actions.FileMkdirOp{
+		{Path: "/etc/custom", Mode: "0755", Owner: "root", Group: "root"},
+	}
+	h, err := HashPhase(4, ctx)
+	if err != nil {
+		t.Fatalf("HashPhase(4) error: %v", err)
+	}
+	if h == "" {
+		t.Error("expected non-empty hash")
+	}
+}
+
+func TestHashPhase_Files_Create(t *testing.T) {
+	ctx := actions.NewBuildContext()
+	ctx.FileCreates = []actions.FileCreateOp{
+		{Path: "/etc/hostname", Mode: "0644", Content: "my-device"},
+	}
+	h, err := HashPhase(4, ctx)
+	if err != nil {
+		t.Fatalf("HashPhase(4) error: %v", err)
+	}
+	if h == "" {
+		t.Error("expected non-empty hash")
+	}
+}
+
+func TestHashPhase_Files_DifferentContent_DifferentHash(t *testing.T) {
+	ctx1 := actions.NewBuildContext()
+	ctx1.FileCreates = []actions.FileCreateOp{{Path: "/etc/f", Content: "v1"}}
+
+	ctx2 := actions.NewBuildContext()
+	ctx2.FileCreates = []actions.FileCreateOp{{Path: "/etc/f", Content: "v2"}}
+
+	h1, _ := HashPhase(4, ctx1)
+	h2, _ := HashPhase(4, ctx2)
+	if h1 == h2 {
+		t.Error("different file content must produce different phase 4 hashes")
+	}
+}
+
+func TestHashPhase_Files_Edit(t *testing.T) {
+	ctx := actions.NewBuildContext()
+	ctx.FileEdits = []actions.FileEditOp{
+		{Path: "/etc/fstab", Insert: "append", Content: "tmpfs /tmp tmpfs defaults 0 0"},
+	}
+	h, err := HashPhase(4, ctx)
+	if err != nil {
+		t.Fatalf("HashPhase(4) error: %v", err)
+	}
+	if h == "" {
+		t.Error("expected non-empty hash")
+	}
+}
+
+func TestHashPhase_Files_LinksMovesDeletes(t *testing.T) {
+	ctx := actions.NewBuildContext()
+	ctx.FileCopies = []actions.FileCopyOp{{FromPath: "/a", ToPath: "/b"}}
+	ctx.FileMoves = []actions.FileMoveOp{{FromPath: "/c", ToPath: "/d"}}
+	ctx.FileLinks = []actions.FileLinkOp{{ToPath: "/e", FromPath: "/f", Type: "symbolic"}}
+	ctx.FileDeletes = []actions.FileDeleteOp{{Path: "/g", Recursive: true}}
+
+	h, err := HashPhase(4, ctx)
+	if err != nil {
+		t.Fatalf("HashPhase(4) error: %v", err)
+	}
+	if h == "" {
+		t.Error("expected non-empty hash")
+	}
+}
+
+func TestHashPhase_Permissions_Ownership(t *testing.T) {
+	ctx := actions.NewBuildContext()
+	ctx.FileOwnerships = []actions.FileOwnershipOp{
+		{Path: "/opt/app", Owner: "appuser", Group: "appgroup", Recursive: true},
+	}
+	h, err := HashPhase(5, ctx)
+	if err != nil {
+		t.Fatalf("HashPhase(5) error: %v", err)
+	}
+	if h == "" {
+		t.Error("expected non-empty hash")
+	}
+}
+
+func TestHashPhase_Permissions_Mode(t *testing.T) {
+	ctx := actions.NewBuildContext()
+	ctx.FilePermissions = []actions.FilePermissionOp{
+		{Path: "/etc/shadow", Mode: "0600", Recursive: false},
+	}
+	h, err := HashPhase(5, ctx)
+	if err != nil {
+		t.Fatalf("HashPhase(5) error: %v", err)
+	}
+	if h == "" {
+		t.Error("expected non-empty hash")
+	}
+}
+
+func TestHashPhase_Permissions_DifferentOwner_DifferentHash(t *testing.T) {
+	ctx1 := actions.NewBuildContext()
+	ctx1.FileOwnerships = []actions.FileOwnershipOp{{Path: "/data", Owner: "alice"}}
+
+	ctx2 := actions.NewBuildContext()
+	ctx2.FileOwnerships = []actions.FileOwnershipOp{{Path: "/data", Owner: "bob"}}
+
+	h1, _ := HashPhase(5, ctx1)
+	h2, _ := HashPhase(5, ctx2)
+	if h1 == h2 {
+		t.Error("different owners must produce different phase 5 hashes")
+	}
+}

@@ -53,7 +53,10 @@ func Upgrade() error {
 
 	fmt.Println("Replacing binary...")
 
-	os.Remove(currentBinary)
+	// Write to a temp file next to the target, then rename atomically.
+	// This avoids leaving the binary in a partially-written state if the
+	// copy is interrupted (os.Rename is atomic on POSIX filesystems).
+	tmpBin := currentBinary + ".new"
 
 	src, err := os.Open(binaryPath)
 	if err != nil {
@@ -61,18 +64,24 @@ func Upgrade() error {
 	}
 	defer src.Close()
 
-	dst, err := os.Create(currentBinary)
+	dst, err := os.OpenFile(tmpBin, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 	if err != nil {
-		return fmt.Errorf("failed to create new binary: %w", err)
+		return fmt.Errorf("failed to create temp binary: %w", err)
 	}
-	defer dst.Close()
 
 	if _, err := io.Copy(dst, src); err != nil {
+		dst.Close()
+		os.Remove(tmpBin)
 		return fmt.Errorf("failed to copy binary: %w", err)
 	}
+	if err := dst.Close(); err != nil {
+		os.Remove(tmpBin)
+		return fmt.Errorf("failed to flush binary: %w", err)
+	}
 
-	if err := dst.Chmod(0755); err != nil {
-		return fmt.Errorf("failed to set executable permissions: %w", err)
+	if err := os.Rename(tmpBin, currentBinary); err != nil {
+		os.Remove(tmpBin)
+		return fmt.Errorf("failed to replace binary: %w", err)
 	}
 
 	fmt.Printf("Upgrade complete to %s\n", tag)

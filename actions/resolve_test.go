@@ -92,6 +92,7 @@ func TestIsValidPartitionType(t *testing.T) {
 	valid := []string{
 		"linux", "efi", "swap", "home", "bios-boot",
 		"raid", "lvm", "microsoft-basic", "microsoft-reserved",
+		"root", "root-verity", "usr", "usr-verity",
 	}
 	for _, pt := range valid {
 		if !isValidPartitionType(pt) {

@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/telemetryos/starforge/config"
 	"github.com/telemetryos/starforge/engine"
 )
 
@@ -33,14 +32,9 @@ func init() {
 func runBuild(cmd *cobra.Command, args []string) error {
 	targetName := args[0]
 
-	proj, err := config.FindProject()
+	proj, target, err := loadProjectAndTarget(targetName)
 	if err != nil {
 		return err
-	}
-
-	target, ok := proj.Targets[targetName]
-	if !ok {
-		return fmt.Errorf("unknown target %q", targetName)
 	}
 
 	// Elevate to root early so cleanup, collect, and build all run privileged

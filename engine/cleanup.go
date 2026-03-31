@@ -184,10 +184,10 @@ func cleanupLoops(dir string) {
 			}
 			if staleSet[fields[0]] {
 				if out != nil {
-				out.SubInfo("umount stale loop: %s", fields[1])
-			} else {
-				fmt.Printf("  Unmounting stale loop mount: %s\n", fields[1])
-			}
+					out.SubInfo("umount stale loop: %s", fields[1])
+				} else {
+					fmt.Printf("  Unmounting stale loop mount: %s\n", fields[1])
+				}
 				run("umount", fields[1])
 			}
 		}

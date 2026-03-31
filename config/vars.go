@@ -20,30 +20,31 @@ func VarPattern() *regexp.Regexp {
 // in scalar string values with the corresponding values from vars.
 // Returns an error if any referenced variable is not defined.
 func SubstituteVars(node *yaml.Node, vars map[string]string) error {
-	return substituteVarsRecursive(node, vars)
+	visited := make(map[*yaml.Node]bool)
+	return substituteVarsRecursive(node, vars, visited)
 }
 
-func substituteVarsRecursive(node *yaml.Node, vars map[string]string) error {
+func substituteVarsRecursive(node *yaml.Node, vars map[string]string, visited map[*yaml.Node]bool) error {
 	switch node.Kind {
 	case yaml.DocumentNode:
 		for _, child := range node.Content {
-			if err := substituteVarsRecursive(child, vars); err != nil {
+			if err := substituteVarsRecursive(child, vars, visited); err != nil {
 				return err
 			}
 		}
 	case yaml.MappingNode:
 		for i := 0; i < len(node.Content)-1; i += 2 {
 			// Substitute in both keys and values
-			if err := substituteVarsRecursive(node.Content[i], vars); err != nil {
+			if err := substituteVarsRecursive(node.Content[i], vars, visited); err != nil {
 				return err
 			}
-			if err := substituteVarsRecursive(node.Content[i+1], vars); err != nil {
+			if err := substituteVarsRecursive(node.Content[i+1], vars, visited); err != nil {
 				return err
 			}
 		}
 	case yaml.SequenceNode:
 		for _, child := range node.Content {
-			if err := substituteVarsRecursive(child, vars); err != nil {
+			if err := substituteVarsRecursive(child, vars, visited); err != nil {
 				return err
 			}
 		}
@@ -76,9 +77,11 @@ func substituteVarsRecursive(node *yaml.Node, vars map[string]string) error {
 		}
 		node.Value = result
 	case yaml.AliasNode:
-		// Aliases point to other nodes; substitute in the alias target
-		if node.Alias != nil {
-			return substituteVarsRecursive(node.Alias, vars)
+		// Aliases point to other nodes; substitute in the alias target.
+		// Track visited nodes to prevent infinite loops from circular aliases.
+		if node.Alias != nil && !visited[node.Alias] {
+			visited[node.Alias] = true
+			return substituteVarsRecursive(node.Alias, vars, visited)
 		}
 	}
 	return nil

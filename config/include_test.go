@@ -275,3 +275,32 @@ func TestResolveIncludes_RelativeToIncludedFile(t *testing.T) {
 		t.Errorf("nested relative include value = %q, want %q", innerVal.Content[1].Value, "found")
 	}
 }
+
+func TestResolveIncludes_PathTraversalRejected(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a layer YAML with a !include that tries to escape the layer dir
+	layerYAML := `steps:
+  - action: !include ../../etc/passwd
+`
+	node := parseYAML(t, layerYAML)
+
+	err := ResolveIncludes(node, dir, "")
+	if err == nil {
+		t.Fatal("expected error for !include path traversal, got nil")
+	}
+}
+
+func TestResolveIncludes_AbsolutePathRejected(t *testing.T) {
+	dir := t.TempDir()
+
+	layerYAML := `steps:
+  - action: !include /etc/passwd
+`
+	node := parseYAML(t, layerYAML)
+
+	err := ResolveIncludes(node, dir, "")
+	if err == nil {
+		t.Fatal("expected error for !include with absolute path, got nil")
+	}
+}

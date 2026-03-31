@@ -12,7 +12,10 @@ import (
 func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 	// 1. Create directories (file-mkdir)
 	for _, m := range ctx.FileMkdirs {
-		target := filepath.Join(rootfs, m.Path)
+		target, err := safeRootfsJoin(rootfs, m.Path)
+		if err != nil {
+			return fmt.Errorf("mkdir %s: %w", m.Path, err)
+		}
 		out.Info("mkdir %s%s", m.Path, labelSuffix(m.Label))
 		mode, err := parseMode(m.Mode, 0o755)
 		if err != nil {
@@ -38,7 +41,10 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 		if !filepath.IsAbs(src) {
 			src = filepath.Join(cp.LayerDir, src)
 		}
-		dest := filepath.Join(rootfs, cp.ToPath)
+		dest, err := safeRootfsJoin(rootfs, cp.ToPath)
+		if err != nil {
+			return fmt.Errorf("copy to %s: %w", cp.ToPath, err)
+		}
 		out.Info("%s -> %s%s", cp.FromPath, cp.ToPath, labelSuffix(cp.Label))
 
 		srcInfo, err := os.Stat(src)
@@ -66,7 +72,10 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 	// 3. File creates (file-create with content or file layer_path)
 	for _, fc := range ctx.FileCreates {
 		out.Info("create %s%s", fc.Path, labelSuffix(fc.Label))
-		target := filepath.Join(rootfs, fc.Path)
+		target, err := safeRootfsJoin(rootfs, fc.Path)
+		if err != nil {
+			return fmt.Errorf("file-create %s: %w", fc.Path, err)
+		}
 
 		if err := mkdirAllInherit(filepath.Dir(target), 0o755); err != nil {
 			return fmt.Errorf("creating parent for %s: %w", fc.Path, err)
@@ -95,8 +104,14 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 	// 5. Internal copies (file-copy, within target)
 	for _, ic := range ctx.FileCopies {
 		out.Info("copy %s -> %s%s", ic.FromPath, ic.ToPath, labelSuffix(ic.Label))
-		src := filepath.Join(rootfs, ic.FromPath)
-		dest := filepath.Join(rootfs, ic.ToPath)
+		src, err := safeRootfsJoin(rootfs, ic.FromPath)
+		if err != nil {
+			return fmt.Errorf("copy from %s: %w", ic.FromPath, err)
+		}
+		dest, err := safeRootfsJoin(rootfs, ic.ToPath)
+		if err != nil {
+			return fmt.Errorf("copy to %s: %w", ic.ToPath, err)
+		}
 		if err := mkdirAllInherit(filepath.Dir(dest), 0o755); err != nil {
 			return fmt.Errorf("creating parent for %s: %w", ic.ToPath, err)
 		}
@@ -109,8 +124,14 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 	// 6. Moves (file-move)
 	for _, mv := range ctx.FileMoves {
 		out.Info("move %s -> %s%s", mv.FromPath, mv.ToPath, labelSuffix(mv.Label))
-		src := filepath.Join(rootfs, mv.FromPath)
-		dest := filepath.Join(rootfs, mv.ToPath)
+		src, err := safeRootfsJoin(rootfs, mv.FromPath)
+		if err != nil {
+			return fmt.Errorf("move from %s: %w", mv.FromPath, err)
+		}
+		dest, err := safeRootfsJoin(rootfs, mv.ToPath)
+		if err != nil {
+			return fmt.Errorf("move to %s: %w", mv.ToPath, err)
+		}
 		if err := mkdirAllInherit(filepath.Dir(dest), 0o755); err != nil {
 			return fmt.Errorf("creating parent for %s: %w", mv.ToPath, err)
 		}
@@ -123,18 +144,27 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 	// 7. Links (file-link)
 	for _, ln := range ctx.FileLinks {
 		out.Info("%s %s -> %s%s", ln.Type, ln.ToPath, ln.FromPath, labelSuffix(ln.Label))
-		dest := filepath.Join(rootfs, ln.ToPath)
+		dest, err := safeRootfsJoin(rootfs, ln.ToPath)
+		if err != nil {
+			return fmt.Errorf("link at %s: %w", ln.ToPath, err)
+		}
 		if err := mkdirAllInherit(filepath.Dir(dest), 0o755); err != nil {
 			return fmt.Errorf("creating parent for %s: %w", ln.ToPath, err)
 		}
 		_ = os.Remove(dest) // remove existing link/file if present
 		switch ln.Type {
 		case "hard":
-			src := filepath.Join(rootfs, ln.FromPath)
+			src, err := safeRootfsJoin(rootfs, ln.FromPath)
+			if err != nil {
+				return fmt.Errorf("hard link source %s: %w", ln.FromPath, err)
+			}
 			if err := os.Link(src, dest); err != nil {
 				return fmt.Errorf("hard link %s -> %s: %w", ln.ToPath, ln.FromPath, err)
 			}
 		default:
+			// Symbolic link: FromPath is the target of the symlink as it
+			// will appear inside the built OS — it is intentionally an
+			// OS-relative path and must NOT be validated against rootfs.
 			if err := os.Symlink(ln.FromPath, dest); err != nil {
 				return fmt.Errorf("symlink %s -> %s: %w", ln.ToPath, ln.FromPath, err)
 			}
@@ -144,7 +174,10 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 	// 8. Deletes (file-delete, runs last)
 	for _, r := range ctx.FileDeletes {
 		out.Info("delete %s%s", r.Path, labelSuffix(r.Label))
-		target := filepath.Join(rootfs, r.Path)
+		target, err := safeRootfsJoin(rootfs, r.Path)
+		if err != nil {
+			return fmt.Errorf("delete %s: %w", r.Path, err)
+		}
 		if r.Recursive {
 			if err := os.RemoveAll(target); err != nil {
 				return fmt.Errorf("removing %s: %w", r.Path, err)
@@ -161,7 +194,10 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 
 // applyFileEdit reads a file, applies an insert/truncate operation, and writes it back.
 func applyFileEdit(rootfs string, edit actions.FileEditOp) error {
-	path := filepath.Join(rootfs, edit.Path)
+	path, err := safeRootfsJoin(rootfs, edit.Path)
+	if err != nil {
+		return fmt.Errorf("file-edit %s: %w", edit.Path, err)
+	}
 
 	info, err := os.Stat(path)
 	if err != nil {

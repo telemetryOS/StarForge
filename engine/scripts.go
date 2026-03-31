@@ -6,11 +6,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/telemetryos/starforge/config"
 )
+
+// varNameRe matches valid StarForge variable names: [a-zA-Z_][a-zA-Z0-9_]*
+var varNameRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 // buildScriptPrelude generates a bash prelude that defines sf_set, sf_get,
 // and declares all collected variables for use inside chroot scripts.
@@ -194,6 +198,9 @@ func (b *Builder) executeLayerRun(step config.Step, layerDir string, vars, targe
 	for scanner.Scan() {
 		line := scanner.Text()
 		if key, value, ok := strings.Cut(line, "="); ok && key != "" {
+			if !varNameRe.MatchString(key) {
+				return fmt.Errorf("layer-run sf_set: invalid variable name %q (must match [a-zA-Z_][a-zA-Z0-9_]*)", key)
+			}
 			vars[key] = value
 		}
 	}

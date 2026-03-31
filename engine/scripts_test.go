@@ -125,3 +125,29 @@ func TestBuildScriptPrelude_SortedKeys(t *testing.T) {
 		t.Errorf("vars not sorted in prelude:\n%s", got)
 	}
 }
+
+
+// --- varNameRe validation (sf_set output key validation) ---
+
+func TestVarNameRe_AcceptsValid(t *testing.T) {
+	valid := []string{
+		"foo", "Foo", "FOO", "_foo", "foo_bar", "foo123", "_", "a1_B2",
+	}
+	for _, name := range valid {
+		if !varNameRe.MatchString(name) {
+			t.Errorf("varNameRe should accept %q", name)
+		}
+	}
+}
+
+func TestVarNameRe_RejectsInvalid(t *testing.T) {
+	invalid := []string{
+		"", "1foo", "foo-bar", "foo.bar", "foo bar", "foo=bar",
+		"my-key", "key with spaces", "123",
+	}
+	for _, name := range invalid {
+		if varNameRe.MatchString(name) {
+			t.Errorf("varNameRe should reject %q", name)
+		}
+	}
+}

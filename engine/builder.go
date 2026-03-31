@@ -194,13 +194,70 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 	ctx := actions.NewBuildContext()
 	ctx.DryRun = b.DryRun
 
-	// Set up download cache dir for URL support
 	cacheDir := filepath.Join(b.project.BuildDir(), "cache")
 	ctx.DownloadCacheDir = cacheDir
 
-	// Initialize variable scope from target args.
-	// Env var references ($NAME or ${NAME}) in values are expanded from the
-	// host environment, falling back to default_env values when unset.
+	vars, err := b.initVars(target)
+	if err != nil {
+		return nil, err
+	}
+	if err := b.resolveTargetEnv(target, vars, ctx); err != nil {
+		return nil, err
+	}
+
+	for i, layerPath := range target.Layers {
+		rawLayer, legacyLayer, layerDir, err := b.loadLayer(layerPath, cacheDir)
+		if err != nil {
+			return nil, err
+		}
+
+		layerStart := time.Now()
+		if verbose {
+			out.CollectLayer(i, layerPath)
+		}
+		ctx.CurrentLayer = layerPath
+
+		if legacyLayer != nil {
+			if err := b.collectLegacyLayer(legacyLayer, layerPath, cacheDir, verbose, ctx); err != nil {
+				return nil, err
+			}
+		} else {
+			layerVars, err := b.collectRawLayer(rawLayer, layerPath, layerDir, cacheDir, vars, verbose, ctx)
+			if err != nil {
+				return nil, err
+			}
+			propagateVars(rawLayer.Exports, layerVars, vars)
+		}
+
+		if verbose {
+			out.CollectLayerDone(i, time.Since(layerStart))
+		}
+	}
+
+	if len(vars) > 0 {
+		ctx.Vars = vars
+	}
+
+	ctx.Packages = deduplicatePackages(ctx.Packages)
+
+	if err := b.resolvePkgRels(ctx, verbose); err != nil {
+		return nil, err
+	}
+
+	for _, w := range ctx.Warnings {
+		out.Warning(w)
+	}
+	if verbose {
+		out.Blank()
+	}
+
+	out.EndStage(StageCollect, time.Since(collectStart))
+	return ctx, nil
+}
+
+// initVars builds the initial variable map from target args, expanding any
+// $NAME / ${NAME} references from the host environment.
+func (b *Builder) initVars(target config.Target) (map[string]string, error) {
 	vars := make(map[string]string)
 	envLookup := func(key string) string {
 		if val, ok := os.LookupEnv(key); ok {
@@ -211,247 +268,222 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 	for k, v := range target.Args {
 		vars[k] = os.Expand(v, envLookup)
 	}
+	return vars, nil
+}
 
-	// Substitute variables in target env and store in ctx
-	if len(target.Env) > 0 {
-		ctx.Env = make(map[string]string, len(target.Env))
-		for k, v := range target.Env {
-			resolved, err := substituteString(v, vars)
+// resolveTargetEnv resolves variable substitutions in target-level env values
+// and stores the result in ctx.Env.
+func (b *Builder) resolveTargetEnv(target config.Target, vars map[string]string, ctx *actions.BuildContext) error {
+	if len(target.Env) == 0 {
+		return nil
+	}
+	ctx.Env = make(map[string]string, len(target.Env))
+	for k, v := range target.Env {
+		resolved, err := substituteString(v, vars)
+		if err != nil {
+			return fmt.Errorf("target env %s: %w", k, err)
+		}
+		ctx.Env[k] = resolved
+	}
+	return nil
+}
+
+// loadLayer resolves a layer path and loads the layer config.
+// Returns either a RawLayer (local/git/archive) or a legacy Layer (remote URL).
+func (b *Builder) loadLayer(layerPath, cacheDir string) (rawLayer *config.RawLayer, legacyLayer *config.Layer, layerDir string, err error) {
+	resolvedPath := b.project.ResolveLayerPath(layerPath)
+
+	switch {
+	case config.IsGitSource(resolvedPath) || config.IsArchiveSource(resolvedPath):
+		sourceDir, fetchErr := config.ResolveSource(resolvedPath, cacheDir)
+		if fetchErr != nil {
+			return nil, nil, "", fmt.Errorf("fetching source layer %s: %w", layerPath, fetchErr)
+		}
+		rawLayer, err = config.LoadLayerRaw(sourceDir, cacheDir)
+		if err != nil {
+			return nil, nil, "", fmt.Errorf("loading layer %s: %w", layerPath, err)
+		}
+		return rawLayer, nil, rawLayer.Dir, nil
+
+	case config.IsURL(resolvedPath):
+		// Remote layers use LoadLayer — variable substitution is not supported
+		mirrorDir, fetchErr := config.FetchRemoteLayer(resolvedPath, cacheDir)
+		if fetchErr != nil {
+			return nil, nil, "", fmt.Errorf("fetching remote layer %s: %w", layerPath, fetchErr)
+		}
+		legacyLayer, err = config.LoadLayer(mirrorDir, cacheDir)
+		if err != nil {
+			return nil, nil, "", fmt.Errorf("loading layer %s: %w", layerPath, err)
+		}
+		return nil, legacyLayer, legacyLayer.Dir, nil
+
+	default:
+		rawLayer, err = config.LoadLayerRaw(resolvedPath, cacheDir)
+		if err != nil {
+			return nil, nil, "", fmt.Errorf("loading layer %s: %w", layerPath, err)
+		}
+		return rawLayer, nil, rawLayer.Dir, nil
+	}
+}
+
+// collectLegacyLayer executes all steps in a remote (legacy) layer.
+// Legacy layers do not support variable substitution.
+func (b *Builder) collectLegacyLayer(layer *config.Layer, layerPath, cacheDir string, verbose bool, ctx *actions.BuildContext) error {
+	for _, step := range layer.Steps {
+		action, err := actions.Get(step.Action)
+		if err != nil {
+			return fmt.Errorf("layer %s: %w", layerPath, err)
+		}
+		if verbose {
+			printStep(step)
+		}
+		effectiveDir := layer.Dir
+		if step.LayerSource != "" {
+			sourceDir, err := config.ResolveSource(step.LayerSource, cacheDir)
 			if err != nil {
-				return nil, fmt.Errorf("target env %s: %w", k, err)
+				return fmt.Errorf("layer %s (%s): resolving source: %w", layerPath, step.Action, err)
 			}
-			ctx.Env[k] = resolved
+			if step.LayerScript != "" || step.LayerScriptPath != "" {
+				if err := runLayerScript(step, layer.Dir, sourceDir); err != nil {
+					return fmt.Errorf("layer %s (%s): layer script: %w", layerPath, step.Action, err)
+				}
+			}
+			effectiveDir = sourceDir
+		}
+		if err := action.Execute(step, effectiveDir, ctx); err != nil {
+			return fmt.Errorf("layer %s (%s): %w", layerPath, step.Action, err)
+		}
+	}
+	return nil
+}
+
+// collectRawLayer processes a raw (local) layer: validates imports, applies
+// defaults, substitutes variables, and executes each step.
+// Returns the layer-scoped variable map so the caller can propagate exports.
+func (b *Builder) collectRawLayer(rawLayer *config.RawLayer, layerPath, layerDir, cacheDir string, vars map[string]string, verbose bool, ctx *actions.BuildContext) (map[string]string, error) {
+	if err := validateImports(rawLayer.Imports, vars, layerPath); err != nil {
+		return nil, err
+	}
+
+	// Layer vars are scoped: start with a copy and apply this layer's defaults
+	layerVars := make(map[string]string, len(vars))
+	for k, v := range vars {
+		layerVars[k] = v
+	}
+	for k, v := range rawLayer.Vars {
+		if _, exists := layerVars[k]; !exists {
+			layerVars[k] = v
 		}
 	}
 
-	for i, layerPath := range target.Layers {
-		resolvedPath := b.project.ResolveLayerPath(layerPath)
+	for _, stepNode := range rawLayer.StepNodes {
+		nodeCopy := config.DeepCopyNode(stepNode)
 
-		// For remote/git/archive layers, fall back to the non-raw path
-		// since variable substitution in remote layers is not supported
-		var rawLayer *config.RawLayer
-		var legacyLayer *config.Layer
-		var layerDir string
-
-		switch {
-		case config.IsGitSource(resolvedPath) || config.IsArchiveSource(resolvedPath):
-			sourceDir, fetchErr := config.ResolveSource(resolvedPath, cacheDir)
-			if fetchErr != nil {
-				return nil, fmt.Errorf("fetching source layer %s: %w", layerPath, fetchErr)
-			}
-			var err error
-			rawLayer, err = config.LoadLayerRaw(sourceDir, cacheDir)
-			if err != nil {
-				return nil, fmt.Errorf("loading layer %s: %w", layerPath, err)
-			}
-			layerDir = rawLayer.Dir
-		case config.IsURL(resolvedPath):
-			// Remote layers: use LoadLayer (includes pre-fetching of referenced files)
-			mirrorDir, fetchErr := config.FetchRemoteLayer(resolvedPath, cacheDir)
-			if fetchErr != nil {
-				return nil, fmt.Errorf("fetching remote layer %s: %w", layerPath, fetchErr)
-			}
-			var err error
-			legacyLayer, err = config.LoadLayer(mirrorDir, cacheDir)
-			if err != nil {
-				return nil, fmt.Errorf("loading layer %s: %w", layerPath, err)
-			}
-			layerDir = legacyLayer.Dir
-		default:
-			var err error
-			rawLayer, err = config.LoadLayerRaw(resolvedPath, cacheDir)
-			if err != nil {
-				return nil, fmt.Errorf("loading layer %s: %w", layerPath, err)
-			}
-			layerDir = rawLayer.Dir
+		if err := config.SubstituteVars(nodeCopy, layerVars); err != nil {
+			return nil, fmt.Errorf("layer %s: %w", layerPath, err)
 		}
 
-		layerStart := time.Now()
+		step, err := config.DecodeStep(nodeCopy)
+		if err != nil {
+			return nil, fmt.Errorf("layer %s: %w", layerPath, err)
+		}
+
 		if verbose {
-			out.CollectLayer(i, layerPath)
+			printStep(step)
 		}
 
-		ctx.CurrentLayer = layerPath
-
-		// Handle remote layers (legacy path — no variable substitution)
-		if legacyLayer != nil {
-			for _, step := range legacyLayer.Steps {
-				action, err := actions.Get(step.Action)
-				if err != nil {
-					return nil, fmt.Errorf("layer %s: %w", layerPath, err)
-				}
-				if verbose {
-					printStep(step)
-				}
-				effectiveDir := legacyLayer.Dir
-				if step.LayerSource != "" {
-					sourceDir, err := config.ResolveSource(step.LayerSource, cacheDir)
-					if err != nil {
-						return nil, fmt.Errorf("layer %s (%s): resolving source: %w", layerPath, step.Action, err)
-					}
-					if step.LayerScript != "" || step.LayerScriptPath != "" {
-						if err := runLayerScript(step, legacyLayer.Dir, sourceDir); err != nil {
-							return nil, fmt.Errorf("layer %s (%s): layer script: %w", layerPath, step.Action, err)
-						}
-					}
-					effectiveDir = sourceDir
-				}
-				if err := action.Execute(step, effectiveDir, ctx); err != nil {
-					return nil, fmt.Errorf("layer %s (%s): %w", layerPath, step.Action, err)
+		effectiveLayerDir := layerDir
+		if step.LayerSource != "" {
+			sourceDir, err := config.ResolveSource(step.LayerSource, cacheDir)
+			if err != nil {
+				return nil, fmt.Errorf("layer %s (%s): resolving source: %w", layerPath, step.Action, err)
+			}
+			if step.LayerScript != "" || step.LayerScriptPath != "" {
+				if err := runLayerScript(step, layerDir, sourceDir); err != nil {
+					return nil, fmt.Errorf("layer %s (%s): layer script: %w", layerPath, step.Action, err)
 				}
 			}
-			if verbose {
-				out.CollectLayerDone(i, time.Since(layerStart))
+			effectiveLayerDir = sourceDir
+		}
+
+		if step.Action == "layer-run" {
+			if ctx.DryRun {
+				continue
+			}
+			if err := b.executeLayerRun(step, effectiveLayerDir, layerVars, ctx.Env); err != nil {
+				return nil, fmt.Errorf("layer %s (layer-run): %w", layerPath, err)
 			}
 			continue
 		}
 
-		// Variable scoping: validate imports, apply defaults from layer vars
-		if err := validateImports(rawLayer.Imports, vars, layerPath); err != nil {
-			return nil, err
+		action, err := actions.Get(step.Action)
+		if err != nil {
+			return nil, fmt.Errorf("layer %s: %w", layerPath, err)
 		}
-
-		// Copy vars for layer-scoped mutations
-		layerVars := make(map[string]string, len(vars))
-		for k, v := range vars {
-			layerVars[k] = v
+		if err := action.Execute(step, effectiveLayerDir, ctx); err != nil {
+			return nil, fmt.Errorf("layer %s (%s): %w", layerPath, step.Action, err)
 		}
+	}
 
-		// Apply layer vars as defaults (don't overwrite existing values)
-		for k, v := range rawLayer.Vars {
-			if _, exists := layerVars[k]; !exists {
-				layerVars[k] = v
-			}
-		}
+	return layerVars, nil
+}
 
-		// Process each step with variable substitution
-		for _, stepNode := range rawLayer.StepNodes {
-			// Deep copy the node so substitution doesn't mutate the original
-			nodeCopy := config.DeepCopyNode(stepNode)
-
-			// Substitute ${{ var }} references
-			if err := config.SubstituteVars(nodeCopy, layerVars); err != nil {
-				return nil, fmt.Errorf("layer %s: %w", layerPath, err)
-			}
-
-			// Decode the substituted node into a typed Step
-			step, err := config.DecodeStep(nodeCopy)
-			if err != nil {
-				return nil, fmt.Errorf("layer %s: %w", layerPath, err)
-			}
-
-			if verbose {
-				printStep(step)
-			}
-
-			effectiveLayerDir := layerDir
-			if step.LayerSource != "" {
-				sourceDir, err := config.ResolveSource(step.LayerSource, cacheDir)
-				if err != nil {
-					return nil, fmt.Errorf("layer %s (%s): resolving source: %w",
-						layerPath, step.Action, err)
-				}
-
-				// Run layer build script if specified
-				if step.LayerScript != "" || step.LayerScriptPath != "" {
-					if err := runLayerScript(step, layerDir, sourceDir); err != nil {
-						return nil, fmt.Errorf("layer %s (%s): layer script: %w",
-							layerPath, step.Action, err)
-					}
-				}
-
-				effectiveLayerDir = sourceDir
-			}
-
-			// Handle layer-run: execute on host, capture variable output
-			if step.Action == "layer-run" {
-				if ctx.DryRun {
-					continue
-				}
-				if err := b.executeLayerRun(step, effectiveLayerDir, layerVars, ctx.Env); err != nil {
-					return nil, fmt.Errorf("layer %s (layer-run): %w", layerPath, err)
-				}
-				continue
-			}
-
-			action, err := actions.Get(step.Action)
-			if err != nil {
-				return nil, fmt.Errorf("layer %s: %w", layerPath, err)
-			}
-
-			if err := action.Execute(step, effectiveLayerDir, ctx); err != nil {
-				return nil, fmt.Errorf("layer %s (%s): %w", layerPath, step.Action, err)
+// propagateVars copies variable values from layerVars back into the outer vars
+// map. If exports is non-empty, only the listed names are propagated.
+func propagateVars(exports []string, layerVars, vars map[string]string) {
+	if len(exports) > 0 {
+		for _, name := range exports {
+			if v, ok := layerVars[name]; ok {
+				vars[name] = v
 			}
 		}
-
-		if verbose {
-			out.CollectLayerDone(i, time.Since(layerStart))
+	} else {
+		for k, v := range layerVars {
+			vars[k] = v
 		}
+	}
+}
 
-		// Export: if exports declared, only those vars propagate to outer scope
-		if len(rawLayer.Exports) > 0 {
-			for _, name := range rawLayer.Exports {
-				if v, ok := layerVars[name]; ok {
-					vars[name] = v
-				}
-			}
+// deduplicatePackages removes duplicate package entries, keeping the last
+// occurrence (later layers win and can override/pin versions).
+func deduplicatePackages(pkgs []actions.Package) []actions.Package {
+	if len(pkgs) == 0 {
+		return pkgs
+	}
+	seen := make(map[string]int)
+	var unique []actions.Package
+	for _, pkg := range pkgs {
+		if idx, ok := seen[pkg.Name]; ok {
+			unique[idx] = pkg
 		} else {
-			// No exports — all layerVars propagate
-			for k, v := range layerVars {
-				vars[k] = v
-			}
+			seen[pkg.Name] = len(unique)
+			unique = append(unique, pkg)
 		}
 	}
+	return unique
+}
 
-	// Store final resolved variables in the build context
-	if len(vars) > 0 {
-		ctx.Vars = vars
+// resolvePkgRels resolves the pkgrel for any pinned packages that specify only
+// a version without a pkgrel suffix (e.g. "1.0" → "1.0-2"). This ensures the
+// phase hash reflects the exact package that will be installed.
+func (b *Builder) resolvePkgRels(ctx *actions.BuildContext, verbose bool) error {
+	if b.DryRun {
+		return nil
 	}
-
-	// Deduplicate packages by name — later layers win (can override/pin version)
-	if len(ctx.Packages) > 0 {
-		seen := make(map[string]int) // name → index in unique
-		var unique []actions.Package
-		for _, pkg := range ctx.Packages {
-			if idx, ok := seen[pkg.Name]; ok {
-				unique[idx] = pkg // later layer wins
-			} else {
-				seen[pkg.Name] = len(unique)
-				unique = append(unique, pkg)
-			}
+	for i, pkg := range ctx.Packages {
+		if pkg.Version == "" || strings.Contains(pkg.Version, "-") {
+			continue
 		}
-		ctx.Packages = unique
-	}
-
-	// Resolve pkgrel for pinned packages without an explicit pkgrel.
-	// Done here so the resolved version is included in the phase hash —
-	// a new pkgrel published upstream will change the hash and trigger a rebuild.
-	if !b.DryRun {
-		for i, pkg := range ctx.Packages {
-			if pkg.Version != "" && !strings.Contains(pkg.Version, "-") {
-				resolved, err := resolveLatestPkgrel(pkg.Name, pkg.Version)
-				if err != nil {
-					return nil, fmt.Errorf("resolving pkgrel for %s=%s: %w", pkg.Name, pkg.Version, err)
-				}
-				if verbose {
-					out.Info("resolved %s=%s → %s=%s", pkg.Name, pkg.Version, pkg.Name, resolved)
-				}
-				ctx.Packages[i].Version = resolved
-			}
+		resolved, err := resolveLatestPkgrel(pkg.Name, pkg.Version)
+		if err != nil {
+			return fmt.Errorf("resolving pkgrel for %s=%s: %w", pkg.Name, pkg.Version, err)
 		}
+		if verbose {
+			out.Info("resolved %s=%s → %s=%s", pkg.Name, pkg.Version, pkg.Name, resolved)
+		}
+		ctx.Packages[i].Version = resolved
 	}
-
-	// Print collection warnings
-	for _, w := range ctx.Warnings {
-		out.Warning(w)
-	}
-
-	if verbose {
-		out.Blank()
-	}
-
-	out.EndStage(StageCollect, time.Since(collectStart))
-	return ctx, nil
+	return nil
 }
 
 // labelSuffix returns a dim-styled label suffix for phase output lines.

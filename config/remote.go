@@ -62,6 +62,31 @@ func FetchFile(url, cacheDir string) (string, error) {
 	return cachedPath, nil
 }
 
+// downloadToFile fetches a URL and writes the response body to destPath.
+// Returns an error if the request fails, the server returns non-200, or the
+// write fails.
+func downloadToFile(url, destPath string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("fetching %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("fetching %s: HTTP %d", url, resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", url, err)
+	}
+
+	if err := os.WriteFile(destPath, data, 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", destPath, err)
+	}
+	return nil
+}
+
 // FetchRemoteLayer downloads a remote layer.yaml and all its referenced files.
 // Returns the local cache directory that mirrors the remote layer structure.
 func FetchRemoteLayer(baseURL, cacheDir string) (string, error) {
@@ -80,23 +105,12 @@ func FetchRemoteLayer(baseURL, cacheDir string) (string, error) {
 	layerURL := baseURL + "/" + LayerFile
 	layerPath := filepath.Join(mirrorDir, LayerFile)
 
-	resp, err := http.Get(layerURL)
+	if err := downloadToFile(layerURL, layerPath); err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(layerPath)
 	if err != nil {
-		return "", fmt.Errorf("fetching %s: %w", layerURL, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("fetching %s: HTTP %d", layerURL, resp.StatusCode)
-	}
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("reading %s: %w", layerURL, err)
-	}
-
-	if err := os.WriteFile(layerPath, data, 0o644); err != nil {
-		return "", fmt.Errorf("writing %s: %w", layerPath, err)
+		return "", fmt.Errorf("reading %s: %w", layerPath, err)
 	}
 
 	// 2. Parse layer.yaml and pre-fetch !include files from remote
@@ -137,31 +151,17 @@ func FetchRemoteLayer(baseURL, cacheDir string) (string, error) {
 		}
 
 		cleanPath := filepath.Clean(relPath)
-		fileURL := baseURL + "/" + cleanPath
+		if isPathTraversal(cleanPath) {
+			return "", fmt.Errorf("layer path %q escapes the layer directory", relPath)
+		}
 		localPath := filepath.Join(mirrorDir, cleanPath)
 
 		if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
 			return "", fmt.Errorf("creating dir for %s: %w", relPath, err)
 		}
 
-		fileResp, err := http.Get(fileURL)
-		if err != nil {
-			return "", fmt.Errorf("fetching %s: %w", fileURL, err)
-		}
-
-		if fileResp.StatusCode != http.StatusOK {
-			fileResp.Body.Close()
-			return "", fmt.Errorf("fetching %s: HTTP %d", fileURL, fileResp.StatusCode)
-		}
-
-		fileData, err := io.ReadAll(fileResp.Body)
-		fileResp.Body.Close()
-		if err != nil {
-			return "", fmt.Errorf("reading %s: %w", fileURL, err)
-		}
-
-		if err := os.WriteFile(localPath, fileData, 0o644); err != nil {
-			return "", fmt.Errorf("writing %s: %w", localPath, err)
+		if err := downloadToFile(baseURL+"/"+cleanPath, localPath); err != nil {
+			return "", err
 		}
 	}
 
@@ -279,6 +279,9 @@ func prefetchIncludeNode(node *yaml.Node, baseURL, mirrorDir string, depth int) 
 	}
 
 	cleanPath := filepath.Clean(filePath)
+	if isPathTraversal(cleanPath) {
+		return fmt.Errorf("include path %q escapes the layer directory", filePath)
+	}
 	fileURL := baseURL + "/" + cleanPath
 	localPath := filepath.Join(mirrorDir, cleanPath)
 
@@ -317,4 +320,12 @@ func prefetchIncludeNode(node *yaml.Node, baseURL, mirrorDir string, depth int) 
 	}
 
 	return prefetchIncludesRecursive(&doc, baseURL, mirrorDir, depth+1)
+}
+
+// isPathTraversal reports whether a cleaned path escapes its parent directory
+// (i.e. starts with ".." or is absolute).
+func isPathTraversal(cleanPath string) bool {
+	return filepath.IsAbs(cleanPath) ||
+		cleanPath == ".." ||
+		strings.HasPrefix(cleanPath, ".."+string(filepath.Separator))
 }

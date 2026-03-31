@@ -76,10 +76,67 @@ type BuildContext struct {
 	Warnings         []string
 }
 
-// NewBuildContext creates an empty BuildContext.
+// NewBuildContext creates a BuildContext with all slice and map fields
+// initialized to empty (non-nil) values. This avoids surprising nil-vs-empty
+// distinctions and makes append() behaviour predictable from the first call.
 func NewBuildContext() *BuildContext {
 	return &BuildContext{
+		// System configuration
+		Locales: []string{},
+
+		// Packages
+		Packages:      []Package{},
+		PackageGroups: []LayerGroup{},
+
+		// Partitions
+		Partitions:       []PartitionDef{},
+		PartitionHistory: []PartitionSnapshot{},
+
+		// Users and groups
+		Users:  []UserDef{},
+		Groups: []GroupDef{},
+
+		// File operations
+		FileMkdirs:      []FileMkdirOp{},
+		LayerCopies:     []LayerCopyOp{},
+		FileCreates:     []FileCreateOp{},
+		FileEdits:       []FileEditOp{},
+		FileCopies:      []FileCopyOp{},
+		FileMoves:       []FileMoveOp{},
+		FileLinks:       []FileLinkOp{},
+		FileDeletes:     []FileDeleteOp{},
+
+		// Permissions
+		FileOwnerships:  []FileOwnershipOp{},
+		FilePermissions: []FilePermissionOp{},
+
+		// Services
 		Services: ServiceOps{},
+
+		// Scripts
+		Scripts: []ScriptOp{},
+
+		// Installer
+		InstallerPayloads: []InstallerPayloadDef{},
+
+		// Tracking / history
+		HostnameHistory:      []LayerValue{},
+		LocaleHistory:        []LayerValue{},
+		TimezoneHistory:      []LayerValue{},
+		KeymapHistory:        []LayerValue{},
+		DefaultTargetHistory: []LayerValue{},
+		EnableGroups:         []LayerGroup{},
+		DisableGroups:        []LayerGroup{},
+		MaskGroups:           []LayerGroup{},
+		UserEnableGroups:     []UserServiceGroup{},
+		UserDisableGroups:    []UserServiceGroup{},
+
+		// Variables and environment
+		Vars: make(map[string]string),
+		Env:  make(map[string]string),
+
+		// Internal state
+		Warnings: []string{},
 	}
 }
 

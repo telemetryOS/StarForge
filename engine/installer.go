@@ -37,7 +37,7 @@ func (b *Builder) bundleInstaller(ctx *actions.BuildContext, buildDir string) er
 	if err := run("mount", "-o", "loop", rootImg, rootfs); err != nil {
 		return fmt.Errorf("mounting root image: %w", err)
 	}
-	defer run("umount", rootfs)
+	defer run("umount", "-R", rootfs)
 
 	return b.BundleInstallerToRootfs(ctx, rootfs)
 }
