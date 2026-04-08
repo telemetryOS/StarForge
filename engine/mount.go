@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -227,9 +228,13 @@ func runPipeSilent(cmd1Name string, cmd1Args []string, cmd2Name string, cmd2Args
 func runOutput(name string, args ...string) (string, error) {
 	cmd := exec.Command(resolveBin(name), args...)
 	cmd.Env = vendorEnv()
-	cmd.Stderr = os.Stderr
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
+		if stderr.Len() > 0 {
+			return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		}
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
