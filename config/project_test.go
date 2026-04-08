@@ -252,3 +252,46 @@ targets:
 		t.Errorf("Args = %v", q.Args)
 	}
 }
+
+func TestProject_TargetBuildDir_SafeName(t *testing.T) {
+	p := &Project{Dir: "/home/user/Edge-OS"}
+	got := p.TargetBuildDir("device")
+	want := "/home/user/Edge-OS/.starforge/device"
+	if got != want {
+		t.Errorf("TargetBuildDir(%q) = %q, want %q", "device", got, want)
+	}
+}
+
+func TestProject_TargetBuildDir_PathTraversal(t *testing.T) {
+	p := &Project{Dir: "/home/user/Edge-OS"}
+
+	// A target name containing path traversal must be sanitized to its base name.
+	traversal := "../../etc/passwd"
+	got := p.TargetBuildDir(traversal)
+	// Must resolve inside .starforge/, not escape to /etc/passwd
+	buildDir := p.BuildDir()
+	if !filepath.IsAbs(got) {
+		t.Errorf("TargetBuildDir(%q) = %q: expected absolute path", traversal, got)
+	}
+	if got == filepath.Join("/", "etc", "passwd") {
+		t.Errorf("TargetBuildDir(%q) escaped the build directory: %q", traversal, got)
+	}
+	if len(got) <= len(buildDir) {
+		t.Errorf("TargetBuildDir(%q) = %q: expected path inside %q", traversal, got, buildDir)
+	}
+}
+
+func TestProject_TargetBuildDir_DotDotName(t *testing.T) {
+	p := &Project{Dir: "/build/project"}
+	got := p.TargetBuildDir("..")
+	// ".." should be replaced with the safe placeholder "_", never escape buildDir
+	buildDir := p.BuildDir()
+	if got == filepath.Dir(buildDir) {
+		t.Errorf("TargetBuildDir(%q) escaped to parent: %q", "..", got)
+	}
+	// Expect the placeholder
+	want := filepath.Join(buildDir, "_")
+	if got != want {
+		t.Errorf("TargetBuildDir(%q) = %q, want %q", "..", got, want)
+	}
+}

@@ -241,6 +241,49 @@ func TestDeepCopyNode_Nested(t *testing.T) {
 	}
 }
 
+func TestSubstituteVars_AliasNode(t *testing.T) {
+	// A simple alias pointing to a scalar should have its value substituted.
+	target := &yaml.Node{Kind: yaml.ScalarNode, Value: "${{ name }}"}
+	alias := &yaml.Node{Kind: yaml.AliasNode, Alias: target}
+
+	if err := SubstituteVars(alias, map[string]string{"name": "world"}); err != nil {
+		t.Fatalf("SubstituteVars on alias error: %v", err)
+	}
+	if target.Value != "world" {
+		t.Errorf("alias target value = %q, want %q", target.Value, "world")
+	}
+}
+
+func TestSubstituteVars_CircularAlias_NoInfiniteLoop(t *testing.T) {
+	// A circular alias must not cause infinite recursion.
+	node := &yaml.Node{Kind: yaml.AliasNode}
+	node.Alias = node // self-referential
+
+	// Must return without hanging or panicking.
+	if err := SubstituteVars(node, map[string]string{}); err != nil {
+		t.Fatalf("SubstituteVars on circular alias error: %v", err)
+	}
+}
+
+func TestSubstituteVars_SharedAliasTarget_OnlySubstitutedOnce(t *testing.T) {
+	// Two alias nodes pointing to the same target should not double-substitute.
+	target := &yaml.Node{Kind: yaml.ScalarNode, Value: "${{ v }}"}
+	root := &yaml.Node{
+		Kind: yaml.SequenceNode,
+		Content: []*yaml.Node{
+			{Kind: yaml.AliasNode, Alias: target},
+			{Kind: yaml.AliasNode, Alias: target},
+		},
+	}
+
+	if err := SubstituteVars(root, map[string]string{"v": "ok"}); err != nil {
+		t.Fatalf("SubstituteVars error: %v", err)
+	}
+	if target.Value != "ok" {
+		t.Errorf("target.Value = %q, want %q", target.Value, "ok")
+	}
+}
+
 func TestDeepCopyNode_PreservesMetadata(t *testing.T) {
 	orig := &yaml.Node{
 		Kind:        yaml.ScalarNode,

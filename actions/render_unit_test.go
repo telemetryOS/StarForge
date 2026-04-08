@@ -3,6 +3,8 @@ package actions
 import (
 	"strings"
 	"testing"
+
+	"github.com/telemetryos/starforge/config"
 )
 
 func TestRenderUnit_SingleSection(t *testing.T) {
@@ -99,6 +101,48 @@ func TestRenderUnit_EmptySections(t *testing.T) {
 	got := RenderUnit(map[string]map[string]any{})
 	if got != "" {
 		t.Errorf("RenderUnit empty = %q, want empty string", got)
+	}
+}
+
+func TestRenderUnit_ReplaceValue(t *testing.T) {
+	// ReplaceValue is the !replace tag — emits Key= then Key=value
+	// to clear a parent's directive before setting a new one (drop-in pattern).
+	sections := map[string]map[string]any{
+		"Service": {
+			"ExecStart": config.ReplaceValue{Value: "/usr/bin/new-binary"},
+		},
+	}
+
+	got := RenderUnit(sections)
+	want := "[Service]\nExecStart=\nExecStart=/usr/bin/new-binary\n"
+	if got != want {
+		t.Errorf("RenderUnit ReplaceValue:\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
+func TestRenderUnit_IntegerValue(t *testing.T) {
+	sections := map[string]map[string]any{
+		"Service": {
+			"WatchdogSec": 30,
+			"RestartSec":  5,
+		},
+	}
+	got := RenderUnit(sections)
+	if !strings.Contains(got, "WatchdogSec=30\n") {
+		t.Errorf("expected WatchdogSec=30 in:\n%s", got)
+	}
+	if !strings.Contains(got, "RestartSec=5\n") {
+		t.Errorf("expected RestartSec=5 in:\n%s", got)
+	}
+}
+
+func TestRenderUnit_EmptyStringValue(t *testing.T) {
+	sections := map[string]map[string]any{
+		"Unit": {"After": ""},
+	}
+	got := RenderUnit(sections)
+	if !strings.Contains(got, "After=\n") {
+		t.Errorf("expected After= (empty) in:\n%s", got)
 	}
 }
 

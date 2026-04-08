@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/telemetryos/starforge/actions"
 )
@@ -33,7 +34,12 @@ func (b *Builder) phaseBoot(ctx *actions.BuildContext, rootfs string) error {
 		out.Info("entry: %s (%s)", entry.Name, entry.Title)
 		content := fmt.Sprintf("title   %s\nlinux   %s\ninitrd  %s\noptions %s\n",
 			entry.Title, entry.Linux, entry.Initrd, entry.Options)
-		if err := writeFile(filepath.Join(entriesDir, entry.Name), content); err != nil {
+		// systemd-boot ignores entries without a .conf extension.
+		name := entry.Name
+		if !strings.HasSuffix(name, ".conf") {
+			name += ".conf"
+		}
+		if err := writeFile(filepath.Join(entriesDir, name), content); err != nil {
 			return fmt.Errorf("writing boot entry %s: %w", entry.Name, err)
 		}
 	}

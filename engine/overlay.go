@@ -285,16 +285,19 @@ func (om *OverlayManager) Unmount() error {
 }
 
 func (om *OverlayManager) unmountOverlay() error {
-	om.mounted = false
-
 	if err := run("umount", "-R", om.mergedDir); err == nil {
+		om.mounted = false
 		return nil
 	}
 
 	// Busy mount (e.g. stale process from arch-chroot) — use lazy
 	// unmount to detach immediately. The mount is cleaned up once
 	// the holding process exits.
-	return run("umount", "-Rl", om.mergedDir)
+	if err := run("umount", "-Rl", om.mergedDir); err != nil {
+		return err
+	}
+	om.mounted = false
+	return nil
 }
 
 // EnsureNamedOverlay creates or reuses a named overlay directory with copies

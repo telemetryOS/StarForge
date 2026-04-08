@@ -103,7 +103,8 @@ func copyPartitions(parts []PartitionDef) []PartitionDef {
 func isValidPartitionType(t string) bool {
 	switch t {
 	case "linux", "efi", "swap", "home", "bios-boot",
-		"raid", "lvm", "microsoft-basic", "microsoft-reserved":
+		"raid", "lvm", "microsoft-basic", "microsoft-reserved",
+		"root", "root-verity", "usr", "usr-verity":
 		return true
 	}
 	return false

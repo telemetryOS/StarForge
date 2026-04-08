@@ -50,6 +50,10 @@ func (mt *MountTable) MountAll(parts []PartitionMount) error {
 	})
 
 	for _, pm := range sorted {
+		// Partitions without a mount point (e.g. swap) are not mounted.
+		if pm.MountPoint == "" {
+			continue
+		}
 		target := filepath.Join(mt.rootfs, pm.MountPoint)
 		if err := os.MkdirAll(target, 0o755); err != nil {
 			return fmt.Errorf("creating mount point %s: %w", pm.MountPoint, err)
@@ -137,50 +141,6 @@ func runSilent(name string, args ...string) error {
 		cmd.Stderr = os.Stderr
 	}
 	return cmd.Run()
-}
-
-// runPipe connects stdout of cmd1 to stdin of cmd2 and runs both.
-// Both commands inherit stderr via the output system. Returns an error
-// if either command fails.
-func runPipe(cmd1Name string, cmd1Args []string, cmd2Name string, cmd2Args []string) error {
-	c1 := exec.Command(resolveBin(cmd1Name), cmd1Args...)
-	c2 := exec.Command(resolveBin(cmd2Name), cmd2Args...)
-	c1.Env = vendorEnv()
-	c2.Env = vendorEnv()
-	if out != nil {
-		c1.Stderr = out.ProcessWriter()
-		c2.Stderr = out.ProcessWriter()
-	} else {
-		c1.Stderr = os.Stderr
-		c2.Stderr = os.Stderr
-	}
-
-	pipe, err := c1.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("creating pipe: %w", err)
-	}
-	c2.Stdin = pipe
-
-	if err := c1.Start(); err != nil {
-		return fmt.Errorf("starting %s: %w", cmd1Name, err)
-	}
-	if err := c2.Start(); err != nil {
-		c1.Process.Kill()
-		c1.Wait()
-		return fmt.Errorf("starting %s: %w", cmd2Name, err)
-	}
-
-	// Wait for the reader first (c2), then the writer (c1).
-	// This ensures the pipe drains fully before we check c1's exit.
-	err2 := c2.Wait()
-	err1 := c1.Wait()
-	if err1 != nil {
-		return fmt.Errorf("%s: %w", cmd1Name, err1)
-	}
-	if err2 != nil {
-		return fmt.Errorf("%s: %w", cmd2Name, err2)
-	}
-	return nil
 }
 
 // runPipeSilent connects stdout of cmd1 to stdin of cmd2 with output
@@ -275,6 +235,16 @@ func SetupImagePartitions(parts []actions.PartitionDef, buildDir string) ([]Part
 	var mounts []PartitionMount
 
 	for _, part := range parts {
+		// Partitions with Size=0 are percentage-growable (e.g. 100%) and have
+		// no defined minimum size. They cannot be formatted as image files
+		// because there is no target disk to resolve the size against.
+		// Use a fixed minimum size (e.g. "7G+") for image-based builds.
+		if part.Size == 0 {
+			return nil, fmt.Errorf(
+				"partition %q has no fixed size (use a minimum size like \"7G+\" for image builds; 100%%-only partitions require direct device installation)",
+				part.Name)
+		}
+
 		imgPath := filepath.Join(buildDir, fmt.Sprintf("%s.img", part.Name))
 		sizeLabel := actions.FormatSize(part.Size)
 
@@ -392,21 +362,34 @@ func SetupDevicePartitions(parts []actions.PartitionDef, device string) ([]Parti
 
 // formatFilesystem formats a partition or image file with the specified filesystem.
 func formatFilesystem(path, filesystem, name string) error {
-	var args []string
-	switch filesystem {
-	case "vfat", "fat32":
-		args = []string{"-F", "32", path}
-		filesystem = "vfat"
-	case "ext4":
-		args = []string{"-F", "-L", name, path}
-	default:
-		return fmt.Errorf("unsupported filesystem: %s", filesystem)
-	}
-
-	mkfs := fmt.Sprintf("mkfs.%s", filesystem)
 	return out.RunWithSpinner(fmt.Sprintf("format %s (%s)", name, filesystem), func() error {
-		if err := runSilent(mkfs, args...); err != nil {
-			return fmt.Errorf("formatting %s as %s: %w", name, filesystem, err)
+		switch filesystem {
+		case "vfat", "fat32":
+			if err := runSilent("mkfs.vfat", "-F", "32", path); err != nil {
+				return fmt.Errorf("formatting %s as vfat: %w", name, err)
+			}
+		case "ext4":
+			if err := runSilent("mkfs.ext4", "-F", "-L", name, path); err != nil {
+				return fmt.Errorf("formatting %s as ext4: %w", name, err)
+			}
+		case "btrfs":
+			if err := runSilent("mkfs.btrfs", "-f", "-L", name, path); err != nil {
+				return fmt.Errorf("formatting %s as btrfs: %w", name, err)
+			}
+		case "xfs":
+			if err := runSilent("mkfs.xfs", "-f", "-L", name, path); err != nil {
+				return fmt.Errorf("formatting %s as xfs: %w", name, err)
+			}
+		case "f2fs":
+			if err := runSilent("mkfs.f2fs", "-l", name, path); err != nil {
+				return fmt.Errorf("formatting %s as f2fs: %w", name, err)
+			}
+		case "swap":
+			if err := runSilent("mkswap", "-L", name, path); err != nil {
+				return fmt.Errorf("formatting %s as swap: %w", name, err)
+			}
+		default:
+			return fmt.Errorf("unsupported filesystem: %s", filesystem)
 		}
 		return nil
 	})

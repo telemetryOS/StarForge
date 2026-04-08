@@ -70,7 +70,10 @@ func (b *Builder) phaseScripts(ctx *actions.BuildContext, rootfs string) error {
 
 		var runErr error
 		if script.User != "" {
-			runErr = chrootRunWithEnv(rootfs, env, "su", "-", script.User, "-s", "/bin/bash", "-c", chrootScriptPath)
+			// Use "su user" (without "-") so the environment set by ctx.Env
+			// and script.Env reaches the script. "su -" starts a login shell
+			// that strips most environment variables.
+			runErr = chrootRunWithEnv(rootfs, env, "su", script.User, "-s", "/bin/bash", "-c", chrootScriptPath)
 		} else {
 			runErr = chrootRunWithEnv(rootfs, env, chrootScriptPath)
 		}

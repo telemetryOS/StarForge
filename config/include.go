@@ -125,7 +125,11 @@ func resolveIncludeNode(node *yaml.Node, layerDir string, cacheDir string, depth
 			return nil, fmt.Errorf("!include: fetching %s: %w", filePath, err)
 		}
 	} else {
-		resolvedPath = filepath.Join(layerDir, filePath)
+		cleanPath := filepath.Clean(filePath)
+		if isPathTraversal(cleanPath) {
+			return nil, fmt.Errorf("!include: path %q escapes the layer directory", filePath)
+		}
+		resolvedPath = filepath.Join(layerDir, cleanPath)
 	}
 
 	data, err := os.ReadFile(resolvedPath)

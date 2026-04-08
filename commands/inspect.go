@@ -63,9 +63,8 @@ func runInspect(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if err := engine.EnsureRootExec(); err != nil {
-		return fmt.Errorf("failed to elevate privileges: %w", err)
-	}
+	// inspect uses DryRun mode — it only parses layer configuration without
+	// mounting overlayfs or writing any files, so root is not required.
 
 	proj, err := config.FindProject()
 	if err != nil {

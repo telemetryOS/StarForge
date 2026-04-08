@@ -129,6 +129,9 @@ func (c *Client) Reboot() error {
 		return err
 	}
 	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("reboot: server returned %s", resp.Status)
+	}
 	return nil
 }
 

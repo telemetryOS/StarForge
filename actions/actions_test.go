@@ -1712,3 +1712,56 @@ func TestEdgeOS_DevelopmentLayerOverrides(t *testing.T) {
 		t.Error("staff home ownership should be recursive")
 	}
 }
+
+func TestFileEdit_BeforeTag_RequiresPattern(t *testing.T) {
+	ctx := NewBuildContext()
+	step := config.Step{
+		Action: "file-edit",
+		FileEdit: &config.FileEditStep{
+			Path: "/etc/config",
+			Content: config.TaggedContent{
+				Tag:   "before",
+				Value: "# inserted",
+				// Pattern intentionally empty
+			},
+		},
+	}
+	if err := execActionErr(t, step, ctx); err == nil {
+		t.Fatal("expected error for !before with empty pattern")
+	}
+}
+
+func TestFileEdit_AfterTag_RequiresPattern(t *testing.T) {
+	ctx := NewBuildContext()
+	step := config.Step{
+		Action: "file-edit",
+		FileEdit: &config.FileEditStep{
+			Path: "/etc/config",
+			Content: config.TaggedContent{
+				Tag:   "after",
+				Value: "# appended after match",
+				// Pattern intentionally empty
+			},
+		},
+	}
+	if err := execActionErr(t, step, ctx); err == nil {
+		t.Fatal("expected error for !after with empty pattern")
+	}
+}
+
+func TestNewBuildContext_InitializedFields(t *testing.T) {
+	ctx := NewBuildContext()
+	// Verify the most critical slices are non-nil so append() never panics.
+	if ctx.Packages == nil {
+		t.Error("Packages should be initialized")
+	}
+	if ctx.FileCreates == nil {
+		t.Error("FileCreates should be initialized")
+	}
+	if ctx.Scripts == nil {
+		t.Error("Scripts should be initialized")
+	}
+	if ctx.Vars == nil {
+		t.Error("Vars should be initialized")
+	}
+}

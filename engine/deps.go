@@ -280,6 +280,8 @@ func resolvePackageURL(pkg vendorPkg) (string, error) {
 }
 
 // downloadFile downloads a URL to a local file.
+// If the download fails, any partially-written file is removed so that
+// a subsequent call does not mistake it for a valid cached download.
 func downloadFile(url, dest string) error {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -295,10 +297,15 @@ func downloadFile(url, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
-	_, err = io.Copy(f, resp.Body)
-	return err
+	_, copyErr := io.Copy(f, resp.Body)
+	closeErr := f.Close()
+
+	if copyErr != nil {
+		os.Remove(dest) // delete partial file so it is not cached
+		return copyErr
+	}
+	return closeErr
 }
 
 // extractPkgTarZst extracts an Arch Linux .pkg.tar.zst package into destDir.
@@ -352,11 +359,21 @@ func extractPkgTarZst(pkgPath, destDir string) error {
 			}
 			out.Close()
 		case tar.TypeSymlink:
+			// Validate the symlink target: absolute targets are fine inside
+			// the vendor tree, but relative targets must not escape destDir.
+			linkTarget := header.Linkname
+			if !filepath.IsAbs(linkTarget) {
+				resolved := filepath.Clean(filepath.Join(filepath.Dir(target), linkTarget))
+				rel, err := filepath.Rel(destDir, resolved)
+				if err != nil || strings.HasPrefix(rel, "..") {
+					return fmt.Errorf("tar: symlink %q target %q escapes vendor directory", header.Name, linkTarget)
+				}
+			}
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
 			os.Remove(target)
-			if err := os.Symlink(header.Linkname, target); err != nil {
+			if err := os.Symlink(linkTarget, target); err != nil {
 				return err
 			}
 		case tar.TypeLink:

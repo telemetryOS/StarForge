@@ -62,6 +62,7 @@ func (inst *Installation) fail(err error) {
 type Manager struct {
 	mu            sync.Mutex
 	installations map[string]*Installation
+	activeDisks   map[string]bool // disks currently being installed to
 	payloadDir    string
 	nextID        int
 }
@@ -70,6 +71,7 @@ type Manager struct {
 func NewManager(payloadDir string) *Manager {
 	return &Manager{
 		installations: make(map[string]*Installation),
+		activeDisks:   make(map[string]bool),
 		payloadDir:    payloadDir,
 	}
 }
@@ -156,7 +158,12 @@ func create(ctx *navaros.Context) {
 		return
 	}
 
-	inst := manager.create(req.Payload, req.Disk)
+	inst, err := manager.create(req.Payload, req.Disk)
+	if err != nil {
+		ctx.Status = http.StatusConflict
+		ctx.Body = map[string]string{"error": err.Error()}
+		return
+	}
 	go manager.runInstallation(inst, disk)
 
 	ctx.Status = http.StatusCreated
@@ -211,7 +218,13 @@ func getLog(ctx *navaros.Context) {
 
 	offset := 0
 	if offsetStr := ctx.Query().Get("offset"); offsetStr != "" {
-		offset, _ = strconv.Atoi(offsetStr)
+		v, err := strconv.Atoi(offsetStr)
+		if err != nil || v < 0 {
+			ctx.Status = http.StatusBadRequest
+			ctx.Body = map[string]string{"error": "offset must be a non-negative integer"}
+			return
+		}
+		offset = v
 	}
 
 	inst.mu.Lock()
@@ -241,19 +254,31 @@ func cancel(ctx *navaros.Context) {
 	}
 
 	inst.mu.Lock()
-	if inst.Status != "complete" && inst.Status != "failed" {
+	wasPending := inst.Status != "complete" && inst.Status != "failed"
+	if wasPending {
 		inst.Status = "failed"
 		inst.Error = "cancelled by user"
 	}
 	inst.mu.Unlock()
 
+	// Release the disk lock immediately so the disk is available for new
+	// installations. The runInstallation goroutine may still be winding down,
+	// but the cancel request has already set the status to "failed".
+	if wasPending {
+		manager.releaseDisk(inst.Disk)
+	}
+
 	ctx.Status = http.StatusOK
 	ctx.Body = inst
 }
 
-func (m *Manager) create(payload, disk string) *Installation {
+func (m *Manager) create(payload, disk string) (*Installation, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if m.activeDisks[disk] {
+		return nil, fmt.Errorf("disk %q already has an active installation", disk)
+	}
 
 	m.nextID++
 	id := fmt.Sprintf("%d", m.nextID)
@@ -266,7 +291,8 @@ func (m *Manager) create(payload, disk string) *Installation {
 		StartedAt: time.Now(),
 	}
 	m.installations[id] = inst
-	return inst
+	m.activeDisks[disk] = true
+	return inst, nil
 }
 
 func (m *Manager) get(id string) *Installation {
@@ -275,8 +301,16 @@ func (m *Manager) get(id string) *Installation {
 	return m.installations[id]
 }
 
+// releaseDisk marks a disk as no longer actively being installed to.
+func (m *Manager) releaseDisk(disk string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.activeDisks, disk)
+}
+
 // runInstallation executes the full installation pipeline.
 func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
+	defer m.releaseDisk(inst.Disk)
 	// Redirect stdout/stderr to the installation log so that engine command
 	// output (sfdisk, mkfs, mount, etc.) is visible in the TUI.
 	pr, pw, pipeErr := os.Pipe()
@@ -374,6 +408,10 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 
 		inst.addLog(fmt.Sprintf("Writing %s (%s)", p.name, diskutil.FormatSize(p.size)))
 
+		if p.image != filepath.Base(p.image) || p.image == "." || p.image == ".." {
+			inst.fail(fmt.Errorf("invalid image path in manifest: %q", p.image))
+			return
+		}
 		imgPath := filepath.Join(resolvedDir, p.image)
 		if err := writePartitionImage(imgPath, partDev); err != nil {
 			inst.fail(fmt.Errorf("writing %s: %w", p.name, err))
@@ -384,7 +422,10 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 		// (grow partitions), expand the filesystem to fill it.
 		if resolved[i].Size > p.size {
 			inst.addLog(fmt.Sprintf("Resizing %s to %s", p.name, diskutil.FormatSize(resolved[i].Size)))
-			expandFilesystem(partDev, p.filesystem)
+			if err := expandFilesystem(partDev, p.filesystem); err != nil {
+				inst.fail(fmt.Errorf("expanding %s: %w", p.name, err))
+				return
+			}
 		}
 	}
 
@@ -540,15 +581,21 @@ func formatPartition(partDev, filesystem, name string) error {
 	}
 }
 
-// expandFilesystem grows a filesystem to fill its partition.
+// expandFilesystem grows the filesystem on partDev to fill available space.
 // This is needed when the target partition is larger than the source image
 // (e.g. grow partitions that expanded to fill available disk space).
-func expandFilesystem(partDev, filesystem string) {
+// Returns an error if the resize fails; unsupported filesystems are silently skipped.
+func expandFilesystem(partDev, filesystem string) error {
 	switch filesystem {
 	case "ext4":
-		exec.Command("e2fsck", "-f", "-y", partDev).Run()
-		exec.Command("resize2fs", partDev).Run()
+		if err := exec.Command("e2fsck", "-f", "-y", partDev).Run(); err != nil {
+			return fmt.Errorf("e2fsck %s: %w", partDev, err)
+		}
+		if err := exec.Command("resize2fs", partDev).Run(); err != nil {
+			return fmt.Errorf("resize2fs %s: %w", partDev, err)
+		}
 	}
+	return nil
 }
 
 // setEFIBootTarget creates an EFI boot entry for the installed OS and sets

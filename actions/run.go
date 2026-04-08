@@ -31,11 +31,14 @@ func (a *Run) Execute(step config.Step, layerDir string, ctx *BuildContext) erro
 	if s.ScriptPath != "" {
 		// File-based script: check if it's a URL
 		if config.IsURL(s.ScriptPath) {
-			content, err := ReadLayerFile(s.ScriptPath, layerDir, ctx)
-			if err != nil {
-				return fmt.Errorf("run: %w", err)
+			if !ctx.DryRun {
+				content, err := ReadLayerFile(s.ScriptPath, layerDir, ctx)
+				if err != nil {
+					return fmt.Errorf("run: %w", err)
+				}
+				op.Content = content
 			}
-			op.Content = content
+			// In dry-run mode leave Content empty; scripts are never executed.
 		} else {
 			op.Script = s.ScriptPath
 		}

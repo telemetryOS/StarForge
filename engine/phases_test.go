@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/telemetryos/starforge/actions"
+	"github.com/telemetryos/starforge/config"
 )
 
 // --- parseMode tests ---
@@ -114,5 +115,79 @@ func TestBoolToNo(t *testing.T) {
 	}
 	if boolToNo(false) != "no" {
 		t.Errorf("boolToNo(false) = %q, want %q", boolToNo(false), "no")
+	}
+}
+
+// --- phaseBoot .conf extension tests ---
+
+func TestPhaseBoot_EntryNameGetsConfExtension(t *testing.T) {
+	dir := t.TempDir()
+	o, _ := InitOutput(dir, "test", "target")
+	defer o.Close()
+
+	ctx := &actions.BuildContext{
+		Boot: &actions.BootConfig{
+			Loader: config.BootLoader{
+				Default: "arch",
+				Timeout: 3,
+			},
+			Entries: []config.BootEntry{
+				{
+					Name:    "arch", // no .conf extension
+					Title:   "Arch Linux",
+					Linux:   "/vmlinuz-linux",
+					Initrd:  "/initramfs-linux.img",
+					Options: "root=/dev/sda2 rw",
+				},
+			},
+		},
+	}
+
+	b := &Builder{project: nil}
+	if err := b.phaseBoot(ctx, dir); err != nil {
+		t.Fatalf("phaseBoot returned error: %v", err)
+	}
+
+	// Verify entry written with .conf suffix
+	entryPath := dir + "/boot/loader/entries/arch.conf"
+	if _, err := os.Stat(entryPath); err != nil {
+		t.Errorf("expected entry at %s, got: %v", entryPath, err)
+	}
+}
+
+func TestPhaseBoot_EntryNameAlreadyHasConf(t *testing.T) {
+	dir := t.TempDir()
+	o, _ := InitOutput(dir, "test", "target")
+	defer o.Close()
+
+	ctx := &actions.BuildContext{
+		Boot: &actions.BootConfig{
+			Loader: config.BootLoader{Default: "arch", Timeout: 3},
+			Entries: []config.BootEntry{
+				{
+					Name:    "arch.conf", // already has .conf
+					Title:   "Arch Linux",
+					Linux:   "/vmlinuz-linux",
+					Initrd:  "/initramfs-linux.img",
+					Options: "root=/dev/sda2 rw",
+				},
+			},
+		},
+	}
+
+	b := &Builder{project: nil}
+	if err := b.phaseBoot(ctx, dir); err != nil {
+		t.Fatalf("phaseBoot returned error: %v", err)
+	}
+
+	// Verify entry is not double-suffixed
+	entryPath := dir + "/boot/loader/entries/arch.conf"
+	if _, err := os.Stat(entryPath); err != nil {
+		t.Errorf("expected entry at %s, got: %v", entryPath, err)
+	}
+	// Must not exist with double suffix
+	doubled := dir + "/boot/loader/entries/arch.conf.conf"
+	if _, err := os.Stat(doubled); err == nil {
+		t.Errorf("entry should not exist with double .conf: %s", doubled)
 	}
 }

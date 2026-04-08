@@ -436,15 +436,19 @@ type FileCreateStep struct {
 	Mode      string `yaml:"mode,omitempty"`
 }
 
+// FileEditStep modifies an existing file using tagged edit operations.
+// The content field supports YAML tags: !append, !prepend, !before, !after,
+// !truncate_before, !truncate_after. The !before and !after tags require a
+// non-empty pattern. Legacy insert/truncate/pattern fields are deprecated.
 type FileEditStep struct {
-	Action    string         `yaml:"action"`
-	Path      string         `yaml:"path"`
-	Content   TaggedContent  `yaml:"content,omitempty"`
-	LayerPath string         `yaml:"layer_path,omitempty"`
-	Insert    string         `yaml:"insert,omitempty"`    // deprecated: use content tags (!append, !prepend, !before, !after)
-	Truncate  string         `yaml:"truncate,omitempty"`
-	Pattern   string         `yaml:"pattern,omitempty"`
-	Match     int            `yaml:"match,omitempty"`
+	Action    string        `yaml:"action"`
+	Path      string        `yaml:"path"`
+	Content   TaggedContent `yaml:"content,omitempty"`
+	LayerPath string        `yaml:"layer_path,omitempty"`
+	Insert    string        `yaml:"insert,omitempty"`   // deprecated: use content tags (!append, !prepend, !before, !after)
+	Truncate  string        `yaml:"truncate,omitempty"`
+	Pattern   string        `yaml:"pattern,omitempty"`
+	Match     int           `yaml:"match,omitempty"`
 }
 
 type FileCopyStep struct {
@@ -495,6 +499,10 @@ type FileMkdirStep struct {
 	Mode   string `yaml:"mode,omitempty"`
 }
 
+// SystemUserStep creates or modifies a system user.
+// Groups supports !add, !remove, and !replace merge modes for cross-layer updates.
+// Use system: true for system accounts (no home dir). Use no_password: true to
+// allow passwordless login (e.g. for autologin users).
 type SystemUserStep struct {
 	Action     string              `yaml:"action"`
 	Name       string              `yaml:"name"`
@@ -555,6 +563,9 @@ type SystemdBootInstallStep struct {
 	Entries []BootEntry `yaml:"entries,omitempty"`
 }
 
+// PartitionAddStep adds one or more partitions to the build target.
+// Each partition specifies filesystem, size, mount point, and optional GPT type.
+// The After field inserts partitions after a named existing partition.
 type PartitionAddStep struct {
 	Action     string      `yaml:"action"`
 	Partitions []Partition `yaml:"partitions"`
@@ -575,6 +586,10 @@ type PartitionChangeStep struct {
 	PartType   string `yaml:"type,omitempty"`
 }
 
+// RunStep executes a shell script in the built OS via arch-chroot.
+// Provide either script (inline content) or script_path (file relative to the
+// layer directory, or a URL). The optional user field runs the script as that
+// user; env injects additional environment variables.
 type RunStep struct {
 	Action     string            `yaml:"action"`
 	Script     string            `yaml:"script,omitempty"`      // inline script content
@@ -583,6 +598,9 @@ type RunStep struct {
 	Env        map[string]string `yaml:"env,omitempty"`
 }
 
+// SystemdServiceStep creates or configures a systemd .service unit.
+// Supports standalone creation (with UnitSec/Service/Install sections or
+// layer_path), enable/disable/mask operations, and drop-in overrides via extends.
 type SystemdServiceStep struct {
 	Action    string      `yaml:"action"`
 	Name      string      `yaml:"name,omitempty"`

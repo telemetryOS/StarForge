@@ -223,3 +223,35 @@ func TestSystemdTarget_NameWithUserUnit(t *testing.T) {
 		t.Errorf("file path = %q, want user path", ctx.FileCreates[0].Path)
 	}
 }
+
+func TestSystemdService_DryRun_URLLayerPath_NoDownload(t *testing.T) {
+	// In DryRun mode a URL layer_path must not trigger a download.
+	ctx := NewBuildContext()
+	ctx.DryRun = true
+	ctx.CurrentLayer = "test-layer"
+
+	step := config.Step{
+		Action: "systemd-service",
+		SystemdService: &config.SystemdServiceStep{
+			Name:      "myapp",
+			LayerPath: "https://example.invalid/myapp.service",
+			Enable:    true,
+		},
+	}
+
+	a := &SystemdService{}
+	if err := a.Execute(step, "/tmp", ctx); err != nil {
+		t.Fatalf("Execute in DryRun mode returned error: %v", err)
+	}
+
+	// Unit should be recorded with empty content (no download attempted)
+	if len(ctx.FileCreates) != 1 {
+		t.Fatalf("expected 1 FileCreate, got %d", len(ctx.FileCreates))
+	}
+	if ctx.FileCreates[0].Content != "" {
+		t.Errorf("DryRun: Content should be empty, got %q", ctx.FileCreates[0].Content)
+	}
+	if ctx.FileCreates[0].Path != "/etc/systemd/system/myapp.service" {
+		t.Errorf("Path = %q, want /etc/systemd/system/myapp.service", ctx.FileCreates[0].Path)
+	}
+}

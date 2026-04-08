@@ -6,8 +6,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
+
+// safeRootfsJoin joins rootfs and path, returning an error if path contains
+// ".." components that would escape the rootfs directory.
+func safeRootfsJoin(rootfs, path string) (string, error) {
+	joined := filepath.Join(rootfs, path)
+	rel, err := filepath.Rel(rootfs, joined)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("path %q escapes the target root filesystem", path)
+	}
+	return joined, nil
+}
 
 // parseMode parses an octal mode string, returning defaultMode when s is empty.
 // Returns an error if s is non-empty but cannot be parsed as an octal mode.

@@ -193,7 +193,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.status == "complete" {
 			m.phase = phaseComplete
 			if m.unattended {
-				m.client.Reboot()
+				if err := m.client.Reboot(); err != nil {
+					m.loadErr = fmt.Errorf("reboot failed: %w", err)
+					m.phase = phaseError
+				}
 				return m, tea.Quit
 			}
 			return m, nil
@@ -273,6 +276,9 @@ func (m model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "y", "Y":
+			if m.payloadCursor >= len(m.payloads) || m.diskCursor >= len(m.disks) {
+				return m, nil
+			}
 			m.confirmed = true
 			payload := m.payloads[m.payloadCursor].Name
 			disk := m.disks[m.diskCursor].Name
@@ -289,7 +295,10 @@ func (m model) updateComplete(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "r", "R":
-			m.client.Reboot()
+			if err := m.client.Reboot(); err != nil {
+				m.loadErr = fmt.Errorf("reboot failed: %w", err)
+				m.phase = phaseError
+			}
 			return m, tea.Quit
 		case "q", "Q":
 			return m, tea.Quit
@@ -389,6 +398,9 @@ func (m model) viewPayloadSelect() string {
 
 func (m model) viewDiskSelect() string {
 	var b strings.Builder
+	if m.payloadCursor >= len(m.payloads) {
+		return ""
+	}
 	b.WriteString(fmt.Sprintf("\nPayload: %s\n\n", selectedStyle.Render(m.payloads[m.payloadCursor].Name)))
 	b.WriteString("Select a target disk:\n\n")
 
@@ -424,6 +436,9 @@ func (m model) viewDiskSelect() string {
 }
 
 func (m model) viewConfirm() string {
+	if m.payloadCursor >= len(m.payloads) || m.diskCursor >= len(m.disks) {
+		return ""
+	}
 	payload := m.payloads[m.payloadCursor]
 	disk := m.disks[m.diskCursor]
 

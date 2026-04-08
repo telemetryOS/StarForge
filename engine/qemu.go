@@ -213,6 +213,14 @@ func sfdiskTypeAlias(partType string) string {
 		return "microsoft-basic-data"
 	case "microsoft-reserved":
 		return "microsoft-reserved"
+	case "root":
+		return "root"
+	case "root-verity":
+		return "root-verity"
+	case "usr":
+		return "usr"
+	case "usr-verity":
+		return "usr-verity"
 	default:
 		return "linux"
 	}
@@ -325,7 +333,10 @@ func patchBootForSerial(buildDir string, parts []actions.PartitionDef) (func(), 
 			return
 		}
 		restorePath := filepath.Join(restoreDir, "loader", "entries", defaultEntry)
-		os.WriteFile(restorePath, []byte(original), 0o644)
+		if err := os.WriteFile(restorePath, []byte(original), 0o644); err != nil {
+			run("umount", restoreDir)
+			return
+		}
 		run("sync")
 		run("umount", restoreDir)
 	}

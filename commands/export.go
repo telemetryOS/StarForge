@@ -214,8 +214,8 @@ func runExportPartitions(proj *config.Project, targetName string, target config.
 				src := filepath.Join(buildDir, imgName)
 				dest := filepath.Join(outputDir, imgName)
 
-				if _, err := os.Stat(src); os.IsNotExist(err) {
-					continue
+				if _, err := os.Stat(src); err != nil {
+					return fmt.Errorf("partition image %s not found — run 'starforge build' first: %w", imgName, err)
 				}
 
 				if err := engine.CopyFile(src, dest); err != nil {
