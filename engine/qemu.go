@@ -27,7 +27,7 @@ func deviceMapperName(targetName, projectDir string) string {
 // and its backing loop devices. Errors are logged but never returned.
 func cleanupDeviceMapper(dmName string, loopDevs []string) {
 	// Sync to flush writes
-	run("sync")
+	syscall.Sync()
 
 	// Wait for udev to finish processing events — it may hold partition
 	// sub-devices open briefly after QEMU exits.
@@ -314,7 +314,7 @@ func patchBootForSerial(buildDir string, parts []actions.PartitionDef) (func(), 
 	}
 
 	// Unmount — the changes are flushed to boot.img
-	run("sync")
+	syscall.Sync()
 	if err := run("umount", tmpDir); err != nil {
 		os.Remove(tmpDir)
 		return noop, fmt.Errorf("unmounting boot image: %w", err)
@@ -337,7 +337,7 @@ func patchBootForSerial(buildDir string, parts []actions.PartitionDef) (func(), 
 			run("umount", restoreDir)
 			return
 		}
-		run("sync")
+		syscall.Sync()
 		run("umount", restoreDir)
 	}
 

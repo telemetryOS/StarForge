@@ -115,7 +115,7 @@ func (b *Builder) phaseFiles(ctx *actions.BuildContext, rootfs string) error {
 		if err := mkdirAllInherit(filepath.Dir(dest), 0o755); err != nil {
 			return fmt.Errorf("creating parent for %s: %w", ic.ToPath, err)
 		}
-		if err := run("cp", "-rT", src, dest); err != nil {
+		if err := copyTree(src, dest, true); err != nil {
 			return fmt.Errorf("copying %s to %s: %w", ic.FromPath, ic.ToPath, err)
 		}
 		inheritOwnership(dest)

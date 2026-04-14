@@ -61,7 +61,7 @@ func (b *Builder) phaseScripts(ctx *actions.BuildContext, rootfs string) error {
 			chrootScriptPath = "/var/tmp/starforge-inline.sh"
 		}
 
-		if err := run("chmod", "+x", tmpScript); err != nil {
+		if err := os.Chmod(tmpScript, 0o755); err != nil {
 			return fmt.Errorf("making script executable: %w", err)
 		}
 
@@ -70,10 +70,11 @@ func (b *Builder) phaseScripts(ctx *actions.BuildContext, rootfs string) error {
 
 		var runErr error
 		if script.User != "" {
-			// Use "su user" (without "-") so the environment set by ctx.Env
-			// and script.Env reaches the script. "su -" starts a login shell
-			// that strips most environment variables.
-			runErr = chrootRunWithEnv(rootfs, env, "su", script.User, "-s", "/bin/bash", "-c", chrootScriptPath)
+			// Options must come before the username: su uses getopt which
+			// stops parsing options at the first non-option argument (the
+			// username). Without "-" (login) so that env vars from ctx.Env
+			// and script.Env are preserved — "su -" resets the environment.
+			runErr = chrootRunWithEnv(rootfs, env, "su", "-s", "/bin/bash", "-c", chrootScriptPath, script.User)
 		} else {
 			runErr = chrootRunWithEnv(rootfs, env, chrootScriptPath)
 		}

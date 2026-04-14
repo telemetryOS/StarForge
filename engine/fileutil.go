@@ -56,6 +56,71 @@ func appendFile(path, content string) error {
 	return err
 }
 
+// copyTree recursively copies src to dest, equivalent to "cp -rT src dest".
+// Symlinks are copied as symlinks (not followed). When preserveMode is true,
+// file permission bits are preserved; when false, files get 0o644 and
+// directories get 0o755 (appropriate for filesystems like vfat that ignore
+// Unix permissions).
+func copyTree(src, dest string, preserveMode bool) error {
+	srcInfo, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+
+	switch {
+	case srcInfo.Mode()&os.ModeSymlink != 0:
+		target, err := os.Readlink(src)
+		if err != nil {
+			return err
+		}
+		os.Remove(dest)
+		return os.Symlink(target, dest)
+
+	case srcInfo.IsDir():
+		mode := srcInfo.Mode().Perm()
+		if !preserveMode {
+			mode = 0o755
+		}
+		if err := os.MkdirAll(dest, mode); err != nil {
+			return err
+		}
+		entries, err := os.ReadDir(src)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if err := copyTree(
+				filepath.Join(src, entry.Name()),
+				filepath.Join(dest, entry.Name()),
+				preserveMode,
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+
+	default:
+		mode := srcInfo.Mode().Perm()
+		if !preserveMode {
+			mode = 0o644
+		}
+		in, err := os.Open(src)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		outFile, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+		if err != nil {
+			return err
+		}
+		defer outFile.Close()
+		if _, err := io.Copy(outFile, in); err != nil {
+			return err
+		}
+		return outFile.Close()
+	}
+}
+
 // CopyFile copies a file from src to dest using streaming I/O.
 func CopyFile(src, dest string) error {
 	in, err := os.Open(src)

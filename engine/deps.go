@@ -27,6 +27,11 @@ type vendorPkg struct {
 var vendorPackages = []vendorPkg{
 	// Orchestration scripts (pacstrap, arch-chroot, genfstab)
 	{"arch-install-scripts", "extra", "any", []string{"build"}},
+	// Shell: bash is required by the orchestration scripts and host-side
+	// layer-run/layer-script steps. Vendor it so we never rely on the
+	// host system's /bin/bash.
+	{"bash", "core", "x86_64", []string{"build"}},
+	{"ncurses", "core", "x86_64", []string{"build"}}, // bash runtime dep
 	// Package manager
 	{"pacman", "core", "x86_64", []string{"build"}},
 	{"pacman-mirrorlist", "core", "any", []string{"build"}},
@@ -62,6 +67,12 @@ var vendorPackages = []vendorPkg{
 	// Partitioning
 	{"gptfdisk", "extra", "x86_64", []string{"build"}},
 	{"parted", "extra", "x86_64", []string{"build", "run"}},
+	// Core system utilities: mount, umount, losetup, sfdisk, blockdev,
+	// findmnt, mkswap, lsblk. util-linux-libs (already below) provides
+	// the shared libraries; util-linux adds the binaries.
+	{"util-linux", "core", "x86_64", []string{"build"}},
+	{"libcap", "core", "x86_64", []string{"build"}}, // util-linux dep
+	{"pcre2", "core", "x86_64", []string{"build"}},  // util-linux dep
 	// Shared library deps for above tools
 	{"util-linux-libs", "core", "x86_64", []string{"build"}},
 	{"popt", "core", "x86_64", []string{"build"}},
@@ -79,15 +90,28 @@ type vendorCheck struct {
 
 // vendorChecks are the files we expect after vendoring each group.
 var vendorChecks = []vendorCheck{
+	// Orchestration
 	{"usr/bin/pacstrap", []string{"build"}},
 	{"usr/bin/arch-chroot", []string{"build"}},
 	{"usr/bin/genfstab", []string{"build"}},
+	// Shell (must come from vendor, never from host)
+	{"usr/bin/bash", []string{"build"}},
+	// Package manager
 	{"usr/bin/pacman", []string{"build"}},
+	// Filesystem formatting
 	{"usr/bin/mkfs.ext4", []string{"build"}},
 	{"usr/bin/mkfs.vfat", []string{"build"}},
-	{"usr/bin/sgdisk", []string{"build"}},
+	{"usr/bin/e2fsck", []string{"build"}},
+	// Partitioning and block device tools (from util-linux)
+	{"usr/bin/sfdisk", []string{"build"}},
+	{"usr/bin/mount", []string{"build"}},
+	{"usr/bin/losetup", []string{"build"}},
+	{"usr/bin/blockdev", []string{"build"}},
+	{"usr/bin/findmnt", []string{"build"}},
+	// Shared device-mapper + parted tools
 	{"usr/bin/partprobe", []string{"build", "run"}},
 	{"usr/bin/dmsetup", []string{"run"}},
+	// Keyring + firmware
 	{"usr/share/pacman/keyrings/archlinux.gpg", []string{"build"}},
 	{"usr/share/edk2/x64/OVMF_CODE.4m.fd", []string{"run"}},
 }
@@ -223,9 +247,15 @@ func checkGroupMissing(vendorDir string, groups []string) []string {
 	return missing
 }
 
-// patchPacstrap modifies the vendored pacstrap script to use our pacman binary
-// by injecting a PATH override at the top of the script.
+// patchPacstrap modifies vendored shell scripts to use the vendored bash and
+// vendored PATH. Two things are patched:
+//  1. The shebang is rewritten from #!/bin/bash to the absolute path of the
+//     vendored bash, so the kernel exec uses our bash even when executing the
+//     script directly (shebang bypass PATH).
+//  2. A PATH export is injected after the shebang so child processes spawned
+//     by the script also find vendored binaries first.
 func patchPacstrap(binDir string) error {
+	vendoredBash := filepath.Join(binDir, "bash")
 	for _, script := range []string{"pacstrap", "arch-chroot", "genfstab", "pacman-key"} {
 		path := filepath.Join(binDir, script)
 		data, err := os.ReadFile(path)
@@ -239,14 +269,22 @@ func patchPacstrap(binDir string) error {
 			continue
 		}
 
-		// Insert PATH export after the shebang line
+		// Split at first newline to isolate the shebang line.
 		lines := strings.SplitN(content, "\n", 2)
-		if len(lines) == 2 {
-			patched := fmt.Sprintf("%s\n%s\nexport PATH=\"%s:$PATH\"\n%s",
-				lines[0], marker, binDir, lines[1])
-			if err := os.WriteFile(path, []byte(patched), 0o755); err != nil {
-				return fmt.Errorf("writing %s: %w", script, err)
-			}
+		if len(lines) != 2 {
+			continue
+		}
+
+		// Rewrite shebang to use vendored bash so exec() uses our binary.
+		shebang := lines[0]
+		if shebang == "#!/bin/bash" || shebang == "#!/usr/bin/bash" || shebang == "#!/usr/bin/env bash" {
+			shebang = "#!" + vendoredBash
+		}
+
+		patched := fmt.Sprintf("%s\n%s\nexport PATH=\"%s:$PATH\"\n%s",
+			shebang, marker, binDir, lines[1])
+		if err := os.WriteFile(path, []byte(patched), 0o755); err != nil {
+			return fmt.Errorf("writing %s: %w", script, err)
 		}
 	}
 	return nil

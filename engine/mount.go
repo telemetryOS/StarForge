@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
+	"unsafe"
 
 	"github.com/telemetryos/starforge/actions"
 )
@@ -99,6 +101,23 @@ type PartitionMount struct {
 	Source     string // image file path or device partition path
 	MountPoint string // e.g. "/", "/boot"
 	Loop       bool   // true for image files (need -o loop)
+}
+
+// blockDevSize returns the size in bytes of a block device using the
+// BLKGETSIZE64 ioctl. This replaces "blockdev --getsize64 <device>".
+func blockDevSize(device string) (uint64, error) {
+	f, err := os.Open(device)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	const blkgetsize64 = 0x80081272 // ioctl(fd, BLKGETSIZE64, &uint64)
+	var sz uint64
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), blkgetsize64, uintptr(unsafe.Pointer(&sz))); errno != 0 {
+		return 0, fmt.Errorf("BLKGETSIZE64 %s: %w", device, errno)
+	}
+	return sz, nil
 }
 
 // resolveBin looks for a binary in the vendored bin dir first,
@@ -283,12 +302,10 @@ func PartitionDevice(parts []actions.PartitionDef, device string) ([]actions.Par
 	out.Info("partitioning %s", device)
 
 	// Get device size for resolving growable partitions
-	sizeStr, err := runOutput("blockdev", "--getsize64", device)
+	deviceSize, err := blockDevSize(device)
 	if err != nil {
 		return nil, fmt.Errorf("getting device size: %w", err)
 	}
-	var deviceSize uint64
-	fmt.Sscanf(sizeStr, "%d", &deviceSize)
 
 	const gptOverhead = 2 * 1024 * 1024
 	usableSize := deviceSize

@@ -159,7 +159,7 @@ func (b *Builder) executeLayerRun(step config.Step, layerDir string, vars, targe
 	}
 
 	// Build env: host env + target env + step env + STARFORGE_VAR_* vars
-	cmd := exec.Command("bash", tmpScriptPath)
+	cmd := exec.Command(resolveBin("bash"), tmpScriptPath)
 	cmd.Dir = layerDir
 	cmd.Env = os.Environ()
 	for k, v := range targetEnv {
@@ -233,7 +233,7 @@ func runLayerScript(step config.Step, layerDir, sourceDir string) error {
 	defer os.Remove(tmpScript)
 
 	// Execute in source directory on host
-	cmd := exec.Command("bash", tmpScript)
+	cmd := exec.Command(resolveBin("bash"), tmpScript)
 	cmd.Dir = sourceDir
 	if out != nil {
 		w := out.ProcessWriter()

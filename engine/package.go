@@ -1,8 +1,10 @@
 package engine
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -171,12 +173,53 @@ func CompressDiskImage(imagePath string) (string, error) {
 	gzPath := imagePath + ".gz"
 
 	if err := out.RunWithSpinner(fmt.Sprintf("gzip %s", filepath.Base(gzPath)), func() error {
-		return runSilent("gzip", "-f", imagePath)
+		return gzipFile(imagePath, gzPath)
 	}); err != nil {
 		return "", fmt.Errorf("compressing disk image: %w", err)
 	}
 
 	return gzPath, nil
+}
+
+// gzipFile compresses src into dest using gzip best-compression and removes src on success.
+func gzipFile(src, dest string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	outFile, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	gw, err := gzip.NewWriterLevel(outFile, gzip.BestCompression)
+	if err != nil {
+		outFile.Close()
+		os.Remove(dest)
+		return err
+	}
+
+	if _, err := io.Copy(gw, in); err != nil {
+		gw.Close()
+		outFile.Close()
+		os.Remove(dest)
+		return err
+	}
+	if err := gw.Close(); err != nil {
+		outFile.Close()
+		os.Remove(dest)
+		return err
+	}
+	if err := outFile.Close(); err != nil {
+		os.Remove(dest)
+		return err
+	}
+
+	in.Close()
+	return os.Remove(src)
 }
 
 // expandFilesystem grows a filesystem to fill its partition.
@@ -491,18 +534,16 @@ func preserveDirMeta(src, dest string) error {
 	return os.Chmod(dest, info.Mode())
 }
 
-// copyForFilesystem copies src to dest using the appropriate cp flags
-// for the filesystem type. Layer files never inherit host ownership —
+// copyForFilesystem copies src to dest for the given filesystem type.
+// vfat does not support Unix permissions, so mode bits are not preserved.
+// For other filesystems, mode bits are preserved but ownership is not —
 // ownership is set by the parent directory in the target rootfs.
 func copyForFilesystem(src, dest, filesystem string) error {
 	switch filesystem {
 	case "vfat", "fat32":
-		// vfat: no Unix permissions support at all
-		return run("cp", "-rT", "--no-preserve=ownership,mode", src, dest)
+		return copyTree(src, dest, false)
 	default:
-		// Preserve timestamps, symlinks, and file mode bits from the layer source.
-		// Ownership is not preserved — files inherit from the parent directory in the target rootfs.
-		return run("cp", "-rT", "--no-preserve=ownership", src, dest)
+		return copyTree(src, dest, true)
 	}
 }
 
