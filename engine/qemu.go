@@ -199,6 +199,8 @@ func sfdiskTypeAlias(partType string) string {
 	switch partType {
 	case "efi":
 		return "uefi"
+	case "xbootldr":
+		return "xbootldr"
 	case "bios-boot":
 		return "bios-boot"
 	case "swap":

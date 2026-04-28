@@ -90,7 +90,7 @@ func TestFormatSize(t *testing.T) {
 
 func TestIsValidPartitionType(t *testing.T) {
 	valid := []string{
-		"linux", "efi", "swap", "home", "bios-boot",
+		"linux", "efi", "xbootldr", "swap", "home", "bios-boot",
 		"raid", "lvm", "microsoft-basic", "microsoft-reserved",
 		"root", "root-verity", "usr", "usr-verity",
 	}

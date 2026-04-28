@@ -118,6 +118,79 @@ func TestBoolToNo(t *testing.T) {
 	}
 }
 
+// --- phaseBoot entry routing tests ---
+
+func TestPhaseBoot_EntryDefaultGoesToBoot(t *testing.T) {
+	dir := t.TempDir()
+	o, _ := InitOutput(dir, "test", "target")
+	defer o.Close()
+
+	ctx := &actions.BuildContext{
+		Boot: &actions.BootConfig{
+			Loader: config.BootLoader{Default: "arch", Timeout: 3},
+			Entries: []config.BootEntry{
+				{Name: "arch.conf", Title: "Arch", Linux: "/x", Initrd: "/y", Options: "rw"},
+			},
+		},
+	}
+
+	b := &Builder{project: nil}
+	if err := b.phaseBoot(ctx, dir); err != nil {
+		t.Fatalf("phaseBoot returned error: %v", err)
+	}
+
+	if _, err := os.Stat(dir + "/boot/loader/entries/arch.conf"); err != nil {
+		t.Errorf("expected entry under /boot, got: %v", err)
+	}
+}
+
+func TestPhaseBoot_EntryEspGoesToEfi(t *testing.T) {
+	dir := t.TempDir()
+	o, _ := InitOutput(dir, "test", "target")
+	defer o.Close()
+
+	ctx := &actions.BuildContext{
+		Boot: &actions.BootConfig{
+			Loader: config.BootLoader{Default: "arch", Timeout: 3},
+			Entries: []config.BootEntry{
+				{Name: "fallback.conf", Title: "Fallback", Linux: "/x", Initrd: "/y", Options: "rw", Partition: "esp"},
+			},
+		},
+	}
+
+	b := &Builder{project: nil}
+	if err := b.phaseBoot(ctx, dir); err != nil {
+		t.Fatalf("phaseBoot returned error: %v", err)
+	}
+
+	if _, err := os.Stat(dir + "/efi/loader/entries/fallback.conf"); err != nil {
+		t.Errorf("expected entry under /efi, got: %v", err)
+	}
+	if _, err := os.Stat(dir + "/boot/loader/entries/fallback.conf"); err == nil {
+		t.Errorf("entry should not exist under /boot when partition=esp")
+	}
+}
+
+func TestPhaseBoot_UnknownPartitionRejected(t *testing.T) {
+	dir := t.TempDir()
+	o, _ := InitOutput(dir, "test", "target")
+	defer o.Close()
+
+	ctx := &actions.BuildContext{
+		Boot: &actions.BootConfig{
+			Loader: config.BootLoader{Default: "arch", Timeout: 3},
+			Entries: []config.BootEntry{
+				{Name: "x.conf", Title: "X", Linux: "/x", Initrd: "/y", Options: "rw", Partition: "bogus"},
+			},
+		},
+	}
+
+	b := &Builder{project: nil}
+	if err := b.phaseBoot(ctx, dir); err == nil {
+		t.Errorf("expected error for unknown partition value, got nil")
+	}
+}
+
 // --- phaseBoot .conf extension tests ---
 
 func TestPhaseBoot_EntryNameGetsConfExtension(t *testing.T) {

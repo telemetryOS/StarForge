@@ -705,12 +705,19 @@ type BootLoader struct {
 }
 
 // BootEntry represents a systemd-boot entry.
+//
+// Partition controls where the .conf is written. Empty (default) and "boot"
+// write to /boot/loader/entries (the XBOOTLDR partition if present, else
+// the ESP). "esp" writes to /efi/loader/entries — used when XBOOTLDR is
+// the active boot partition and a specific entry must live on the
+// frozen ESP for isolation (e.g. a fallback recovery entry).
 type BootEntry struct {
-	Name    string `yaml:"name"`
-	Title   string `yaml:"title"`
-	Linux   string `yaml:"linux"`
-	Initrd  string `yaml:"initrd"`
-	Options string `yaml:"options"`
+	Name      string `yaml:"name"`
+	Title     string `yaml:"title"`
+	Linux     string `yaml:"linux"`
+	Initrd    string `yaml:"initrd"`
+	Options   string `yaml:"options"`
+	Partition string `yaml:"partition,omitempty"`
 }
 
 const LayerFile = "layer.yaml"

@@ -102,7 +102,7 @@ func copyPartitions(parts []PartitionDef) []PartitionDef {
 // isValidPartitionType checks if a partition type name is recognized.
 func isValidPartitionType(t string) bool {
 	switch t {
-	case "linux", "efi", "swap", "home", "bios-boot",
+	case "linux", "efi", "xbootldr", "swap", "home", "bios-boot",
 		"raid", "lvm", "microsoft-basic", "microsoft-reserved",
 		"root", "root-verity", "usr", "usr-verity":
 		return true

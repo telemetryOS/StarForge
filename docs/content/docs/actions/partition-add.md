@@ -29,6 +29,7 @@ Define disk partitions for the target system. Partitions are created as individu
 |------|-------------|
 | `linux` | Standard Linux filesystem (default) |
 | `efi` | EFI System Partition |
+| `xbootldr` | Extended Boot Loader Partition (BLS auxiliary boot partition; pairs with an ESP) |
 | `bios-boot` | BIOS boot partition |
 | `swap` | Linux swap |
 | `home` | Linux home |

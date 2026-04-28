@@ -30,6 +30,7 @@ Configure the systemd-boot bootloader for the target system.
 | `linux` | string | Yes | Path to the kernel image (e.g., `/vmlinuz-linux`). |
 | `initrd` | string | Yes | Path to the initramfs (e.g., `/initramfs-linux.img`). |
 | `options` | string | Yes | Kernel command line options (e.g., `root=LABEL=root rw`). |
+| `partition` | string | No | Where the `.conf` is written. Default (or `boot`) writes to `/boot/loader/entries/` — the XBOOTLDR partition if one exists, otherwise the ESP. `esp` forces the entry onto the ESP at `/efi/loader/entries/` — useful when XBOOTLDR holds the actively-managed entries and a specific entry must live on the frozen ESP for isolation (e.g. a fallback recovery entry that the updater must not be able to corrupt). Kernel and initrd paths inside the entry are resolved relative to the partition the `.conf` lives on, per the Boot Loader Specification. |
 
 ## Example
 
