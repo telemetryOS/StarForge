@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
@@ -159,12 +160,13 @@ func runBmaptoolCopy(imagePath, bmapPath, destPath string, update func(int)) err
 
 	cmd := exec.Command(resolveBin("bmaptool"), "copy", "--bmap", bmapPath, "--psplash-pipe", progressPath, imagePath, destPath)
 	cmd.Env = vendorEnv()
+	var stderr bytes.Buffer
 	if out != nil {
 		cmd.Stdout = out.LogWriter()
-		cmd.Stderr = out.LogWriter()
+		cmd.Stderr = io.MultiWriter(out.LogWriter(), &stderr)
 	} else {
 		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
+		cmd.Stderr = &stderr
 	}
 	err = cmd.Run()
 	progressFile.Close()
@@ -174,6 +176,10 @@ func runBmaptoolCopy(imagePath, bmapPath, destPath string, update func(int)) err
 	}
 	if err == nil {
 		update(100)
+		return nil
+	}
+	if msg := strings.TrimSpace(stderr.String()); msg != "" {
+		return fmt.Errorf("%w: %s", err, msg)
 	}
 	return err
 }
