@@ -117,14 +117,19 @@ func (b *Builder) writeBootEntry(ctx *actions.BuildContext, rootfs string, entry
 	out.Info("entry: %s (%s) -> %s [kernel %s]",
 		entry.Name, entry.Title, mountPoint, entry.Kernel)
 
-	content := fmt.Sprintf("title   %s\nlinux   %s\ninitrd  %s\noptions %s\n",
-		entry.Title, entryLinux, entryInitrd, entry.Options)
+	var content strings.Builder
+	content.WriteString(fmt.Sprintf("title   %s\n", entry.Title))
+	if entry.SortKey != "" {
+		content.WriteString(fmt.Sprintf("sort-key %s\n", entry.SortKey))
+	}
+	content.WriteString(fmt.Sprintf("linux   %s\ninitrd  %s\noptions %s\n",
+		entryLinux, entryInitrd, entry.Options))
 
 	name := entry.Name
 	if !strings.HasSuffix(name, ".conf") {
 		name += ".conf"
 	}
-	return writeFile(filepath.Join(entryDir, name), content)
+	return writeFile(filepath.Join(entryDir, name), content.String())
 }
 
 // resolveExtended returns the effective extended flag for an entry. If the

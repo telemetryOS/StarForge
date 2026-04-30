@@ -449,7 +449,7 @@ type FileEditStep struct {
 	Path      string        `yaml:"path"`
 	Content   TaggedContent `yaml:"content,omitempty"`
 	LayerPath string        `yaml:"layer_path,omitempty"`
-	Insert    string        `yaml:"insert,omitempty"`   // deprecated: use content tags (!append, !prepend, !before, !after)
+	Insert    string        `yaml:"insert,omitempty"` // deprecated: use content tags (!append, !prepend, !before, !after)
 	Truncate  string        `yaml:"truncate,omitempty"`
 	Pattern   string        `yaml:"pattern,omitempty"`
 	Match     int           `yaml:"match,omitempty"`
@@ -748,6 +748,7 @@ type BootLoader struct {
 type BootEntry struct {
 	Name     string `yaml:"name" json:"name"`
 	Title    string `yaml:"title" json:"title"`
+	SortKey  string `yaml:"sortKey,omitempty" json:"sortKey,omitempty"`
 	Kernel   string `yaml:"kernel" json:"kernel"`
 	Path     string `yaml:"path,omitempty" json:"path,omitempty"`
 	Options  string `yaml:"options" json:"options"`

@@ -501,6 +501,7 @@ loader:
 entries:
   - name: arch.conf
     title: TelemetryOS Edge
+    sortKey: tos-0
     linux: /vmlinuz-linux
     initrd: /initramfs-linux.img
     options: rw quiet splash rootflags=noatime,commit=600 audit=0 noresume`
@@ -529,6 +530,9 @@ entries:
 	entry := step.SystemdBootInstall.Entries[0]
 	if entry.Title != "TelemetryOS Edge" {
 		t.Errorf("Entry.Title = %q", entry.Title)
+	}
+	if entry.SortKey != "tos-0" {
+		t.Errorf("Entry.SortKey = %q", entry.SortKey)
 	}
 }
 

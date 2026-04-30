@@ -2,6 +2,7 @@ package engine
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/telemetryos/starforge/actions"
@@ -168,6 +169,37 @@ func TestPhaseBoot_DefaultsToEspWhenNoXbootldr(t *testing.T) {
 
 	if _, err := os.Stat(dir + "/boot/loader/entries/arch.conf"); err != nil {
 		t.Errorf("expected entry under /boot (ESP only): %v", err)
+	}
+}
+
+func TestPhaseBoot_WritesSortKey(t *testing.T) {
+	dir := t.TempDir()
+	o, _ := InitOutput(dir, "test", "target")
+	defer o.Close()
+	makeKernelOnBoot(t, dir, "linux")
+
+	ctx := &actions.BuildContext{
+		Partitions: []actions.PartitionDef{
+			{Name: "boot", Type: "efi", MountPoint: "/boot"},
+		},
+		Boot: &actions.BootConfig{
+			Loader: &config.BootLoader{Default: "tos-*", Timeout: 0},
+			Entries: []config.BootEntry{
+				{Name: "tos-0-arch+3-0.conf", Title: "Arch", SortKey: "tos-0", Kernel: "linux", Options: "rw"},
+			},
+		},
+	}
+
+	b := &Builder{project: nil}
+	if err := b.phaseBoot(ctx, dir); err != nil {
+		t.Fatalf("phaseBoot returned error: %v", err)
+	}
+	data, err := os.ReadFile(dir + "/boot/loader/entries/tos-0-arch+3-0.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "sort-key tos-0\n") {
+		t.Fatalf("entry missing sort-key:\n%s", string(data))
 	}
 }
 
