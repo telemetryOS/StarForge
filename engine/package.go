@@ -108,8 +108,8 @@ func WriteToDevice(parts []actions.PartitionDef, device, buildDir string) error 
 	return nil
 }
 
-// ensureBmap creates or refreshes the bmap sidecar for imagePath.
-func ensureBmap(imagePath, bmapPath string) error {
+// EnsureBmap creates or refreshes the bmap sidecar for imagePath.
+func EnsureBmap(imagePath, bmapPath string) error {
 	imgInfo, err := os.Stat(imagePath)
 	if err != nil {
 		return err
@@ -119,6 +119,12 @@ func ensureBmap(imagePath, bmapPath string) error {
 		return nil
 	}
 	return runSilent("bmaptool", "create", "-o", bmapPath, imagePath)
+}
+
+// ensureBmap is kept for package-local callers that predate the exported
+// helper name.
+func ensureBmap(imagePath, bmapPath string) error {
+	return EnsureBmap(imagePath, bmapPath)
 }
 
 func runBmaptoolCopy(imagePath, bmapPath, destPath string, update func(int)) error {

@@ -200,6 +200,16 @@ func runExportPartitions(proj *config.Project, targetName string, target config.
 				if err := engine.CopyFile(src, dest); err != nil {
 					return fmt.Errorf("copying %s: %w", imgName, err)
 				}
+
+				bmapName := imgName + ".bmap"
+				srcBmap := src + ".bmap"
+				destBmap := filepath.Join(outputDir, bmapName)
+				if err := engine.EnsureBmap(src, srcBmap); err != nil {
+					return fmt.Errorf("creating bmap for %s: %w", imgName, err)
+				}
+				if err := engine.CopyFile(srcBmap, destBmap); err != nil {
+					return fmt.Errorf("copying %s: %w", bmapName, err)
+				}
 			}
 		}
 
