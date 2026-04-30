@@ -300,6 +300,9 @@ func SetupImagePartitions(parts []actions.PartitionDef, buildDir string) ([]Part
 // the partitions — the caller decides what to do with each one.
 func PartitionDevice(parts []actions.PartitionDef, device string) ([]actions.PartitionDef, error) {
 	out.Info("partitioning %s", device)
+	if err := UnmountDevice(device); err != nil {
+		return nil, err
+	}
 
 	// Get device size for resolving growable partitions
 	deviceSize, err := blockDevSize(device)
@@ -340,8 +343,57 @@ func PartitionDevice(parts []actions.PartitionDef, device string) ([]actions.Par
 	}
 
 	run("partprobe", device)
+	run("udevadm", "settle")
 
 	return resolved, nil
+}
+
+// UnmountDevice unmounts any currently mounted filesystem from device or one
+// of its partitions. This prevents bmaptool's exclusive open from failing
+// after desktop automount or a previous interrupted install.
+func UnmountDevice(device string) error {
+	sources := map[string]bool{device: true}
+	if lsblk, err := runOutput("lsblk", "-nrpo", "NAME", device); err == nil {
+		for _, line := range strings.Split(lsblk, "\n") {
+			if name := strings.TrimSpace(line); name != "" {
+				sources[name] = true
+			}
+		}
+	}
+	data, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return fmt.Errorf("read /proc/mounts: %w", err)
+	}
+	var mounts []string
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		source := fields[0]
+		if sources[source] || partitionBelongsToDevice(source, device) {
+			mounts = append(mounts, fields[1])
+		}
+	}
+	for i := len(mounts) - 1; i >= 0; i-- {
+		out.Info("umount %s", mounts[i])
+		if err := run("umount", "-R", mounts[i]); err != nil {
+			return fmt.Errorf("unmounting %s: %w", mounts[i], err)
+		}
+	}
+	return nil
+}
+
+func partitionBelongsToDevice(source, device string) bool {
+	if !strings.HasPrefix(source, device) || source == device {
+		return false
+	}
+	suffix := strings.TrimPrefix(source, device)
+	if suffix == "" {
+		return false
+	}
+	first := suffix[0]
+	return first == 'p' || (first >= '0' && first <= '9')
 }
 
 // PartitionPath returns the device path for a numbered partition.

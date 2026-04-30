@@ -82,6 +82,9 @@ func WriteToDevice(parts []actions.PartitionDef, device, buildDir string) error 
 	// Write each partition image to the device
 	for i, part := range resolved {
 		partDev := partitionPath(device, i+1)
+		if err := UnmountDevice(device); err != nil {
+			return fmt.Errorf("unmounting target partitions before writing %s: %w", part.Name, err)
+		}
 		imgPath := filepath.Join(buildDir, fmt.Sprintf("%s.img", part.Name))
 
 		bmapPath := imgPath + ".bmap"

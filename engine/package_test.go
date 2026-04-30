@@ -112,6 +112,25 @@ func TestHasRootPartition_Empty(t *testing.T) {
 	}
 }
 
+func TestPartitionBelongsToDevice(t *testing.T) {
+	tests := []struct {
+		source string
+		device string
+		want   bool
+	}{
+		{"/dev/sda1", "/dev/sda", true},
+		{"/dev/nvme0n1p2", "/dev/nvme0n1", true},
+		{"/dev/mmcblk0p3", "/dev/mmcblk0", true},
+		{"/dev/sdaa1", "/dev/sda", false},
+		{"/dev/sda", "/dev/sda", false},
+	}
+	for _, tt := range tests {
+		if got := partitionBelongsToDevice(tt.source, tt.device); got != tt.want {
+			t.Errorf("partitionBelongsToDevice(%q, %q) = %v, want %v", tt.source, tt.device, got, tt.want)
+		}
+	}
+}
+
 // --- DescendantMountPaths ---
 
 func TestDescendantMountPaths_BasicChildren(t *testing.T) {

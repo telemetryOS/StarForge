@@ -526,6 +526,10 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 		}
 
 		inst.addLog(fmt.Sprintf("Writing %s (%s)", p.name, diskutil.FormatSize(p.size)))
+		if err := engine.UnmountDevice(disk.Path); err != nil {
+			inst.fail(fmt.Errorf("unmounting target partitions before writing %s: %w", p.name, err))
+			return
+		}
 
 		if p.image != filepath.Base(p.image) || p.image == "." || p.image == ".." {
 			inst.fail(fmt.Errorf("invalid image path in manifest: %q", p.image))
