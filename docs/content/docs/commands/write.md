@@ -21,7 +21,7 @@ starforge write <target> <output>
 
 ## Description
 
-Writes partition images to a block device or compressed disk image. Creates a GPT partition table and writes each partition image using `dd`. Growable partitions are expanded to fill available space on the device.
+Writes partition images to a block device or compressed disk image. Creates a GPT partition table and writes each partition image using `bmaptool`. Growable partitions are expanded to fill available space on the device.
 
 The target is built automatically if needed.
 

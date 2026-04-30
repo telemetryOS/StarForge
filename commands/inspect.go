@@ -149,11 +149,11 @@ func sectionCount(key string, ctx *actions.BuildContext) int {
 	case "scripts":
 		return len(ctx.Scripts)
 	case "installer":
-		n := len(ctx.InstallerPayloads)
-		if ctx.InstallerServer != nil {
+		n := len(ctx.InstallPayloads)
+		if ctx.InstallServer != nil {
 			n++
 		}
-		if ctx.InstallerClient != nil {
+		if ctx.InstallClient != nil {
 			n++
 		}
 		return n
@@ -283,7 +283,7 @@ func renderConcern(w *strings.Builder, concern string, ctx *actions.BuildContext
 		}
 		renderScripts(w, ctx)
 	case "installer":
-		if len(ctx.InstallerPayloads) == 0 && ctx.InstallerServer == nil && ctx.InstallerClient == nil {
+		if len(ctx.InstallPayloads) == 0 && ctx.InstallServer == nil && ctx.InstallClient == nil {
 			return
 		}
 		renderInstaller(w, ctx)
@@ -722,13 +722,22 @@ func renderBoot(w *strings.Builder, ctx *actions.BuildContext) {
 		fmt.Fprintf(w, "  %s\n", inspectDim.Render(fmt.Sprintf("%s (active)", ctx.Boot.Layer)))
 	}
 
-	fmt.Fprintf(w, "  loader: default=%s timeout=%d editor=%v\n",
-		ctx.Boot.Loader.Default, ctx.Boot.Loader.Timeout, ctx.Boot.Loader.Editor)
+	if ctx.Boot.Loader != nil {
+		fmt.Fprintf(w, "  loader: default=%s timeout=%d editor=%v\n",
+			ctx.Boot.Loader.Default, ctx.Boot.Loader.Timeout, ctx.Boot.Loader.Editor)
+	} else {
+		fmt.Fprintf(w, "  loader: (none — entries-only)\n")
+	}
 	for _, e := range ctx.Boot.Entries {
 		fmt.Fprintf(w, "  entry:  %s\n", e.Name)
 		fmt.Fprintf(w, "    title:   %s\n", e.Title)
-		fmt.Fprintf(w, "    linux:   %s\n", e.Linux)
-		fmt.Fprintf(w, "    initrd:  %s\n", e.Initrd)
+		fmt.Fprintf(w, "    kernel:  %s\n", e.Kernel)
+		if e.Path != "" {
+			fmt.Fprintf(w, "    path:    %s\n", e.Path)
+		}
+		if e.Extended != nil {
+			fmt.Fprintf(w, "    extended: %v\n", *e.Extended)
+		}
 		fmt.Fprintf(w, "    options: %s\n", e.Options)
 	}
 }
@@ -765,14 +774,14 @@ func renderInstaller(w *strings.Builder, ctx *actions.BuildContext) {
 	fmt.Fprintln(w, inspectHeader.Render("Installer"))
 	defer fmt.Fprintln(w)
 
-	if len(ctx.InstallerPayloads) == 0 && ctx.InstallerServer == nil && ctx.InstallerClient == nil {
+	if len(ctx.InstallPayloads) == 0 && ctx.InstallServer == nil && ctx.InstallClient == nil {
 		fmt.Fprintln(w, "  (not configured)")
 		return
 	}
 
-	if len(ctx.InstallerPayloads) > 0 {
+	if len(ctx.InstallPayloads) > 0 {
 		fmt.Fprintln(w, "  payloads")
-		for _, p := range ctx.InstallerPayloads {
+		for _, p := range ctx.InstallPayloads {
 			label := ""
 			if p.Label != "" {
 				label = " " + p.Label
@@ -785,21 +794,21 @@ func renderInstaller(w *strings.Builder, ctx *actions.BuildContext) {
 		}
 	}
 
-	if ctx.InstallerServer != nil {
+	if ctx.InstallServer != nil {
 		layerInfo := ""
-		if inspectLayers && ctx.InstallerServer.Layer != "" {
-			layerInfo = "  " + inspectDim.Render(ctx.InstallerServer.Layer)
+		if inspectLayers && ctx.InstallServer.Layer != "" {
+			layerInfo = "  " + inspectDim.Render(ctx.InstallServer.Layer)
 		}
-		fmt.Fprintf(w, "  server  port: %d%s\n", ctx.InstallerServer.Port, layerInfo)
+		fmt.Fprintf(w, "  server  port: %d%s\n", ctx.InstallServer.Port, layerInfo)
 	}
 
-	if ctx.InstallerClient != nil {
+	if ctx.InstallClient != nil {
 		layerInfo := ""
-		if inspectLayers && ctx.InstallerClient.Layer != "" {
-			layerInfo = "  " + inspectDim.Render(ctx.InstallerClient.Layer)
+		if inspectLayers && ctx.InstallClient.Layer != "" {
+			layerInfo = "  " + inspectDim.Render(ctx.InstallClient.Layer)
 		}
-		if ctx.InstallerClient.AutoLogin != "" {
-			fmt.Fprintf(w, "  client  auto_login: %s%s\n", ctx.InstallerClient.AutoLogin, layerInfo)
+		if ctx.InstallClient.AutoLogin != "" {
+			fmt.Fprintf(w, "  client  auto_login: %s%s\n", ctx.InstallClient.AutoLogin, layerInfo)
 		} else {
 			fmt.Fprintf(w, "  client%s\n", layerInfo)
 		}

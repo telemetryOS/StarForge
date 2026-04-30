@@ -283,6 +283,7 @@ type Step struct {
 	InstallClient  *InstallClientStep  `yaml:"-"`
 	InstallPayload *InstallPayloadStep `yaml:"-"`
 	LayerRun       *LayerRunStep       `yaml:"-"`
+	InstallEmbed   *InstallEmbedStep   `yaml:"-"`
 }
 
 // UnmarshalYAML routes YAML fields to the correct typed sub-struct based on action.
@@ -411,6 +412,9 @@ func (s *Step) UnmarshalYAML(value *yaml.Node) error {
 	case "layer-run":
 		s.LayerRun = &LayerRunStep{}
 		return value.Decode(s.LayerRun)
+	case "install-embed":
+		s.InstallEmbed = &InstallEmbedStep{}
+		return value.Decode(s.InstallEmbed)
 	default:
 		return fmt.Errorf("unknown action: %q", raw.Action)
 	}
@@ -688,6 +692,11 @@ type InstallPayloadStep struct {
 	Action string `yaml:"action"`
 	Target string `yaml:"target"`
 	Path   string `yaml:"path"`
+	// Partitions optionally restricts which of the target's partition images
+	// get bundled. Empty (default) means all of the target's partitions.
+	// Used to seed a recovery rootfs with just the active boot/root images
+	// it can flash.
+	Partitions []string `yaml:"partitions,omitempty"`
 }
 
 type LayerRunStep struct {
@@ -697,27 +706,52 @@ type LayerRunStep struct {
 	Env        map[string]string `yaml:"env,omitempty"`
 }
 
+// InstallEmbedStep marks another target's full build as a contributor to this
+// target's disk image. The named target builds independently (own rootfs
+// overlay, own actions); its partition declarations are merged with this
+// target's at packaging time and its overlay contributes files to whichever
+// partitions it mounts.
+//
+// Pairs with InstallPayloadStep — both are forms of "this target depends on
+// another target." install-embed merges overlays into the same disk image;
+// install-payload bundles the dep's packaged images for the runtime installer.
+type InstallEmbedStep struct {
+	Action string `yaml:"action"`
+	Target string `yaml:"target"`
+}
+
 // BootLoader represents systemd-boot loader configuration.
 type BootLoader struct {
-	Default string `yaml:"default"`
-	Timeout int    `yaml:"timeout"`
-	Editor  bool   `yaml:"editor"`
+	Default string `yaml:"default" json:"default"`
+	Timeout int    `yaml:"timeout" json:"timeout"`
+	Editor  bool   `yaml:"editor" json:"editor"`
 }
 
 // BootEntry represents a systemd-boot entry.
 //
-// Partition controls where the .conf is written. Empty (default) and "boot"
-// write to /boot/loader/entries (the XBOOTLDR partition if present, else
-// the ESP). "esp" writes to /efi/loader/entries — used when XBOOTLDR is
-// the active boot partition and a specific entry must live on the
-// frozen ESP for isolation (e.g. a fallback recovery entry).
+// Kernel names a kernel package (mkinitcpio convention, e.g. "linux"). The
+// engine derives filenames as vmlinuz-<kernel> and initramfs-<kernel>.img.
+//
+// Extended controls which boot partition the entry lives on. When unset
+// (nil), the engine defaults to the XBOOTLDR partition if one is declared
+// in the partition layout, else the ESP. Setting it explicitly forces
+// the placement: false → ESP (used for a fallback recovery entry that
+// must stay on the frozen ESP even though XBOOTLDR is active), true →
+// XBOOTLDR (errors if no XBOOTLDR partition is declared).
+//
+// Path is an optional override for where the kernel/initrd files should
+// live in the rootfs overlay. It must be a subpath of the entry's
+// partition mount point. When omitted, defaults to that mount point
+// itself. The engine auto-stages the kernel/initrd files at the resolved
+// destination if they aren't already there, copying from the canonical
+// pacman locations (/boot/vmlinuz-<kernel>, /boot/initramfs-<kernel>.img).
 type BootEntry struct {
-	Name      string `yaml:"name"`
-	Title     string `yaml:"title"`
-	Linux     string `yaml:"linux"`
-	Initrd    string `yaml:"initrd"`
-	Options   string `yaml:"options"`
-	Partition string `yaml:"partition,omitempty"`
+	Name     string `yaml:"name" json:"name"`
+	Title    string `yaml:"title" json:"title"`
+	Kernel   string `yaml:"kernel" json:"kernel"`
+	Path     string `yaml:"path,omitempty" json:"path,omitempty"`
+	Options  string `yaml:"options" json:"options"`
+	Extended *bool  `yaml:"extended,omitempty" json:"extended,omitempty"`
 }
 
 const LayerFile = "layer.yaml"

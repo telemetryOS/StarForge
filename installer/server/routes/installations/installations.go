@@ -28,7 +28,7 @@ type Installation struct {
 	ID        string    `json:"id"`
 	Payload   string    `json:"payload"`
 	Disk      string    `json:"disk"`
-	Status    string    `json:"status"`  // pending, partitioning, copying, bootloader, configuring, complete, failed
+	Status    string    `json:"status"`   // pending, partitioning, copying, bootloader, configuring, complete, failed
 	Progress  float64   `json:"progress"` // 0.0 - 1.0
 	Error     string    `json:"error,omitempty"`
 	StartedAt time.Time `json:"started_at"`
@@ -40,14 +40,103 @@ type Installation struct {
 func (inst *Installation) addLog(msg string) {
 	inst.mu.Lock()
 	defer inst.mu.Unlock()
-	inst.log = append(inst.log, fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), msg))
+	inst.log = append(inst.log, fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), sanitizeLogLine(msg)))
+}
+
+// sanitizeLogLine strips ANSI escape sequences and other control bytes from
+// subprocess output so a malicious hook script can't inject terminal-escape
+// sequences (title rewrites, fake prompts, etc.) into the install log shown
+// to operators in the TUI.
+func sanitizeLogLine(s string) string {
+	if s == "" {
+		return s
+	}
+	// Fast path: no ESC byte → nothing to strip.
+	hasEsc := false
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if b == 0x1b || (b < 0x20 && b != '\t') || b == 0x7f {
+			hasEsc = true
+			break
+		}
+	}
+	if !hasEsc {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == 0x1b:
+			// ESC: skip the sequence. Two common multi-byte forms:
+			//   ESC [ … letter   (CSI — terminal control)
+			//   ESC ] … BEL|ST   (OSC — title rewrites etc.)
+			// Anything else (stray ESC followed by an innocent byte)
+			// drops only the ESC; the following byte is preserved.
+			if i+1 >= len(s) {
+				return b.String()
+			}
+			next := s[i+1]
+			switch next {
+			case '[':
+				i += 2 // consume ESC + [
+				for i < len(s) && !(s[i] >= 0x40 && s[i] <= 0x7e) {
+					i++
+				}
+				// i is at the final byte; loop's i++ skips past it.
+			case ']':
+				i += 2 // consume ESC + ]
+				for i < len(s) {
+					if s[i] == 0x07 {
+						break
+					}
+					if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '\\' {
+						i++ // consume ESC; loop will consume \
+						break
+					}
+					i++
+				}
+			default:
+				// Stray ESC — drop it but let `next` flow normally
+				// through the next loop iteration.
+			}
+		case c == '\t' || c == '\n':
+			b.WriteByte(c)
+		case c < 0x20 || c == 0x7f:
+			// Other C0 controls and DEL — drop silently.
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 func (inst *Installation) setStatus(status string, progress float64) {
 	inst.mu.Lock()
 	defer inst.mu.Unlock()
+	if inst.Status == "failed" {
+		return
+	}
 	inst.Status = status
 	inst.Progress = progress
+}
+
+func (inst *Installation) isFailed() bool {
+	inst.mu.Lock()
+	defer inst.mu.Unlock()
+	return inst.Status == "failed"
+}
+
+func (inst *Installation) complete() bool {
+	inst.mu.Lock()
+	defer inst.mu.Unlock()
+	if inst.Status == "failed" {
+		return false
+	}
+	inst.Status = "complete"
+	inst.Progress = 1.0
+	return true
 }
 
 func (inst *Installation) fail(err error) {
@@ -61,6 +150,7 @@ func (inst *Installation) fail(err error) {
 // Manager manages installation lifecycle.
 type Manager struct {
 	mu            sync.Mutex
+	runMu         sync.Mutex
 	installations map[string]*Installation
 	activeDisks   map[string]bool // disks currently being installed to
 	payloadDir    string
@@ -261,13 +351,6 @@ func cancel(ctx *navaros.Context) {
 	}
 	inst.mu.Unlock()
 
-	// Release the disk lock immediately so the disk is available for new
-	// installations. The runInstallation goroutine may still be winding down,
-	// but the cancel request has already set the status to "failed".
-	if wasPending {
-		manager.releaseDisk(inst.Disk)
-	}
-
 	ctx.Status = http.StatusOK
 	ctx.Body = inst
 }
@@ -311,6 +394,17 @@ func (m *Manager) releaseDisk(disk string) {
 // runInstallation executes the full installation pipeline.
 func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 	defer m.releaseDisk(inst.Disk)
+
+	// Installation logging currently captures process-global stdout/stderr
+	// while engine helpers run. Serialize installs so logs cannot cross-wire
+	// between two disks and stdout/stderr restoration stays deterministic.
+	m.runMu.Lock()
+	defer m.runMu.Unlock()
+
+	if inst.isFailed() {
+		return
+	}
+
 	// Redirect stdout/stderr to the installation log so that engine command
 	// output (sfdisk, mkfs, mount, etc.) is visible in the TUI.
 	pr, pw, pipeErr := os.Pipe()
@@ -357,6 +451,16 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 		return
 	}
 
+	// Validate every untrusted manifest field before letting it influence
+	// mount/format/bmaptool operations. The manifest comes from the payload USB,
+	// which is conceptually attacker-controlled (e.g. a tampered installer
+	// image), so a bogus mount_point: "../.." or a name with shell metas
+	// must NOT escape rootfs or compose into an unsafe argv.
+	if err := validateManifest(&manifest); err != nil {
+		inst.fail(fmt.Errorf("invalid manifest: %w", err))
+		return
+	}
+
 	inst.addLog(fmt.Sprintf("Installing %s to %s (%s, %s)",
 		manifest.Name, disk.Path, disk.Model, diskutil.FormatSize(disk.Size)))
 
@@ -371,7 +475,19 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 			partType:   p.Type,
 			grow:       p.Grow,
 			image:      p.Image,
+			bmap:       p.Bmap,
 		})
+	}
+
+	// Lifecycle hook: pre-partition. Runs before any disk modification —
+	// last chance to abort, confirm wipe, or sanity-check the layout.
+	if err := runInstallHooks("pre-partition", "", resolvedDir, inst); err != nil {
+		runInstallHooks("on-failure", "", resolvedDir, inst)
+		inst.fail(fmt.Errorf("pre-partition hook: %w", err))
+		return
+	}
+	if inst.isFailed() {
+		return
 	}
 
 	// Phase 1: Partition the disk (GPT via sfdisk, no formatting)
@@ -391,6 +507,9 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 	// in phase 3 so UUIDs always match the actual target disk.
 	totalParts := len(parts)
 	for i, p := range parts {
+		if inst.isFailed() {
+			return
+		}
 		progress := 0.1 + (0.8 * float64(i) / float64(totalParts))
 		inst.setStatus("copying", progress)
 
@@ -413,7 +532,16 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 			return
 		}
 		imgPath := filepath.Join(resolvedDir, p.image)
-		if err := writePartitionImage(imgPath, partDev); err != nil {
+		if p.bmap == "" {
+			inst.fail(fmt.Errorf("missing bmap for image %s", p.image))
+			return
+		}
+		if p.bmap != filepath.Base(p.bmap) || p.bmap == "." || p.bmap == ".." {
+			inst.fail(fmt.Errorf("invalid bmap path in manifest: %q", p.bmap))
+			return
+		}
+		bmapPath := filepath.Join(resolvedDir, p.bmap)
+		if err := writePartitionImage(imgPath, bmapPath, partDev); err != nil {
 			inst.fail(fmt.Errorf("writing %s: %w", p.name, err))
 			return
 		}
@@ -429,9 +557,21 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 		}
 	}
 
+	// Lifecycle hook: post-write. All partition images are flashed and
+	// expanded; rootfs not yet mounted. Useful for image verification or
+	// raw-byte tweaks before the configuration block runs.
+	if err := runInstallHooks("post-write", "", resolvedDir, inst); err != nil {
+		runInstallHooks("on-failure", "", resolvedDir, inst)
+		inst.fail(fmt.Errorf("post-write hook: %w", err))
+		return
+	}
+	if inst.isFailed() {
+		return
+	}
+
 	// Phase 3: Post-install configuration — regenerate fstab and boot entries
 	// with UUIDs from the actual target disk. During the build, genfstab ran
-	// against loop-mounted images. After dd-copying images and formatting empty
+	// against loop-mounted images. After copying images and formatting empty
 	// partitions, the on-disk UUIDs may differ from what's baked into the images.
 	inst.setStatus("configuring", 0.95)
 	inst.addLog("Configuring fstab and bootloader")
@@ -462,7 +602,10 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 		return
 	}
 
-	if err := engine.InstallBootloader(toEngineParts(parts), rootfs); err != nil {
+	// Boot entries' root=UUID values are baked in at build time and travel
+	// through image copy unchanged. The runtime install only needs to drop the
+	// bootloader binary onto the ESP.
+	if err := engine.InstallSystemdBoot(toEngineParts(parts), rootfs); err != nil {
 		mt.Unmount()
 		inst.fail(fmt.Errorf("installing bootloader: %w", err))
 		return
@@ -485,6 +628,20 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 		return
 	}
 
+	// Lifecycle hook: post-install. fstab/bootloader/mkinitcpio are done;
+	// every target partition is still mounted under rootfs at its declared
+	// mount point. This is where Edge-OS's restore-image staging script
+	// runs (mounts the recovery + fallback-recovery subdirs and copies
+	// payload images into them).
+	if err := runInstallHooks("post-install", rootfs, resolvedDir, inst); err != nil {
+		// Run on-failure BEFORE unmounting so any cleanup hook still
+		// sees the target rootfs mounted.
+		runInstallHooks("on-failure", rootfs, resolvedDir, inst)
+		mt.Unmount()
+		inst.fail(fmt.Errorf("post-install hook: %w", err))
+		return
+	}
+
 	mt.Unmount()
 
 	// Set the installed OS as the EFI boot target so the device boots
@@ -494,8 +651,9 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 		inst.addLog(fmt.Sprintf("Warning: could not set EFI boot target: %v", err))
 	}
 
-	inst.setStatus("complete", 1.0)
-	inst.addLog("Installation complete")
+	if inst.complete() {
+		inst.addLog("Installation complete")
+	}
 }
 
 // partDef holds partition info from the manifest during installation.
@@ -507,6 +665,7 @@ type partDef struct {
 	partType   string
 	grow       bool
 	image      string
+	bmap       string
 }
 
 func toEngineParts(parts []partDef) []actions.PartitionDef {
@@ -528,43 +687,10 @@ func toEnginePart(p partDef) actions.PartitionDef {
 	}
 }
 
-// writePartitionImage writes a partition image to a block device.
-// For .zst files, it pipes decompression directly to dd — no temp file needed.
-func writePartitionImage(imgPath, partDev string) error {
-	if strings.HasSuffix(imgPath, ".zst") {
-		zstd := exec.Command("zstd", "-d", "-c", imgPath)
-		dd := exec.Command("dd", "of="+partDev, "bs=4M", "oflag=direct")
-
-		pipe, err := zstd.StdoutPipe()
-		if err != nil {
-			return fmt.Errorf("creating pipe: %w", err)
-		}
-		dd.Stdin = pipe
-		zstd.Stderr = os.Stderr
-		dd.Stderr = os.Stderr
-
-		if err := zstd.Start(); err != nil {
-			return fmt.Errorf("starting zstd: %w", err)
-		}
-		if err := dd.Start(); err != nil {
-			zstd.Process.Kill()
-			zstd.Wait()
-			return fmt.Errorf("starting dd: %w", err)
-		}
-
-		// Wait for the reader (dd) first so the pipe drains fully.
-		errDd := dd.Wait()
-		errZstd := zstd.Wait()
-		if errZstd != nil {
-			return fmt.Errorf("zstd: %w", errZstd)
-		}
-		if errDd != nil {
-			return fmt.Errorf("dd: %w", errDd)
-		}
-		return nil
-	}
-
-	cmd := exec.Command("dd", "if="+imgPath, "of="+partDev, "bs=4M", "oflag=direct")
+// writePartitionImage writes a partition image to a block device using bmaptool.
+func writePartitionImage(imgPath, bmapPath, partDev string) error {
+	cmd := exec.Command("bmaptool", "copy", "--bmap", bmapPath, imgPath, partDev)
+	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
@@ -576,6 +702,8 @@ func formatPartition(partDev, filesystem, name string) error {
 		return exec.Command("mkfs.vfat", "-F", "32", partDev).Run()
 	case "ext4":
 		return exec.Command("mkfs.ext4", "-F", "-L", name, partDev).Run()
+	case "swap":
+		return exec.Command("mkswap", "-L", name, partDev).Run()
 	default:
 		return fmt.Errorf("unsupported filesystem: %s", filesystem)
 	}

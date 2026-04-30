@@ -1,13 +1,16 @@
 package engine
 
 import (
+	"bufio"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -15,6 +18,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/telemetryos/starforge/actions"
+	"github.com/telemetryos/starforge/config"
 )
 
 // PackageOps holds file ownership and permission operations to apply on
@@ -57,7 +61,7 @@ func PackageToImages(mergedDir string, parts []actions.PartitionDef, buildDir st
 }
 
 // WriteToDevice partitions a block device and writes pre-built partition
-// images directly using dd with oflag=direct (bypasses kernel page cache).
+// images using bmaptool so sparse image extents are skipped.
 // Growable ext4 partitions are expanded to fill the device partition.
 // This replaces PackageToDevice — no overlay mount or tar copy is needed
 // because the images already contain the complete filesystem.
@@ -79,8 +83,13 @@ func WriteToDevice(parts []actions.PartitionDef, device, buildDir string) error 
 		partDev := partitionPath(device, i+1)
 		imgPath := filepath.Join(buildDir, fmt.Sprintf("%s.img", part.Name))
 
-		if err := out.RunWithSpinner(fmt.Sprintf("dd %s -> %s", part.Name, partDev), func() error {
-			return runSilent("dd", "if="+imgPath, "of="+partDev, "bs=4M", "oflag=direct")
+		bmapPath := imgPath + ".bmap"
+		if err := ensureBmap(imgPath, bmapPath); err != nil {
+			return fmt.Errorf("creating bmap for %s: %w", part.Name, err)
+		}
+
+		if err := out.RunWithProgress(fmt.Sprintf("bmaptool %s -> %s", part.Name, partDev), func(update func(int)) error {
+			return runBmaptoolCopy(imgPath, bmapPath, partDev, update)
 		}); err != nil {
 			return fmt.Errorf("writing %s: %w", part.Name, err)
 		}
@@ -97,6 +106,70 @@ func WriteToDevice(parts []actions.PartitionDef, device, buildDir string) error 
 
 	out.EndStage(StageWrite, time.Since(writeStart))
 	return nil
+}
+
+// ensureBmap creates or refreshes the bmap sidecar for imagePath.
+func ensureBmap(imagePath, bmapPath string) error {
+	imgInfo, err := os.Stat(imagePath)
+	if err != nil {
+		return err
+	}
+	bmapInfo, err := os.Stat(bmapPath)
+	if err == nil && !bmapInfo.ModTime().Before(imgInfo.ModTime()) {
+		return nil
+	}
+	return runSilent("bmaptool", "create", "-o", bmapPath, imagePath)
+}
+
+func runBmaptoolCopy(imagePath, bmapPath, destPath string, update func(int)) error {
+	tmpDir, err := os.MkdirTemp("", "starforge-bmap-progress-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	progressPath := filepath.Join(tmpDir, "progress")
+	if err := syscall.Mkfifo(progressPath, 0o600); err != nil {
+		return fmt.Errorf("creating progress fifo: %w", err)
+	}
+	progressFile, err := os.OpenFile(progressPath, os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("opening progress fifo: %w", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		scanner := bufio.NewScanner(progressFile)
+		for scanner.Scan() {
+			fields := strings.Fields(scanner.Text())
+			if len(fields) == 2 && fields[0] == "PROGRESS" {
+				if pct, err := strconv.Atoi(fields[1]); err == nil {
+					update(pct)
+				}
+			}
+		}
+	}()
+
+	cmd := exec.Command(resolveBin("bmaptool"), "copy", "--bmap", bmapPath, "--psplash-pipe", progressPath, imagePath, destPath)
+	cmd.Env = vendorEnv()
+	if out != nil {
+		cmd.Stdout = out.LogWriter()
+		cmd.Stderr = out.LogWriter()
+	} else {
+		cmd.Stdout = io.Discard
+		cmd.Stderr = io.Discard
+	}
+	err = cmd.Run()
+	progressFile.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+	}
+	if err == nil {
+		update(100)
+	}
+	return err
 }
 
 // WriteToDiskImage creates a sparse disk image from pre-built partition images.
@@ -323,8 +396,11 @@ func packagePipeline(mergedDir string, parts []actions.PartitionDef, mounts []Pa
 		return err
 	}
 
-	// Install bootloader now that /boot is a real mounted ESP
-	if err := InstallBootloader(parts, rootfs); err != nil {
+	// Install bootloader now that the ESP is a real mounted vfat. This is
+	// the legacy single-target path (PackageToImages); the multi-target
+	// flow in PackageMultiTarget runs InstallSystemdBoot + PatchBootEntries
+	// per-target in packageOneTarget instead.
+	if err := InstallSystemdBoot(parts, rootfs); err != nil {
 		return err
 	}
 
@@ -471,6 +547,11 @@ func DescendantMountPaths(parentMP string, parts []actions.PartitionDef) []strin
 
 // CopyPartition copies content for one partition from the overlay to the
 // mounted rootfs, using tar with --exclude for precise nested path exclusion.
+//
+// In multi-target builds this is called once per target; a later target's
+// extraction overwrites an earlier target's files at the same path. The
+// engine does not arbitrate; conflicts at shared paths must be designed
+// out at the layer level.
 func CopyPartition(mergedDir string, part actions.PartitionDef, allParts []actions.PartitionDef, rootfs string) error {
 	srcDir := filepath.Join(mergedDir, part.MountPoint)
 	destDir := filepath.Join(rootfs, part.MountPoint)
@@ -567,91 +648,107 @@ func hasRootPartition(parts []actions.PartitionDef) bool {
 	return false
 }
 
-// InstallBootloader runs bootctl install in the mounted rootfs if the
-// partition layout includes an EFI system partition. At this point /boot
-// is a real mounted vfat ESP, so bootctl can detect it properly.
-// It also injects root=UUID=<uuid> into boot entries that lack a root= param.
-func InstallBootloader(parts []actions.PartitionDef, rootfs string) error {
+// InstallSystemdBoot runs `bootctl install` against the mounted rootfs's
+// chroot if the partition layout includes an EFI system partition. This
+// writes the systemd-boot binary to the ESP and is meant to run ONCE per
+// disk — only the host of a multi-target build invokes it.
+func InstallSystemdBoot(parts []actions.PartitionDef, rootfs string) error {
 	if !hasPartType(parts, "efi") {
 		return nil
 	}
 
 	out.Blank()
 	out.Phase("Installing bootloader")
-
 	out.Info("bootctl install")
 	if err := ChrootRun(rootfs, "bootctl", "install"); err != nil {
 		return fmt.Errorf("bootctl install: %w", err)
 	}
+	return nil
+}
 
+// PatchBootEntries injects `root=UUID=<this-rootfs-/-uuid>` into each
+// entry's options. Each target invokes this against its own packageOneTarget
+// rootfs during its own pass, so per-target isolation gives every entry the
+// correct root UUID — recovery's entries get the recovery partition's UUID,
+// fallback-recovery's get the fallback-recovery UUID, the host gets its own
+// root partition's UUID. No cross-target inference.
+//
+// Walks both the ESP (`<rootfs><efi-mount>/loader/entries/`) and XBOOTLDR
+// (`<rootfs><xbootldr-mount>/loader/entries/`) entries directories based on
+// each entry's `extended` flag, resolved the same way phase_boot resolves
+// it for writing.
+func PatchBootEntries(parts []actions.PartitionDef, entries []config.BootEntry, rootfs string) error {
+	if len(entries) == 0 {
+		return nil
+	}
 	if !hasRootPartition(parts) {
 		return nil
 	}
 
-	// Get the filesystem UUID of the root partition from the live mount.
-	// At this point the final formatted partition is mounted at rootfs,
-	// so findmnt returns the UUID baked in by mkfs — the same UUID the
-	// kernel will see at boot via /dev/disk/by-uuid/.
 	uuid, err := runOutput("findmnt", "-no", "UUID", rootfs)
 	if err != nil || uuid == "" {
 		return fmt.Errorf("could not determine root filesystem UUID (is / mounted at %s?)", rootfs)
 	}
 
-	out.Info("root UUID: %s", uuid)
+	// Build a synthetic build context so we can reuse the existing
+	// resolveExtended/findPartitionByType helpers from phase_boot.
+	synth := &actions.BuildContext{Partitions: parts}
 
-	if err := patchBootEntries(rootfs, uuid); err != nil {
-		return fmt.Errorf("patching boot entries: %w", err)
+	for _, entry := range entries {
+		ext := resolveExtended(synth, entry.Extended)
+		var partType string
+		if ext {
+			partType = "xbootldr"
+		} else {
+			partType = "efi"
+		}
+		part, ok := findPartitionByType(synth, partType)
+		if !ok {
+			return fmt.Errorf("entry %q: no partition with type %q declared by this target", entry.Name, partType)
+		}
+
+		name := entry.Name
+		if !strings.HasSuffix(name, ".conf") {
+			name += ".conf"
+		}
+		confPath := filepath.Join(rootfs, part.MountPoint, "loader/entries", name)
+
+		if err := injectRootUUID(confPath, uuid); err != nil {
+			return fmt.Errorf("patching %s: %w", name, err)
+		}
+		out.Info("patched %s -> root=UUID=%s", name, uuid)
 	}
 	return nil
 }
 
-// patchBootEntries adds root=UUID=<uuid> to any systemd-boot entry whose
-// options line doesn't already contain a root= parameter.
-func patchBootEntries(rootfs, rootUUID string) error {
-	entriesDir := filepath.Join(rootfs, "boot", "loader", "entries")
-	entries, err := os.ReadDir(entriesDir)
+// injectRootUUID rewrites the `options` line of a systemd-boot entry .conf,
+// replacing any existing `root=` token with `root=UUID=<rootUUID>`.
+func injectRootUUID(path, rootUUID string) error {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil // no entries dir, nothing to patch
+		return err
 	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".conf" {
-			continue
-		}
-		path := filepath.Join(entriesDir, entry.Name())
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-
-		var patched bool
-		var lines []string
-		for _, line := range strings.Split(string(data), "\n") {
-			if rest, ok := strings.CutPrefix(line, "options"); ok {
-				rest = strings.TrimSpace(rest)
-				// Replace any existing root= parameter with the correct UUID
-				var opts []string
-				for _, opt := range strings.Fields(rest) {
-					if !strings.HasPrefix(opt, "root=") {
-						opts = append(opts, opt)
-					}
+	var lines []string
+	patched := false
+	for _, line := range strings.Split(string(data), "\n") {
+		if rest, ok := strings.CutPrefix(line, "options"); ok {
+			rest = strings.TrimSpace(rest)
+			var opts []string
+			for _, opt := range strings.Fields(rest) {
+				if !strings.HasPrefix(opt, "root=") {
+					opts = append(opts, opt)
 				}
-				opts = append([]string{fmt.Sprintf("root=UUID=%s", rootUUID)}, opts...)
-				line = "options " + strings.Join(opts, " ")
-				patched = true
 			}
-			lines = append(lines, line)
+			opts = append([]string{fmt.Sprintf("root=UUID=%s", rootUUID)}, opts...)
+			line = "options " + strings.Join(opts, " ")
+			patched = true
 		}
-
-		if patched {
-			out.Info("patched %s", entry.Name())
-			if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
-				return fmt.Errorf("writing %s: %w", entry.Name(), err)
-			}
-		}
+		lines = append(lines, line)
 	}
-
-	return nil
+	if !patched {
+		return fmt.Errorf("entry has no options line to patch")
+	}
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
 }
 
 // GenerateFstab runs genfstab -U against the mounted rootfs to produce
@@ -667,26 +764,15 @@ func GenerateFstab(rootfs string) error {
 	return writeFile(filepath.Join(rootfs, "etc", "fstab"), out+"\n")
 }
 
-// ConfigureInstallation regenerates fstab and patches boot entries for a
-// mounted installation rootfs. Call this after writing partition images to a
-// target disk and mounting all partitions under rootfs. The UUIDs are read
-// from the live mounted partitions so fstab and boot entries match the actual
-// disk, regardless of whether images were dd-copied or freshly formatted.
+// ConfigureInstallation regenerates fstab for a mounted installation rootfs.
+// Call this after writing partition images to a target disk and mounting all
+// partitions under rootfs.
+//
+// Boot-entry root=UUID values are baked in at build time and travel through
+// dd-copy unchanged, so no runtime re-patching is needed here.
 func ConfigureInstallation(parts []actions.PartitionDef, rootfs string) error {
 	if err := GenerateFstab(rootfs); err != nil {
 		return fmt.Errorf("generating fstab: %w", err)
-	}
-
-	// Re-patch boot entries with the root UUID from the actual disk.
-	if hasPartType(parts, "efi") && hasRootPartition(parts) {
-		uuid, err := runOutput("findmnt", "-no", "UUID", rootfs)
-		if err != nil || uuid == "" {
-			return nil // no UUID found, skip patching
-		}
-		out.Info("root UUID: %s", uuid)
-		if err := patchBootEntries(rootfs, uuid); err != nil {
-			return fmt.Errorf("patching boot entries: %w", err)
-		}
 	}
 
 	return nil
@@ -720,24 +806,23 @@ func SavePartitions(parts []actions.PartitionDef, buildDir string) error {
 // BuildResult captures the subset of BuildContext that packaging needs.
 // Saved by Build so EnsurePackaged can avoid re-running Collect.
 type BuildResult struct {
-	Partitions        []actions.PartitionDef       `json:"partitions"`
-	Ownerships        []actions.FileOwnershipOp    `json:"ownerships,omitempty"`
-	Permissions       []actions.FilePermissionOp   `json:"permissions,omitempty"`
-	InstallerPayloads []actions.InstallerPayloadDef `json:"installer_payloads,omitempty"`
-	InstallerServer   *actions.InstallerServerDef   `json:"installer_server,omitempty"`
-	InstallerClient   *actions.InstallerClientDef   `json:"installer_client,omitempty"`
+	Partitions      []actions.PartitionDef      `json:"partitions"`
+	Ownerships      []actions.FileOwnershipOp   `json:"ownerships,omitempty"`
+	Permissions     []actions.FilePermissionOp  `json:"permissions,omitempty"`
+	InstallPayloads []actions.InstallPayloadDef `json:"install_payloads,omitempty"`
+	InstallServer   *actions.InstallServerDef   `json:"install_server,omitempty"`
+	InstallClient   *actions.InstallClientDef   `json:"install_client,omitempty"`
+	InstallEmbeds   []string                    `json:"install_embeds,omitempty"`
+	Boot            *actions.BootConfig         `json:"boot,omitempty"`
 }
 
 // SaveBuildResult writes the packaging-relevant context to build-result.json.
+// Mapping is shared with HashPackaging via contextToBuildResult so the two
+// stay in lockstep — adding a field to BuildResult and contextToBuildResult
+// gets you persistence, cache invalidation, and the rehydrated BuildContext
+// for free.
 func SaveBuildResult(ctx *actions.BuildContext, buildDir string) error {
-	r := BuildResult{
-		Partitions:        ctx.Partitions,
-		Ownerships:        ctx.FileOwnerships,
-		Permissions:       ctx.FilePermissions,
-		InstallerPayloads: ctx.InstallerPayloads,
-		InstallerServer:   ctx.InstallerServer,
-		InstallerClient:   ctx.InstallerClient,
-	}
+	r := contextToBuildResult(ctx)
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshalling build result: %w", err)
@@ -749,12 +834,14 @@ func SaveBuildResult(ctx *actions.BuildContext, buildDir string) error {
 // with all fields populated (partitions, installer defs, ownership ops).
 func buildResultToContext(r *BuildResult) *actions.BuildContext {
 	return &actions.BuildContext{
-		Partitions:        r.Partitions,
-		FileOwnerships:    r.Ownerships,
-		FilePermissions:   r.Permissions,
-		InstallerPayloads: r.InstallerPayloads,
-		InstallerServer:   r.InstallerServer,
-		InstallerClient:   r.InstallerClient,
+		Partitions:      r.Partitions,
+		FileOwnerships:  r.Ownerships,
+		FilePermissions: r.Permissions,
+		InstallPayloads: r.InstallPayloads,
+		InstallServer:   r.InstallServer,
+		InstallClient:   r.InstallClient,
+		InstallEmbeds:   r.InstallEmbeds,
+		Boot:            r.Boot,
 	}
 }
 

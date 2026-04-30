@@ -33,6 +33,16 @@ var PhaseNames = []string{
 // format changes. Caches with a different version are automatically cleaned.
 const CacheVersion = 2
 
+// PackagingHashVersion is mixed into HashPackaging output. Bump it whenever
+// packaging-time logic changes in a way that wouldn't otherwise be reflected
+// in the input data — e.g. PatchBootEntries starts injecting a new option,
+// CopyPartition gains/drops a tar flag, fstab generation changes format. The
+// per-phase hashes already capture overlay content, and the BuildResult JSON
+// captures all declarative inputs; this version covers engine behavior. A
+// bump invalidates packaging only (NOT phase caches), so users don't pay for
+// a full rebuild.
+const PackagingHashVersion = 3
+
 // Manifest tracks the input hash and completion status of each cached phase.
 type Manifest struct {
 	Version   int                   `json:"version,omitempty"`
@@ -109,6 +119,10 @@ func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 		fmt.Fprintf(h, "keymap=%s\n", ctx.Keymap)
 
 	case 1: // packages
+		// NOTE: unpinned packages pull "latest" from the Arch mirror, so
+		// upstream repo updates can change phase 1 output without changing
+		// this hash. Bump CacheVersion (forces full clean) when that
+		// happens, or pin versions in pacman-add for stable caching.
 		pkgs := make([]actions.Package, len(ctx.Packages))
 		copy(pkgs, ctx.Packages)
 		sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].Name < pkgs[j].Name })
@@ -142,6 +156,13 @@ func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 		}
 
 	case 4: // files
+		// Partition layout influences how layer copies are written: files
+		// landing on a vfat mount get their mode bits stripped during copy
+		// (filesystemForPath in phase_files.go). Hash the (mount, fs) pairs
+		// so a partition fs change re-runs phase 4.
+		for _, p := range ctx.Partitions {
+			fmt.Fprintf(h, "part-fs=%s:%s\n", p.MountPoint, p.Filesystem)
+		}
 		for _, m := range ctx.FileMkdirs {
 			fmt.Fprintf(h, "mkdir=%s,mode=%s,owner=%s,group=%s\n", m.Path, m.Mode, m.Owner, m.Group)
 		}
@@ -182,6 +203,10 @@ func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 		}
 
 	case 5: // permissions
+		// phase 5 is a no-op on the overlay — the actual chown/chmod runs
+		// inside chroot during packaging (applyImageOwnership). This hash
+		// participates in phase chaining only; the real packaging-time
+		// invalidation flows through HashPackaging via the BuildResult JSON.
 		for _, o := range ctx.FileOwnerships {
 			fmt.Fprintf(h, "own=%s,owner=%s,group=%s,recursive=%v\n",
 				o.Path, o.Owner, o.Group, o.Recursive)
@@ -192,6 +217,9 @@ func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 		}
 
 	case 6: // services
+		// Within enable/disable/mask the systemd unit ordering doesn't matter
+		// (systemd reconciles), so we sort for hash determinism. Cross-list
+		// order (mask before enable) is fixed by the executor, not the hash.
 		enable := make([]string, len(ctx.Services.Enable))
 		copy(enable, ctx.Services.Enable)
 		sort.Strings(enable)
@@ -219,12 +247,30 @@ func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 		fmt.Fprintf(h, "user-disable=%s\n", strings.Join(userDisable, ","))
 
 	case 7: // boot
+		// Entry routing depends on which partitions (efi vs xbootldr) exist
+		// and where they're mounted. findPartitionByType + the loader.conf
+		// path computation both read ctx.Partitions, so a layout change
+		// (e.g. relocating the ESP from /efi to /boot) must invalidate
+		// phase 7 even if the entries themselves are unchanged.
+		for _, p := range ctx.Partitions {
+			if p.Type == "efi" || p.Type == "xbootldr" {
+				fmt.Fprintf(h, "boot-part=%s,mount=%s\n", p.Type, p.MountPoint)
+			}
+		}
 		if ctx.Boot != nil {
-			fmt.Fprintf(h, "loader=%s,%d,%v\n",
-				ctx.Boot.Loader.Default, ctx.Boot.Loader.Timeout, ctx.Boot.Loader.Editor)
+			if ctx.Boot.Loader != nil {
+				fmt.Fprintf(h, "loader=%s,%d,%v\n",
+					ctx.Boot.Loader.Default, ctx.Boot.Loader.Timeout, ctx.Boot.Loader.Editor)
+			} else {
+				fmt.Fprintln(h, "loader=nil")
+			}
 			for _, e := range ctx.Boot.Entries {
-				fmt.Fprintf(h, "entry=%s,%s,%s,%s,%s\n",
-					e.Name, e.Title, e.Linux, e.Initrd, e.Options)
+				ext := "default"
+				if e.Extended != nil {
+					ext = fmt.Sprintf("%v", *e.Extended)
+				}
+				fmt.Fprintf(h, "entry=%s,%s,kernel=%s,path=%s,extended=%s,%s\n",
+					e.Name, e.Title, e.Kernel, e.Path, ext, e.Options)
 			}
 		}
 
@@ -318,44 +364,53 @@ func IsPhaseCached(cacheDir string, phaseIndex int, hash string, manifest *Manif
 	return true
 }
 
-// HashPackaging computes a composite hash over all phase hashes, partition
-// definitions, installer definitions, and payload target manifests. Any
-// change to any input — including a payload target being rebuilt —
-// invalidates the packaging artifacts (.img files).
+// HashPackaging computes a composite hash over all packaging inputs:
 //
-// project may be nil for testing; payload target hashes are skipped in that case.
+//   - PackagingHashVersion (engine behaviour version)
+//   - Every phase hash (overlay content)
+//   - The full BuildResult-equivalent serialization of ctx — partitions,
+//     ownerships, permissions, install-* defs, embeds, boot config — so any
+//     declarative input that survives to packaging is captured even if a
+//     future field is added to BuildResult without updating this function.
+//   - For each install-payload and install-embed target: that target's full
+//     manifest (phase hashes + packaging hash) so cross-target changes
+//     invalidate this target's packaging.
+//
+// project may be nil for testing; cross-target hashes are skipped in that case.
 func HashPackaging(manifest *Manifest, ctx *actions.BuildContext, project *config.Project) string {
 	h := sha256.New()
 
-	// Include all phase hashes in order — the overlay content is the primary input.
+	fmt.Fprintf(h, "packaging-version=%d\n", PackagingHashVersion)
+
+	// Phase hashes (overlay content).
 	for _, name := range PhaseNames {
 		if entry, ok := manifest.Phases[name]; ok {
 			fmt.Fprintf(h, "phase=%s:%s\n", name, entry.Hash)
 		}
 	}
 
-	// Partition layout determines how overlay content is split into images.
-	for _, p := range ctx.Partitions {
-		fmt.Fprintf(h, "partition=%s,fs=%s,size=%d,mount=%s,type=%s,grow=%v\n",
-			p.Name, p.Filesystem, p.Size, p.MountPoint, p.Type, p.Grow)
+	// All declarative packaging inputs, in canonical JSON form. We reuse
+	// the same struct that gets persisted to build-result.json so adding a
+	// field there automatically participates in cache invalidation.
+	br := contextToBuildResult(ctx)
+	if data, err := json.Marshal(br); err == nil {
+		h.Write([]byte("buildresult="))
+		h.Write(data)
+		h.Write([]byte("\n"))
+	} else {
+		// Should never happen with normal data; fall back to a literal
+		// marker so cache state remains deterministic.
+		h.Write([]byte("buildresult=marshal-error\n"))
 	}
 
-	// Installer config affects which additional files get bundled.
-	if ctx.InstallerServer != nil {
-		fmt.Fprintf(h, "installer-server=%d,%s\n",
-			ctx.InstallerServer.Port, ctx.InstallerServer.Path)
-	}
-	if ctx.InstallerClient != nil {
-		fmt.Fprintf(h, "installer-client=%s\n", ctx.InstallerClient.AutoLogin)
-	}
-	for _, p := range ctx.InstallerPayloads {
-		fmt.Fprintf(h, "installer-payload=%s,%s\n", p.Target, p.Path)
-
-		// Include the payload target's manifest so changes to its build
-		// (e.g. a config change in target B) invalidate this target's packaging.
-		if project != nil {
-			payloadBuildDir := project.TargetBuildDir(p.Target)
-			payloadCacheDir := filepath.Join(payloadBuildDir, "cache")
+	// Cross-target hashes. Each payload / embed target's manifest is read
+	// fresh from disk; if the target was rebuilt, its phase hashes change
+	// and ours follow. The TargetBuildDir lookup is project-relative so
+	// this naturally scopes per-project.
+	if project != nil {
+		for _, p := range ctx.InstallPayloads {
+			fmt.Fprintf(h, "payload-target=%s\n", p.Target)
+			payloadCacheDir := filepath.Join(project.TargetBuildDir(p.Target), "cache")
 			if pm, err := LoadManifest(payloadCacheDir); err == nil {
 				for _, phaseName := range PhaseNames {
 					if entry, ok := pm.Phases[phaseName]; ok {
@@ -367,9 +422,41 @@ func HashPackaging(manifest *Manifest, ctx *actions.BuildContext, project *confi
 				}
 			}
 		}
+		for _, embedName := range ctx.InstallEmbeds {
+			fmt.Fprintf(h, "embed-target=%s\n", embedName)
+			embedCacheDir := filepath.Join(project.TargetBuildDir(embedName), "cache")
+			if em, err := LoadManifest(embedCacheDir); err == nil {
+				for _, phaseName := range PhaseNames {
+					if entry, ok := em.Phases[phaseName]; ok {
+						fmt.Fprintf(h, "embed-phase=%s:%s:%s\n", embedName, phaseName, entry.Hash)
+					}
+				}
+				if em.Packaging != nil {
+					fmt.Fprintf(h, "embed-packaging=%s:%s\n", embedName, em.Packaging.Hash)
+				}
+			}
+		}
 	}
 
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// contextToBuildResult mirrors SaveBuildResult's mapping. Kept here (not in
+// package.go) so HashPackaging stays self-contained and doesn't pull in the
+// SaveBuildResult side effect path. Any new field added to BuildResult must
+// be set here too — but the unit test in cache_test.go cross-checks both
+// constructors so a missing field surfaces immediately.
+func contextToBuildResult(ctx *actions.BuildContext) BuildResult {
+	return BuildResult{
+		Partitions:      ctx.Partitions,
+		Ownerships:      ctx.FileOwnerships,
+		Permissions:     ctx.FilePermissions,
+		InstallPayloads: ctx.InstallPayloads,
+		InstallServer:   ctx.InstallServer,
+		InstallClient:   ctx.InstallClient,
+		InstallEmbeds:   ctx.InstallEmbeds,
+		Boot:            ctx.Boot,
+	}
 }
 
 // hashPath computes the sha256 of a file or directory tree.
@@ -433,4 +520,3 @@ func hashPath(path string) (string, error) {
 
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
-

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"archive/tar"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -64,6 +65,21 @@ var vendorPackages = []vendorPkg{
 	// Filesystem tools
 	{"e2fsprogs", "core", "x86_64", []string{"build"}},
 	{"dosfstools", "core", "x86_64", []string{"build"}},
+	// Sparse image flashing. bmaptool itself is vendored from upstream
+	// because Arch does not ship it in the official repositories; Python
+	// and six are official packages and provide its runtime.
+	{"python", "core", "x86_64", []string{"build"}},
+	{"python-six", "extra", "any", []string{"build"}},
+	{"bzip2", "core", "x86_64", []string{"build"}},     // python dep
+	{"expat", "core", "x86_64", []string{"build"}},     // python dep
+	{"gdbm", "core", "x86_64", []string{"build"}},      // python dep
+	{"libffi", "core", "x86_64", []string{"build"}},    // python dep
+	{"libnsl", "core", "x86_64", []string{"build"}},    // python dep
+	{"libxcrypt", "core", "x86_64", []string{"build"}}, // python dep
+	{"mpdecimal", "core", "x86_64", []string{"build"}}, // python dep
+	{"xz", "core", "x86_64", []string{"build"}},        // python dep
+	{"zlib", "core", "x86_64", []string{"build"}},      // python dep
+	{"zstd", "core", "x86_64", []string{"build"}},
 	// Partitioning
 	{"gptfdisk", "extra", "x86_64", []string{"build"}},
 	{"parted", "extra", "x86_64", []string{"build", "run"}},
@@ -84,7 +100,7 @@ var vendorPackages = []vendorPkg{
 // vendorCheck describes a file whose presence indicates that a group's
 // packages have been extracted.
 type vendorCheck struct {
-	path   string   // relative to VendorDir(), e.g. "usr/bin/pacstrap"
+	path   string // relative to VendorDir(), e.g. "usr/bin/pacstrap"
 	groups []string
 }
 
@@ -102,6 +118,9 @@ var vendorChecks = []vendorCheck{
 	{"usr/bin/mkfs.ext4", []string{"build"}},
 	{"usr/bin/mkfs.vfat", []string{"build"}},
 	{"usr/bin/e2fsck", []string{"build"}},
+	{"usr/bin/bmaptool", []string{"build"}},
+	{"usr/bin/python", []string{"build"}},
+	{"usr/bin/zstd", []string{"build"}},
 	// Partitioning and block device tools (from util-linux)
 	{"usr/bin/sfdisk", []string{"build"}},
 	{"usr/bin/mount", []string{"build"}},
@@ -197,6 +216,13 @@ func EnsureDeps(groups ...string) error {
 	}
 
 	// Verify only checks relevant to the requested groups
+	if containsGroup(groups, "build") {
+		if err := ensureBmaptoolSource(vendorDir, cacheDir); err != nil {
+			return fmt.Errorf("vendoring bmaptool: %w", err)
+		}
+	}
+
+	// Verify only checks relevant to the requested groups
 	missing := checkGroupMissing(vendorDir, groups)
 	if len(missing) > 0 {
 		return fmt.Errorf("vendoring incomplete, missing: %s", strings.Join(missing, ", "))
@@ -204,6 +230,106 @@ func EnsureDeps(groups ...string) error {
 
 	out.Blank()
 	return nil
+}
+
+const bmaptoolVersion = "3.9.0"
+
+func ensureBmaptoolSource(vendorDir, cacheDir string) error {
+	bmapDir := filepath.Join(vendorDir, "usr", "lib", "starforge", "bmaptool")
+	cliPath := filepath.Join(bmapDir, "src", "bmaptool", "CLI.py")
+	wrapperPath := filepath.Join(vendorDir, "usr", "bin", "bmaptool")
+	if _, err := os.Stat(cliPath); err == nil {
+		if _, err := os.Stat(wrapperPath); err == nil {
+			return nil
+		}
+	}
+
+	if err := os.RemoveAll(bmapDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return err
+	}
+
+	archiveURL := fmt.Sprintf("https://github.com/yoctoproject/bmaptool/archive/refs/tags/v%s.tar.gz", bmaptoolVersion)
+	cachePath := filepath.Join(cacheDir, fmt.Sprintf("bmaptool-%s.tar.gz", bmaptoolVersion))
+	if _, err := os.Stat(cachePath); err != nil {
+		if err := downloadFile(archiveURL, cachePath); err != nil {
+			return err
+		}
+	}
+	if err := extractBmaptool(cachePath, bmapDir); err != nil {
+		return err
+	}
+	return writeBmaptoolWrapper(vendorDir, wrapperPath, bmapDir)
+}
+
+func extractBmaptool(archivePath, destDir string) error {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gz.Close()
+
+	tr := tar.NewReader(gz)
+	prefix := fmt.Sprintf("bmaptool-%s/", bmaptoolVersion)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if !strings.HasPrefix(header.Name, prefix+"src/") && !strings.HasPrefix(header.Name, prefix+"LICENSE") {
+			continue
+		}
+		rel := strings.TrimPrefix(header.Name, prefix)
+		target := filepath.Join(destDir, rel)
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode)&0o777)
+			if err != nil {
+				return err
+			}
+			_, copyErr := io.Copy(out, tr)
+			closeErr := out.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+		}
+	}
+	return nil
+}
+
+func writeBmaptoolWrapper(vendorDir, wrapperPath, bmapDir string) error {
+	if err := os.MkdirAll(filepath.Dir(wrapperPath), 0o755); err != nil {
+		return err
+	}
+	python := filepath.Join(vendorDir, "usr", "bin", "python")
+	content := fmt.Sprintf(`#!%s
+import runpy
+import sys
+sys.path.insert(0, %q)
+runpy.run_module("bmaptool", run_name="__main__")
+`, python, filepath.Join(bmapDir, "src"))
+	return os.WriteFile(wrapperPath, []byte(content), 0o755)
 }
 
 // matchesAnyGroup returns true if the package's groups overlap with the

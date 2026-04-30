@@ -18,7 +18,7 @@ func (a *SystemdBootInstall) Execute(step config.Step, layerDir string, ctx *Bui
 	ctx.Boot.Layer = ctx.CurrentLayer
 
 	if s.Loader != nil {
-		ctx.Boot.Loader = *s.Loader
+		ctx.Boot.Loader = s.Loader
 	}
 
 	if len(s.Entries) > 0 {

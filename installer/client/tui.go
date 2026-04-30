@@ -12,28 +12,38 @@ import (
 	"github.com/telemetryos/starforge/installer/diskutil"
 )
 
-// Styles — ember palette.
+// Styles shared with the command/status output.
 var (
-	tuiBg     = lipgloss.Color("#1c1408")
-	tuiBgDark = lipgloss.Color("#120d08")
+	tuiBg     = lipgloss.Color("#0f1419")
+	tuiBgDark = lipgloss.Color("#0b0f12")
 
-	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#c8a028"))
-	normalStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#f0d0a0"))
-	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#7a5538"))
-	errorStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e84848"))
-	progressStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e8b830"))
-	successStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#c8a028"))
-	warningStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e89030"))
+	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7ccf91"))
+	normalStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#d6dde3"))
+	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#7d8790"))
+	errorStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ff6b6b"))
+	progressStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#9ccfd8"))
+	successStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7ccf91"))
+	warningStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#d8b45f"))
+	headingStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#d6dde3")).Background(tuiBg)
+	subheadStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#8fbfd0")).Background(tuiBg)
+	labelStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#7d8790")).Background(tuiBg)
+	valueStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#d6dde3")).Background(tuiBg)
+	rowStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#d6dde3")).Background(tuiBg)
+	rowSelected   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#d6dde3")).Background(lipgloss.Color("#162027"))
+	panelStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#26323b")).Background(tuiBg).Padding(0, 1)
+	panelFocus    = panelStyle.BorderForeground(lipgloss.Color("#7ccf91"))
+	badgeStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0b0f12")).Background(lipgloss.Color("#9ccfd8")).Padding(0, 1)
+	dangerBadge   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0b0f12")).Background(lipgloss.Color("#d8b45f")).Padding(0, 1)
 
 	// TUI chrome
-	tuiTitleStar  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e8b830")).Background(tuiBgDark)
-	tuiTitleForge = lipgloss.NewStyle().Foreground(lipgloss.Color("#d48820")).Background(tuiBgDark)
-	tuiTitleCmd   = lipgloss.NewStyle().Foreground(lipgloss.Color("#b08050")).Background(tuiBgDark).PaddingLeft(1)
+	tuiTitleStar  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7ccf91")).Background(tuiBgDark)
+	tuiTitleForge = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ccfd8")).Background(tuiBgDark)
+	tuiTitleCmd   = lipgloss.NewStyle().Foreground(lipgloss.Color("#7d8790")).Background(tuiBgDark).PaddingLeft(1)
 	tuiTitlePad   = lipgloss.NewStyle().Background(tuiBgDark)
-	tuiFooterDim  = lipgloss.NewStyle().Foreground(lipgloss.Color("#b08050")).Background(tuiBgDark)
-	tuiFooterKey  = lipgloss.NewStyle().Foreground(lipgloss.Color("#e89030")).Background(tuiBgDark)
+	tuiFooterDim  = lipgloss.NewStyle().Foreground(lipgloss.Color("#7d8790")).Background(tuiBgDark)
+	tuiFooterKey  = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ccfd8")).Background(tuiBgDark)
 	tuiChromeBg   = lipgloss.NewStyle().Background(tuiBg)
-	tuiContentPad = lipgloss.NewStyle().PaddingLeft(2).Background(tuiBg)
+	tuiContentPad = lipgloss.NewStyle().Padding(1, 2).Background(tuiBg)
 )
 
 // phase tracks the current TUI screen.
@@ -348,9 +358,9 @@ func (m model) View() tea.View {
 		footer = m.footerHelp("q quit")
 	}
 
-	contentHeight := max(m.height-2, 1) // title + footer
+	contentHeight := max(m.height-4, 1) // title + footer + vertical padding
 	styled := tuiContentPad.
-		Width(m.width).
+		Width(max(m.width-4, 1)).
 		Height(contentHeight).
 		Render(content)
 	b.WriteString(styled)
@@ -364,51 +374,45 @@ func (m model) View() tea.View {
 }
 
 func (m model) viewLoading() string {
-	return "\n Loading..."
+	return m.screen("Preparing Installer", m.planColumn(), panelStyle.Width(m.mainWidth()).Render(strings.Join([]string{
+		subheadStyle.Render("Reading install media"),
+		"",
+		normalStyle.Render("Connecting to the local install service."),
+		dimStyle.Render("Payloads and eligible disks will appear here once discovery completes."),
+	}, "\n")))
 }
 
 func (m model) viewPayloadSelect() string {
-	var b strings.Builder
-	b.WriteString("\nSelect a payload to install:\n\n")
-
+	rows := []string{subheadStyle.Render("Choose the system image")}
 	for i, p := range m.payloads {
-		cursor := "  "
-		style := normalStyle
+		line := fmt.Sprintf("%-24s %10s  %2d partitions", p.Name, diskutil.FormatSize(payloadSize(p)), len(p.Partitions))
 		if i == m.payloadCursor {
-			cursor = "> "
-			style = selectedStyle
+			rows = append(rows, rowSelected.Width(m.mainInnerWidth()).Render("  "+line))
+		} else {
+			rows = append(rows, rowStyle.Width(m.mainInnerWidth()).Render("  "+line))
 		}
-
-		var totalSize uint64
-		for _, part := range p.Partitions {
-			totalSize += part.Size
-		}
-
-		b.WriteString(fmt.Sprintf("%s%s %s\n",
-			cursor,
-			style.Render(p.Name),
-			dimStyle.Render(fmt.Sprintf("(%s)", diskutil.FormatSize(totalSize)))))
 		if p.Description != "" {
-			b.WriteString(fmt.Sprintf("    %s\n", dimStyle.Render(p.Description)))
+			rows = append(rows, dimStyle.Render("    "+truncate(p.Description, m.mainInnerWidth()-4)))
 		}
 	}
-
-	return b.String()
+	return m.screen("Select Image", m.planColumn(), panelStyle.Width(m.mainWidth()).Render(strings.Join(rows, "\n")))
 }
 
 func (m model) viewDiskSelect() string {
-	var b strings.Builder
 	if m.payloadCursor >= len(m.payloads) {
 		return ""
 	}
-	b.WriteString(fmt.Sprintf("\nPayload: %s\n\n", selectedStyle.Render(m.payloads[m.payloadCursor].Name)))
-	b.WriteString("Select a target disk:\n\n")
 
+	rows := []string{
+		subheadStyle.Render("Choose target disk"),
+		dimStyle.Render("The installer USB and mounted system disks are hidden."),
+		"",
+	}
 	if len(m.disks) == 0 {
-		b.WriteString(warningStyle.Render("No available disks found."))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("All disks are either mounted or the installer USB."))
-		b.WriteString("\n")
+		rows = append(rows,
+			warningStyle.Render("No available disks found."),
+			dimStyle.Render("Check that the target drive is attached and not mounted."),
+		)
 	} else {
 		for i, d := range m.disks {
 			cursor := "  "
@@ -423,16 +427,21 @@ func (m model) viewDiskSelect() string {
 				dmodel = "Unknown"
 			}
 
-			b.WriteString(fmt.Sprintf("%s%s  %s  %s  %s\n",
+			line := fmt.Sprintf("%s/dev/%-8s  %-28s  %10s  %s",
 				cursor,
-				style.Render(fmt.Sprintf("/dev/%-8s", d.Name)),
-				dimStyle.Render(fmt.Sprintf("%-20s", dmodel)),
-				dimStyle.Render(diskutil.FormatSize(d.Size)),
-				dimStyle.Render(d.Transport)))
+				d.Name,
+				truncate(dmodel, 28),
+				diskutil.FormatSize(d.Size),
+				transportLabel(d.Transport))
+			if i == m.diskCursor {
+				rows = append(rows, rowSelected.Width(m.mainInnerWidth()).Render(line))
+			} else {
+				rows = append(rows, style.Render(line))
+			}
 		}
 	}
 
-	return b.String()
+	return m.screen("Select Target", m.planColumn(), panelStyle.Width(m.mainWidth()).Render(strings.Join(rows, "\n")))
 }
 
 func (m model) viewConfirm() string {
@@ -442,107 +451,260 @@ func (m model) viewConfirm() string {
 	payload := m.payloads[m.payloadCursor]
 	disk := m.disks[m.diskCursor]
 
-	var b strings.Builder
-	b.WriteString("\n")
-	b.WriteString(warningStyle.Render("WARNING: All data on the target disk will be destroyed!"))
-	b.WriteString("\n\n")
-	b.WriteString(fmt.Sprintf("Payload: %s\n", selectedStyle.Render(payload.Name)))
-	b.WriteString(fmt.Sprintf("Disk:    %s (%s, %s)\n",
-		selectedStyle.Render("/dev/"+disk.Name), disk.Model, diskutil.FormatSize(disk.Size)))
-	b.WriteString("\n")
-	b.WriteString("Proceed with installation? ")
-	b.WriteString(selectedStyle.Render("[y/N]"))
-	return b.String()
+	body := panelFocus.Width(m.mainWidth()).Render(strings.Join([]string{
+		dangerBadge.Render("READY TO WRITE"),
+		"",
+		metaLine("Image", payload.Name),
+		metaLine("Image size", diskutil.FormatSize(payloadSize(payload))),
+		metaLine("Target", fmt.Sprintf("/dev/%s", disk.Name)),
+		metaLine("Disk model", emptyDefault(disk.Model, "Unknown")),
+		metaLine("Disk size", diskutil.FormatSize(disk.Size)),
+		"",
+		warningStyle.Render("The selected disk will be repartitioned and overwritten."),
+		dimStyle.Render("Press y to start. Press n or esc to go back."),
+	}, "\n"))
+	return m.screen("Confirm Install", m.planColumn(), body)
 }
 
 func (m model) viewProgress() string {
-	var b strings.Builder
-
-	// Progress bar
-	barWidth := 40
-	if m.width > 60 {
-		barWidth = m.width - 24
-	}
-	filled := int(m.progress * float64(barWidth))
-	if filled > barWidth {
-		filled = barWidth
-	}
-	bar := strings.Repeat("=", filled) + strings.Repeat("-", barWidth-filled)
-	b.WriteString(fmt.Sprintf("\n[%s] %.0f%%\n", progressStyle.Render(bar), m.progress*100))
-	b.WriteString(fmt.Sprintf("Status: %s\n\n", normalStyle.Render(m.status)))
-
-	// Log lines (show last N that fit)
-	maxLines := m.height - 8
-	if maxLines < 5 {
-		maxLines = 5
-	}
-	start := 0
-	if len(m.logLines) > maxLines {
-		start = len(m.logLines) - maxLines
-	}
-	for _, line := range m.logLines[start:] {
-		b.WriteString(dimStyle.Render(line))
-		b.WriteByte('\n')
-	}
-
-	return b.String()
+	barWidth := max(min(m.mainInnerWidth()-8, 68), 20)
+	body := panelStyle.Width(m.mainWidth()).Render(strings.Join([]string{
+		subheadStyle.Render("Writing image"),
+		m.installSummary(),
+		"",
+		progressBar(m.progress, barWidth) + fmt.Sprintf(" %3.0f%%", m.progress*100),
+		"",
+		m.phaseList(),
+		"",
+		subheadStyle.Render("Installer log"),
+		m.logTail(m.height - 22),
+	}, "\n"))
+	return m.screen("Installing", m.planColumn(), body)
 }
 
 func (m model) viewComplete() string {
-	var b strings.Builder
-	b.WriteString("\n")
-	b.WriteString(successStyle.Render("Installation complete!"))
-	b.WriteString("\n\n")
+	body := panelFocus.Width(m.mainWidth()).Render(strings.Join([]string{
+		successStyle.Render("Installation complete"),
+		m.installSummary(),
+		"",
+		normalStyle.Render("The system image was written and configured."),
+		dimStyle.Render("Press r to reboot into the installed OS, or q to stay here."),
+		"",
+		subheadStyle.Render("Final log lines"),
+		m.logTail(m.height - 20),
+	}, "\n"))
+	return m.screen("Ready to Reboot", m.planColumn(), body)
+}
 
-	// Show log
-	maxLines := m.height - 8
-	if maxLines < 5 {
-		maxLines = 5
+func (m model) viewError() string {
+	lines := []string{errorStyle.Render("Installation cannot continue.")}
+	if m.loadErr != nil {
+		lines = append(lines, "", normalStyle.Render(fmt.Sprintf("%v", m.loadErr)))
+	}
+	if m.installErr != "" && (m.loadErr == nil || m.installErr != m.loadErr.Error()) {
+		lines = append(lines, errorStyle.Render(fmt.Sprintf("Detail: %s", m.installErr)))
+	}
+	if len(m.logLines) > 0 {
+		lines = append(lines, "", subheadStyle.Render("Installer log"), m.logTail(m.height-18))
+	}
+
+	return m.screen("Install Error", m.planColumn(), panelStyle.Width(m.mainWidth()).Render(strings.Join(lines, "\n")))
+}
+
+func (m model) screen(title, left, main string) string {
+	header := headingStyle.Render(title)
+	rule := dimStyle.Render(strings.Repeat("─", max(min(m.width-8, 96), 12)))
+	body := lipgloss.JoinHorizontal(lipgloss.Top, left, tuiChromeBg.Render("  "), main)
+	if m.width < 80 {
+		body = left + "\n\n" + main
+	}
+	return strings.Join([]string{header, rule, "", body}, "\n")
+}
+
+func (m model) planColumn() string {
+	width := m.planWidth()
+	lines := []string{
+		subheadStyle.Render("Install Plan"),
+		"",
+		planRow("1", "Image", m.payloadName(), m.phase == phasePayloadSelect),
+		planRow("2", "Target", m.diskName(), m.phase == phaseDiskSelect),
+		planRow("3", "Confirm", confirmState(m.phase), m.phase == phaseConfirm),
+		planRow("4", "Write", statusText(m.status), m.phase == phaseProgress),
+	}
+	return panelStyle.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func planRow(num, label, value string, active bool) string {
+	marker := " " + num + " "
+	if active {
+		marker = badgeStyle.Render(num)
+	}
+	if value == "" {
+		value = "pending"
+	}
+	return fmt.Sprintf("%s %s\n   %s", marker, labelStyle.Render(label), dimStyle.Render(value))
+}
+
+func confirmState(p phase) string {
+	switch p {
+	case phaseConfirm:
+		return "review selection"
+	case phaseProgress, phaseComplete:
+		return "accepted"
+	default:
+		return "pending"
+	}
+}
+
+func (m model) installSummary() string {
+	return metaLine("Image", m.payloadName()) + "\n" +
+		metaLine("Target", m.diskName()) + "\n" +
+		metaLine("Phase", statusText(m.status))
+}
+
+func (m model) phaseList() string {
+	phases := []string{"partitioning", "copying", "configuring", "complete"}
+	current := statusText(m.status)
+	var rows []string
+	for _, p := range phases {
+		prefix := "  "
+		style := dimStyle
+		if p == current {
+			prefix = "> "
+			style = progressStyle
+		} else if phaseDone(p, current) {
+			prefix = "✓ "
+			style = successStyle
+		}
+		rows = append(rows, style.Render(prefix+p))
+	}
+	return strings.Join(rows, "\n")
+}
+
+func phaseDone(phaseName, current string) bool {
+	order := map[string]int{
+		"partitioning": 1,
+		"copying":      2,
+		"configuring":  3,
+		"complete":     4,
+	}
+	return order[phaseName] < order[current]
+}
+
+func (m model) logTail(maxLines int) string {
+	if maxLines < 4 {
+		maxLines = 4
+	}
+	if len(m.logLines) == 0 {
+		return dimStyle.Render("Waiting for installer output...")
 	}
 	start := 0
 	if len(m.logLines) > maxLines {
 		start = len(m.logLines) - maxLines
 	}
+	var rows []string
 	for _, line := range m.logLines[start:] {
-		b.WriteString(dimStyle.Render(line))
-		b.WriteByte('\n')
+		rows = append(rows, dimStyle.Render(truncate(line, max(m.mainInnerWidth()-2, 8))))
 	}
-
-	return b.String()
+	return strings.Join(rows, "\n")
 }
 
-func (m model) viewError() string {
-	var b strings.Builder
-	b.WriteString("\n")
-	b.WriteString(errorStyle.Render("Error: "))
-	if m.loadErr != nil {
-		b.WriteString(errorStyle.Render(fmt.Sprintf("%v", m.loadErr)))
+func (m model) payloadName() string {
+	if m.payloadCursor < len(m.payloads) {
+		return m.payloads[m.payloadCursor].Name
 	}
-	b.WriteString("\n")
-	if m.installErr != "" && (m.loadErr == nil || m.installErr != m.loadErr.Error()) {
-		b.WriteString(errorStyle.Render(fmt.Sprintf("Detail: %s", m.installErr)))
-		b.WriteString("\n")
-	}
-	b.WriteString("\n")
+	return ""
+}
 
-	if len(m.logLines) > 0 {
-		b.WriteString(dimStyle.Render("Log:"))
-		b.WriteString("\n")
-		maxLines := m.height - 10
-		if maxLines < 5 {
-			maxLines = 5
-		}
-		start := 0
-		if len(m.logLines) > maxLines {
-			start = len(m.logLines) - maxLines
-		}
-		for _, line := range m.logLines[start:] {
-			b.WriteString(dimStyle.Render(line))
-			b.WriteByte('\n')
-		}
+func (m model) diskName() string {
+	if m.diskCursor < len(m.disks) {
+		return "/dev/" + m.disks[m.diskCursor].Name
 	}
+	return ""
+}
 
-	return b.String()
+func (m model) planWidth() int {
+	if m.width < 80 {
+		return max(m.width-8, 24)
+	}
+	return 28
+}
+
+func (m model) mainWidth() int {
+	if m.width < 80 {
+		return max(m.width-8, 24)
+	}
+	return max(m.width-m.planWidth()-12, 32)
+}
+
+func (m model) mainInnerWidth() int {
+	return max(m.mainWidth()-4, 16)
+}
+
+func payloadSize(p installer.PayloadManifest) uint64 {
+	var total uint64
+	for _, part := range p.Partitions {
+		total += part.Size
+	}
+	return total
+}
+
+func transportLabel(transport string) string {
+	if transport == "" {
+		return "disk"
+	}
+	return transport
+}
+
+func emptyDefault(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func metaLine(label, value string) string {
+	return fmt.Sprintf("%s %s",
+		labelStyle.Width(10).Render(label),
+		valueStyle.Render(value))
+}
+
+func statusText(status string) string {
+	if status == "" {
+		return "starting"
+	}
+	return status
+}
+
+func progressBar(progress float64, width int) string {
+	if progress < 0 {
+		progress = 0
+	}
+	if progress > 1 {
+		progress = 1
+	}
+	filled := int(progress * float64(width))
+	if filled > width {
+		filled = width
+	}
+	return labelStyle.Render("[") +
+		progressStyle.Render(strings.Repeat("█", filled)) +
+		dimStyle.Render(strings.Repeat("░", width-filled)) +
+		labelStyle.Render("]")
+}
+
+func truncate(s string, width int) string {
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	if width <= 1 {
+		return s[:0]
+	}
+	runes := []rune(s)
+	for len(runes) > 0 && lipgloss.Width(string(runes))+1 > width {
+		runes = runes[:len(runes)-1]
+	}
+	return string(runes) + "…"
 }
 
 // TUI chrome helpers — matching build TUI appearance.

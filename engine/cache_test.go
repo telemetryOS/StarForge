@@ -335,7 +335,7 @@ func TestHashPhase_Services(t *testing.T) {
 func TestHashPhase_Boot(t *testing.T) {
 	ctx := actions.NewBuildContext()
 	ctx.Boot = &actions.BootConfig{
-		Loader: config.BootLoader{
+		Loader: &config.BootLoader{
 			Default: "arch.conf",
 			Timeout: 3,
 			Editor:  false,
@@ -344,8 +344,7 @@ func TestHashPhase_Boot(t *testing.T) {
 			{
 				Name:    "arch.conf",
 				Title:   "Arch Linux",
-				Linux:   "/vmlinuz-linux",
-				Initrd:  "/initramfs-linux.img",
+				Kernel:  "linux",
 				Options: "root=LABEL=root rw",
 			},
 		},
@@ -612,7 +611,7 @@ func TestHashPackaging_ChangesOnInstaller(t *testing.T) {
 	ctx2.Partitions = []actions.PartitionDef{
 		{Name: "root", Filesystem: "ext4", Size: 4 << 30, MountPoint: "/"},
 	}
-	ctx2.InstallerServer = &actions.InstallerServerDef{Port: 8080, Path: "/opt/installer"}
+	ctx2.InstallServer = &actions.InstallServerDef{Port: 8080, Path: "/opt/installer"}
 
 	h1 := HashPackaging(manifest, ctx1, nil)
 	h2 := HashPackaging(manifest, ctx2, nil)

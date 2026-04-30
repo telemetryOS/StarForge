@@ -16,6 +16,8 @@ var installerDeps = []string{
 	"efibootmgr",           // EFI boot entry management
 	"arch-install-scripts", // genfstab, arch-chroot
 	"zstd",                 // zstd decompression
+	"python",               // bmaptool runtime
+	"python-six",           // bmaptool runtime
 }
 
 func (a *InstallServer) Execute(step config.Step, layerDir string, ctx *BuildContext) error {
@@ -31,7 +33,7 @@ func (a *InstallServer) Execute(step config.Step, layerDir string, ctx *BuildCon
 		path = "/usr/lib/starforge/payloads"
 	}
 
-	ctx.InstallerServer = &InstallerServerDef{
+	ctx.InstallServer = &InstallServerDef{
 		Port:     port,
 		Path:     path,
 		Layer:    ctx.CurrentLayer,

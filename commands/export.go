@@ -168,38 +168,17 @@ func runExportPartitions(proj *config.Project, targetName string, target config.
 	defer output.Close()
 
 	return output.Run(func() error {
-		// Incremental build — detects source changes via cache hashing
+		// Incremental build + packaging. This path must use EnsurePackaged
+		// because it owns multi-target packaging and installer artifact
+		// bundling; PackageToImages is only the legacy single-target primitive.
 		builder := engine.NewBuilder(proj)
-		if err := builder.Build(targetName, target, false); err != nil {
+		ctx, err := builder.EnsureBuiltAndPackaged(targetName)
+		if err != nil {
 			return err
 		}
 
-		result, err := engine.LoadBuildResult(buildDir)
-		if err != nil {
-			return fmt.Errorf("loading build result: %w", err)
-		}
-
-		if len(result.Partitions) == 0 {
+		if len(ctx.Partitions) == 0 {
 			return fmt.Errorf("target %q has no partitions defined", targetName)
-		}
-
-		// Clean up any stale mounts from a previous interrupted build
-		engine.CleanupAll(buildDir)
-
-		// Mount cached overlay layers as read-only merged view
-		overlay := engine.NewOverlayManager(buildDir)
-		mergedDir, err := overlay.MountMerged()
-		if err != nil {
-			return fmt.Errorf("mounting overlay: %w", err)
-		}
-		defer overlay.Unmount()
-
-		// Package into individual partition images
-		if err := engine.PackageToImages(mergedDir, result.Partitions, buildDir, engine.PackageOps{
-			Ownerships:  result.Ownerships,
-			Permissions: result.Permissions,
-		}); err != nil {
-			return fmt.Errorf("packaging partitions: %w", err)
 		}
 
 		// Copy to output directory if specified
@@ -209,7 +188,7 @@ func runExportPartitions(proj *config.Project, targetName string, target config.
 				return fmt.Errorf("creating output directory: %w", err)
 			}
 
-			for _, part := range result.Partitions {
+			for _, part := range ctx.Partitions {
 				imgName := fmt.Sprintf("%s.img", part.Name)
 				src := filepath.Join(buildDir, imgName)
 				dest := filepath.Join(outputDir, imgName)

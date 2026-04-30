@@ -196,6 +196,61 @@ func TestEnsureChrootDirs_Idempotent(t *testing.T) {
 	}
 }
 
+// --- CopyPartition ---
+//
+// Exercises last-writer-wins overwrite semantics. Depends on `tar` on $PATH.
+
+func stageMergedFixture(t *testing.T, mountPoint string, srcContent map[string]string) string {
+	t.Helper()
+	mergedDir := t.TempDir()
+	subdir := filepath.Join(mergedDir, mountPoint)
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatalf("mkdir merged subtree: %v", err)
+	}
+	for relPath, content := range srcContent {
+		full := filepath.Join(subdir, relPath)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir parent: %v", err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", full, err)
+		}
+	}
+	return mergedDir
+}
+
+func TestCopyPartition_OverwritesExistingFile(t *testing.T) {
+	mergedDir := stageMergedFixture(t, "/boot", map[string]string{
+		"loader/loader.conf": "new-version",
+	})
+	rootfs := t.TempDir()
+	destLoader := filepath.Join(rootfs, "boot", "loader", "loader.conf")
+	if err := os.MkdirAll(filepath.Dir(destLoader), 0o755); err != nil {
+		t.Fatalf("mkdir dest parent: %v", err)
+	}
+	if err := os.WriteFile(destLoader, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write stale dest: %v", err)
+	}
+
+	part := actions.PartitionDef{
+		Name:       "boot",
+		Filesystem: "vfat",
+		Type:       "efi",
+		MountPoint: "/boot",
+	}
+	if err := CopyPartition(mergedDir, part, []actions.PartitionDef{part}, rootfs); err != nil {
+		t.Fatalf("CopyPartition: %v", err)
+	}
+
+	got, err := os.ReadFile(destLoader)
+	if err != nil {
+		t.Fatalf("read dest: %v", err)
+	}
+	if string(got) != "new-version" {
+		t.Errorf("expected dest overwritten with new-version, got %q", got)
+	}
+}
+
 // helper
 func containsLine(s, substr string) bool {
 	for _, line := range splitLines(s) {

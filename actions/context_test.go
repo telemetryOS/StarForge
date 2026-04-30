@@ -28,7 +28,7 @@ func TestNewBuildContext_AllSlicesInitialized(t *testing.T) {
 		"FileOwnerships":       ctx.FileOwnerships,
 		"FilePermissions":      ctx.FilePermissions,
 		"Scripts":              ctx.Scripts,
-		"InstallerPayloads":    ctx.InstallerPayloads,
+		"InstallPayloads":    ctx.InstallPayloads,
 		"HostnameHistory":      ctx.HostnameHistory,
 		"LocaleHistory":        ctx.LocaleHistory,
 		"TimezoneHistory":      ctx.TimezoneHistory,
@@ -113,7 +113,7 @@ func TestNewBuildContext_ScalarFieldsZero(t *testing.T) {
 	if ctx.Boot != nil {
 		t.Error("Boot should be nil")
 	}
-	if ctx.InstallerServer != nil {
-		t.Error("InstallerServer should be nil")
+	if ctx.InstallServer != nil {
+		t.Error("InstallServer should be nil")
 	}
 }

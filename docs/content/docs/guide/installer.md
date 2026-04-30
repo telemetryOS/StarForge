@@ -97,7 +97,7 @@ See the [`install-payload` reference](../../actions/install-payload/) for all fi
 
 ### install-server
 
-Configures the `starforge-install-server` daemon. Sets the listening port and payload directory. Also adds runtime dependencies (`dosfstools`, `e2fsprogs`, `arch-install-scripts`, `zstd`) to the package list automatically.
+Configures the `starforge-install-server` daemon. Sets the listening port and payload directory. Also adds runtime dependencies (`dosfstools`, `e2fsprogs`, `arch-install-scripts`, `zstd`, `python`, `python-six`) to the package list automatically.
 
 ```yaml
 - action: install-server
@@ -217,7 +217,7 @@ starforge export installer disk --size 8G --output ./release/installer.img
 **Installation pipeline.** When an installation starts, the server:
 
 1. Partitions the target disk with GPT via sfdisk
-2. Writes each compressed partition image directly to the corresponding device partition (piping zstd decompression into dd)
+2. Writes each compressed partition image directly to the corresponding device partition with `bmaptool`
 3. Expands growable partitions to fill available space
 4. Creates filesystems on expanded partitions
 5. Regenerates fstab and bootloader entries with the correct UUIDs from the target disk

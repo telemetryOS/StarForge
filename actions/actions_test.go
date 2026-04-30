@@ -36,11 +36,11 @@ func TestPacmanAdd_Accumulates(t *testing.T) {
 	ctx := NewBuildContext()
 	ctx.CurrentLayer = "base"
 	execAction(t, config.Step{
-		Action:   "pacman-add",
+		Action:    "pacman-add",
 		PacmanAdd: &config.PacmanAddStep{Packages: []string{"base", "linux"}},
 	}, ctx)
 	execAction(t, config.Step{
-		Action:   "pacman-add",
+		Action:    "pacman-add",
 		PacmanAdd: &config.PacmanAddStep{Packages: []string{"sudo"}},
 	}, ctx)
 	if len(ctx.Packages) != 3 {
@@ -54,7 +54,7 @@ func TestPacmanAdd_Accumulates(t *testing.T) {
 func TestPacmanAdd_EmptyError(t *testing.T) {
 	ctx := NewBuildContext()
 	err := execActionErr(t, config.Step{
-		Action:   "pacman-add",
+		Action:    "pacman-add",
 		PacmanAdd: &config.PacmanAddStep{Packages: []string{}},
 	}, ctx)
 	if err == nil {
@@ -67,7 +67,7 @@ func TestPacmanRemove_Filters(t *testing.T) {
 	ctx.CurrentLayer = "base"
 	ctx.Packages = []Package{{Name: "base"}, {Name: "linux"}, {Name: "sudo"}, {Name: "nano"}}
 	execAction(t, config.Step{
-		Action:      "pacman-remove",
+		Action:       "pacman-remove",
 		PacmanRemove: &config.PacmanRemoveStep{Packages: []string{"nano", "sudo"}},
 	}, ctx)
 	if len(ctx.Packages) != 2 {
@@ -78,7 +78,7 @@ func TestPacmanRemove_Filters(t *testing.T) {
 func TestPacmanRemove_EmptyError(t *testing.T) {
 	ctx := NewBuildContext()
 	err := execActionErr(t, config.Step{
-		Action:      "pacman-remove",
+		Action:       "pacman-remove",
 		PacmanRemove: &config.PacmanRemoveStep{Packages: []string{}},
 	}, ctx)
 	if err == nil {
@@ -183,7 +183,7 @@ func TestPartitionRemove(t *testing.T) {
 		{Name: "swap"},
 	}
 	execAction(t, config.Step{
-		Action:         "partition-remove",
+		Action:          "partition-remove",
 		PartitionRemove: &config.PartitionRemoveStep{Name: "swap"},
 	}, ctx)
 	if len(ctx.Partitions) != 2 {
@@ -200,7 +200,7 @@ func TestPartitionRemove_Missing(t *testing.T) {
 	ctx := NewBuildContext()
 	ctx.Partitions = []PartitionDef{{Name: "boot"}}
 	err := execActionErr(t, config.Step{
-		Action:         "partition-remove",
+		Action:          "partition-remove",
 		PartitionRemove: &config.PartitionRemoveStep{Name: "nonexistent"},
 	}, ctx)
 	if err == nil {
@@ -1144,8 +1144,8 @@ func TestSystemdBootInstall(t *testing.T) {
 				Editor:  false,
 			},
 			Entries: []config.BootEntry{
-				{Name: "arch.conf", Title: "TelemetryOS Edge", Linux: "/vmlinuz-linux", Initrd: "/initramfs-linux.img", Options: "rw quiet splash"},
-				{Name: "recovery.conf", Title: "TelemetryOS Recovery", Linux: "/vmlinuz-linux", Initrd: "/initramfs-linux.img", Options: "rw quiet"},
+				{Name: "arch.conf", Title: "TelemetryOS Edge", Kernel: "linux", Options: "rw quiet splash"},
+				{Name: "recovery.conf", Title: "TelemetryOS Recovery", Kernel: "linux", Options: "rw quiet"},
 			},
 		},
 	}, ctx)
@@ -1277,14 +1277,14 @@ func TestInstallServer_Defaults(t *testing.T) {
 		Action:        "install-server",
 		InstallServer: &config.InstallServerStep{},
 	}, ctx)
-	if ctx.InstallerServer == nil {
-		t.Fatal("InstallerServer is nil")
+	if ctx.InstallServer == nil {
+		t.Fatal("InstallServer is nil")
 	}
-	if ctx.InstallerServer.Port != 8100 {
-		t.Errorf("Port = %d, want 8100", ctx.InstallerServer.Port)
+	if ctx.InstallServer.Port != 8100 {
+		t.Errorf("Port = %d, want 8100", ctx.InstallServer.Port)
 	}
-	if ctx.InstallerServer.Path != "/usr/lib/starforge/payloads" {
-		t.Errorf("Path = %q", ctx.InstallerServer.Path)
+	if ctx.InstallServer.Path != "/usr/lib/starforge/payloads" {
+		t.Errorf("Path = %q", ctx.InstallServer.Path)
 	}
 	// Should add runtime deps to packages
 	if len(ctx.Packages) < 3 {
@@ -1294,7 +1294,7 @@ func TestInstallServer_Defaults(t *testing.T) {
 	for _, p := range ctx.Packages {
 		found[p.Name] = true
 	}
-	for _, dep := range []string{"dosfstools", "e2fsprogs", "zstd"} {
+	for _, dep := range []string{"dosfstools", "e2fsprogs", "zstd", "python", "python-six"} {
 		if !found[dep] {
 			t.Errorf("missing installer dep %q in Packages", dep)
 		}
@@ -1308,11 +1308,11 @@ func TestInstallServer_CustomPortPath(t *testing.T) {
 		Action:        "install-server",
 		InstallServer: &config.InstallServerStep{Port: 9090, Path: "/images"},
 	}, ctx)
-	if ctx.InstallerServer.Port != 9090 {
-		t.Errorf("Port = %d", ctx.InstallerServer.Port)
+	if ctx.InstallServer.Port != 9090 {
+		t.Errorf("Port = %d", ctx.InstallServer.Port)
 	}
-	if ctx.InstallerServer.Path != "/images" {
-		t.Errorf("Path = %q", ctx.InstallerServer.Path)
+	if ctx.InstallServer.Path != "/images" {
+		t.Errorf("Path = %q", ctx.InstallServer.Path)
 	}
 }
 
@@ -1323,11 +1323,11 @@ func TestInstallClient(t *testing.T) {
 		Action:        "install-client",
 		InstallClient: &config.InstallClientStep{AutoLogin: "installer"},
 	}, ctx)
-	if ctx.InstallerClient == nil {
-		t.Fatal("InstallerClient is nil")
+	if ctx.InstallClient == nil {
+		t.Fatal("InstallClient is nil")
 	}
-	if ctx.InstallerClient.AutoLogin != "installer" {
-		t.Errorf("AutoLogin = %q", ctx.InstallerClient.AutoLogin)
+	if ctx.InstallClient.AutoLogin != "installer" {
+		t.Errorf("AutoLogin = %q", ctx.InstallClient.AutoLogin)
 	}
 }
 
@@ -1339,14 +1339,14 @@ func TestInstallPayload(t *testing.T) {
 		Action:         "install-payload",
 		InstallPayload: &config.InstallPayloadStep{Target: "device", Path: "/images/device"},
 	}, ctx)
-	if len(ctx.InstallerPayloads) != 1 {
-		t.Fatalf("InstallerPayloads = %d", len(ctx.InstallerPayloads))
+	if len(ctx.InstallPayloads) != 1 {
+		t.Fatalf("InstallPayloads = %d", len(ctx.InstallPayloads))
 	}
-	if ctx.InstallerPayloads[0].Target != "device" {
-		t.Errorf("Target = %q", ctx.InstallerPayloads[0].Target)
+	if ctx.InstallPayloads[0].Target != "device" {
+		t.Errorf("Target = %q", ctx.InstallPayloads[0].Target)
 	}
-	if ctx.InstallerPayloads[0].Path != "/images/device" {
-		t.Errorf("Path = %q", ctx.InstallerPayloads[0].Path)
+	if ctx.InstallPayloads[0].Path != "/images/device" {
+		t.Errorf("Path = %q", ctx.InstallPayloads[0].Path)
 	}
 }
 
@@ -1372,8 +1372,8 @@ func TestInstallPayload_Accumulates(t *testing.T) {
 		Action:         "install-payload",
 		InstallPayload: &config.InstallPayloadStep{Target: "device-dev", Path: "/images/device-dev"},
 	}, ctx)
-	if len(ctx.InstallerPayloads) != 2 {
-		t.Errorf("InstallerPayloads = %d, want 2", len(ctx.InstallerPayloads))
+	if len(ctx.InstallPayloads) != 2 {
+		t.Errorf("InstallPayloads = %d, want 2", len(ctx.InstallPayloads))
 	}
 }
 
@@ -1436,9 +1436,9 @@ func TestEdgeOS_BaseLayer(t *testing.T) {
 		SystemdBootInstall: &config.SystemdBootInstallStep{
 			Loader: &config.BootLoader{Default: "arch.conf", Timeout: 0, Editor: false},
 			Entries: []config.BootEntry{
-				{Name: "arch.conf", Title: "TelemetryOS Edge", Linux: "/vmlinuz-linux", Initrd: "/initramfs-linux.img", Options: "rw quiet splash rootflags=noatime,commit=600 audit=0 noresume"},
-				{Name: "recovery.conf", Title: "TelemetryOS Recovery", Linux: "/vmlinuz-linux", Initrd: "/initramfs-linux.img", Options: "rw quiet rootflags=noatime,commit=600 noresume"},
-				{Name: "fallback-recovery.conf", Title: "TelemetryOS Fallback Recovery", Linux: "/vmlinuz-linux", Initrd: "/initramfs-linux.img", Options: "rw quiet rootflags=noatime,commit=600 noresume"},
+				{Name: "arch.conf", Title: "TelemetryOS Edge", Kernel: "linux", Options: "rw quiet splash rootflags=noatime,commit=600 audit=0 noresume"},
+				{Name: "recovery.conf", Title: "TelemetryOS Recovery", Kernel: "linux", Options: "rw quiet rootflags=noatime,commit=600 noresume"},
+				{Name: "fallback-recovery.conf", Title: "TelemetryOS Fallback Recovery", Kernel: "linux", Options: "rw quiet rootflags=noatime,commit=600 noresume"},
 			},
 		},
 	}, ctx)

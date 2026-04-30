@@ -83,4 +83,7 @@ func init() {
 	Register(&InstallServer{})
 	Register(&InstallClient{})
 	Register(&InstallPayload{})
+
+	// Multi-target composition
+	Register(&InstallEmbed{})
 }

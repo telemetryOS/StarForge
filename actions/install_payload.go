@@ -20,11 +20,12 @@ func (a *InstallPayload) Execute(step config.Step, layerDir string, ctx *BuildCo
 		return fmt.Errorf("install-payload: path is required")
 	}
 
-	ctx.InstallerPayloads = append(ctx.InstallerPayloads, InstallerPayloadDef{
-		Target: s.Target,
-		Path:   s.Path,
-		Layer:  ctx.CurrentLayer,
-		Label:  step.Label,
+	ctx.InstallPayloads = append(ctx.InstallPayloads, InstallPayloadDef{
+		Target:     s.Target,
+		Path:       s.Path,
+		Partitions: s.Partitions,
+		Layer:      ctx.CurrentLayer,
+		Label:      step.Label,
 	})
 
 	return nil

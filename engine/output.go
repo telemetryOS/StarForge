@@ -19,24 +19,24 @@ import (
 	"github.com/mattn/go-isatty"
 )
 
-// Color palette — warm ember tones: yellow ↔ red ↔ black.
+// Color palette shared with command/status output.
 var (
-	colorText   = lipgloss.Color("#f0d0a0") // warm peach-cream
-	colorDim    = lipgloss.Color("#7a5538") // muted orange
-	colorSubtle = lipgloss.Color("#3d2a18") // dark orange-brown
+	colorText   = lipgloss.Color("#d6dde3")
+	colorDim    = lipgloss.Color("#7d8790")
+	colorSubtle = lipgloss.Color("#2a3138")
 
-	colorAccent    = lipgloss.Color("#e8b830") // golden amber (primary accent)
-	colorEmphasis  = lipgloss.Color("#d48820") // warm orange (emphasis)
-	colorHeading   = lipgloss.Color("#d07030") // burnt orange (headers)
+	colorAccent   = lipgloss.Color("#9ccfd8")
+	colorEmphasis = lipgloss.Color("#8fbfd0")
+	colorHeading  = lipgloss.Color("#8fbfd0")
 
-	colorSuccess   = lipgloss.Color("#c8a028") // warm gold (success)
-	colorError     = lipgloss.Color("#e84848") // bright red (errors)
-	colorHighlight = lipgloss.Color("#e89030") // amber (accents)
+	colorSuccess   = lipgloss.Color("#7ccf91")
+	colorError     = lipgloss.Color("#ff6b6b")
+	colorHighlight = lipgloss.Color("#d8b45f")
 
-	colorMuted     = lipgloss.Color("#c89868") // warm orange-tan (step actions)
+	colorMuted = lipgloss.Color("#a8b3bd")
 
-	colorBg     = lipgloss.Color("#1c1408") // warm orange-black
-	colorBgDark = lipgloss.Color("#120d08") // deep orange-black
+	colorBg     = lipgloss.Color("#0f1419")
+	colorBgDark = lipgloss.Color("#0b0f12")
 )
 
 // Styles used by the output system and engine code.
@@ -51,7 +51,7 @@ var (
 	failStyle    = lipgloss.NewStyle().Bold(true).Foreground(colorError)
 
 	// Brighter variants for post-TUI summary (renders on user's terminal bg).
-	summaryDim   = lipgloss.NewStyle().Foreground(lipgloss.Color("#b08050"))
+	summaryDim = lipgloss.NewStyle().Foreground(colorDim)
 )
 
 // TUI-specific styles.
@@ -158,6 +158,7 @@ func InitOutput(buildDir, commandName, targetName string) (*Output, error) {
 		vp.MouseWheelEnabled = true
 		vp.SoftWrap = true
 
+		now := time.Now()
 		model := buildModel{
 			commandName: commandName,
 			targetName:  targetName,
@@ -167,11 +168,10 @@ func InitOutput(buildDir, commandName, targetName string) (*Output, error) {
 			viewport:    vp,
 			logLines:    make([]string, 0, 256),
 			autoScroll:  true,
-			totalStart:  time.Now(),
+			totalStart:  now,
+			targetStart: now,
 		}
-		for i, name := range PhaseNames {
-			model.phases[i] = phaseInfo{name: phaseShortName(name)}
-		}
+		model.phases = newPhaseInfos()
 		o.program = tea.NewProgram(model,
 			tea.WithOutput(os.Stderr),
 		)
@@ -222,7 +222,7 @@ func (o *Output) Run(fn func() error) error {
 			signal.Ignore(syscall.SIGTERM, syscall.SIGINT)
 			syscall.Kill(-pgid, syscall.SIGTERM)
 		}
-		os.Exit(130) // 128 + SIGINT(2)
+		os.Exit(130)                     // 128 + SIGINT(2)
 		return fmt.Errorf("interrupted") // unreachable, satisfies compiler
 	}
 
@@ -342,6 +342,49 @@ func (o *Output) Warning(text string) {
 	o.println(line, line)
 }
 
+// TargetHeader prints a clear delimiter that names the target whose build is
+// starting. Call this at the top of each target's build pass so non-
+// interactive logs (CI, piped output) clearly section the work, and so the
+// TUI title can track which target is currently building.
+func (o *Output) TargetHeader(name string) {
+	if o == nil {
+		return
+	}
+	label := "building target: " + name
+	// Default to 6 dashes each side, but widen to span the terminal when
+	// $COLUMNS is set (CI logs at 200 cols look anaemic with fixed width).
+	dashEach := 6
+	if cols := terminalCols(); cols > len(label)+16 {
+		dashEach = (cols - len(label) - 2) / 2
+		if dashEach < 6 {
+			dashEach = 6
+		}
+	}
+	delimiter := strings.Repeat("─", dashEach)
+	plain := fmt.Sprintf("%s %s %s", delimiter, label, delimiter)
+	styled := fmt.Sprintf("%s %s %s",
+		dimStyle.Render(delimiter),
+		headerStyle.Render(label),
+		dimStyle.Render(delimiter),
+	)
+	o.println(styled, plain)
+	o.sendMsg(setTargetMsg{name: name})
+}
+
+// terminalCols returns the terminal width from $COLUMNS (set by most
+// shells) or 0 if unavailable. We only consult it when not running in
+// the TUI alt-screen, where width is already tracked via WindowSizeMsg.
+func terminalCols() int {
+	if v := os.Getenv("COLUMNS"); v != "" {
+		var n int
+		_, err := fmt.Sscanf(v, "%d", &n)
+		if err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
 // Styled prints an already-styled line (for callers that build their own styling).
 func (o *Output) Styled(styled, plain string) {
 	o.println(styled, plain)
@@ -378,6 +421,52 @@ func (o *Output) RunWithSpinner(label string, fn func() error) error {
 	fmt.Printf("    %s... ", label)
 	o.logLine(fmt.Sprintf("    %s...", label))
 	err := fn()
+	elapsed := time.Since(start)
+	if err != nil {
+		fmt.Printf("✗ [%s]\n", formatDuration(elapsed))
+		o.logLine(fmt.Sprintf("    ✗ %s [%s]", label, formatDuration(elapsed)))
+		return err
+	}
+	fmt.Printf("✓ [%s]\n", formatDuration(elapsed))
+	o.logLine(fmt.Sprintf("    ✓ %s [%s]", label, formatDuration(elapsed)))
+	return nil
+}
+
+// RunWithProgress runs fn with the standard spinner and exposes a callback
+// for machine-readable subprocess progress.
+func (o *Output) RunWithProgress(label string, fn func(update func(int)) error) error {
+	if o == nil {
+		return fn(func(int) {})
+	}
+	start := time.Now()
+	update := func(percent int) {
+		if o.isActive() {
+			o.program.Send(progressMsg{percent: percent})
+		}
+	}
+
+	if o.isActive() {
+		o.program.Send(startSpinnerMsg{label: label})
+		err := fn(update)
+		elapsed := time.Since(start)
+		o.program.Send(stopSpinnerMsg{})
+		if err != nil {
+			o.println(
+				fmt.Sprintf("    ✗ %s  %s", label, dimStyle.Render(formatDuration(elapsed))),
+				fmt.Sprintf("    ✗ %s [%s]", label, formatDuration(elapsed)),
+			)
+			return err
+		}
+		o.println(
+			fmt.Sprintf("    ✓ %s  %s", label, dimStyle.Render(formatDuration(elapsed))),
+			fmt.Sprintf("    ✓ %s [%s]", label, formatDuration(elapsed)),
+		)
+		return nil
+	}
+
+	fmt.Printf("    %s... ", label)
+	o.logLine(fmt.Sprintf("    %s...", label))
+	err := fn(update)
 	elapsed := time.Since(start)
 	if err != nil {
 		fmt.Printf("✗ [%s]\n", formatDuration(elapsed))
@@ -452,7 +541,7 @@ func (o *Output) sendMsg(msg tea.Msg) {
 	}
 }
 
-// phaseIndex returns the index (0-8) for a PhaseNames entry, or -1 if not found.
+// phaseIndex returns the index for a PhaseNames entry, or -1 if not found.
 func phaseIndex(name string) int {
 	for i, pn := range PhaseNames {
 		if pn == name {
@@ -468,6 +557,18 @@ func phaseShortName(name string) string {
 		return name[2:]
 	}
 	return name
+}
+
+func newPhaseInfos() []phaseInfo {
+	phases := make([]phaseInfo, len(PhaseNames))
+	for i, name := range PhaseNames {
+		phases[i] = phaseInfo{name: phaseShortName(name)}
+	}
+	return phases
+}
+
+func phaseGridRows() int {
+	return (len(PhaseNames) + 1) / 2
 }
 
 // println sends a line to the terminal and log file.
@@ -538,6 +639,7 @@ type phaseInfo struct {
 
 type startSpinnerMsg struct{ label string }
 type stopSpinnerMsg struct{}
+type progressMsg struct{ percent int }
 type buildDoneMsg struct{}
 type startPhaseMsg struct {
 	index int
@@ -566,6 +668,11 @@ type collectLayerDoneMsg struct {
 	elapsed time.Duration
 }
 
+// setTargetMsg updates the title bar to reflect which target is currently
+// being built. Emitted by Output.TargetHeader when traversing into a
+// dependency target.
+type setTargetMsg struct{ name string }
+
 // tickMsg fires periodically to update elapsed time displays.
 type tickMsg time.Time
 
@@ -577,6 +684,21 @@ type layerInfo struct {
 	elapsed time.Duration
 }
 
+// targetSection is a frozen snapshot of one target's stage/phase tree.
+// When `out.TargetHeader(name)` is called for a NEW target while another
+// is still in flight, the live model state is rolled into a section before
+// being reset for the new target. printSummary iterates these sections plus
+// the still-live final-target state.
+type targetSection struct {
+	name       string
+	stages     [5]stageInfo
+	stageCount int
+	phases     []phaseInfo
+	layers     []layerInfo
+	start      time.Time
+	elapsed    time.Duration
+}
+
 type buildModel struct {
 	commandName string
 	targetName  string
@@ -585,7 +707,7 @@ type buildModel struct {
 	stageCount int // how many stages have been started (only show these)
 
 	spinner     spinner.Model
-	phases      [9]phaseInfo
+	phases      []phaseInfo
 	activePhase int // -1 when none running
 
 	// Collect stage layer tracking
@@ -593,13 +715,21 @@ type buildModel struct {
 	activeLayer int // -1 when none running
 
 	// Inner spinner (current operation within a phase)
-	label  string
-	start  time.Time
-	active bool
+	label       string
+	start       time.Time
+	active      bool
+	progress    int
+	hasProgress bool
 
 	viewport   viewport.Model
 	logLines   []string
 	autoScroll bool
+
+	// Per-target archive — populated by setTargetMsg whenever the active
+	// target switches. Each entry is the frozen state of a previously-built
+	// target. The current target's state lives in the fields above.
+	targets     []targetSection
+	targetStart time.Time
 
 	totalStart time.Time
 	quitting   bool
@@ -629,7 +759,7 @@ func (m buildModel) chromeHeight() int {
 	}
 	// Phase grid under Build
 	if m.stages[StageBuild].status != phasePending {
-		h += 5
+		h += phaseGridRows()
 	}
 	h += 2 // viewport border top+bottom
 	h += 1 // footer bar
@@ -727,6 +857,9 @@ func (m buildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case startPhaseMsg:
+		if msg.index < 0 || msg.index >= len(m.phases) {
+			return m, nil
+		}
 		m.phases[msg.index].status = phaseRunning
 		m.phases[msg.index].start = time.Now()
 		m.activePhase = msg.index
@@ -734,6 +867,9 @@ func (m buildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case endPhaseMsg:
+		if msg.index < 0 || msg.index >= len(m.phases) {
+			return m, nil
+		}
 		m.phases[msg.index].status = phaseComplete
 		m.phases[msg.index].elapsed = msg.elapsed
 		if m.activePhase == msg.index {
@@ -742,10 +878,16 @@ func (m buildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case phaseCachedMsg:
+		if msg.index < 0 || msg.index >= len(m.phases) {
+			return m, nil
+		}
 		m.phases[msg.index].status = phaseCached
 		return m, nil
 
 	case phaseFailedMsg:
+		if msg.index < 0 || msg.index >= len(m.phases) {
+			return m, nil
+		}
 		m.phases[msg.index].status = phaseFailed
 		if m.activePhase == msg.index {
 			m.activePhase = -1
@@ -756,11 +898,46 @@ func (m buildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.label = msg.label
 		m.start = time.Now()
 		m.active = true
+		m.progress = 0
+		m.hasProgress = false
 		return m, m.spinner.Tick
 
 	case stopSpinnerMsg:
 		m.active = false
 		m.label = ""
+		m.progress = 0
+		m.hasProgress = false
+		return m, nil
+
+	case progressMsg:
+		m.progress = max(0, min(100, msg.percent))
+		m.hasProgress = true
+		return m, nil
+
+	case setTargetMsg:
+		// If we already had a target with progress, snapshot it before
+		// switching to the new one so the dashboard and final summary
+		// can render per-target sections instead of clobbering state.
+		if m.targetName != "" && m.targetName != msg.name && m.stageCount > 0 {
+			m.targets = append(m.targets, targetSection{
+				name:       m.targetName,
+				stages:     m.stages,
+				stageCount: m.stageCount,
+				phases:     append([]phaseInfo(nil), m.phases...),
+				layers:     m.layers,
+				start:      m.targetStart,
+				elapsed:    time.Since(m.targetStart),
+			})
+			// Reset live state for the new target.
+			m.stages = [5]stageInfo{}
+			m.stageCount = 0
+			m.phases = newPhaseInfos()
+			m.layers = nil
+			m.activePhase = -1
+			m.activeLayer = -1
+		}
+		m.targetName = msg.name
+		m.targetStart = time.Now()
 		return m, nil
 
 	case buildDoneMsg:
@@ -869,7 +1046,7 @@ func (m buildModel) View() tea.View {
 				if status != "" {
 					cell += chromeBg.Render("  ") + status
 				}
-				b.WriteString(treeStyle.Render("   "+connector+" "))
+				b.WriteString(treeStyle.Render("   " + connector + " "))
 				b.WriteString(cell)
 				b.WriteByte('\n')
 			}
@@ -878,15 +1055,15 @@ func (m buildModel) View() tea.View {
 		// Phase grid nested under Build
 		if Stage(i) == StageBuild && m.stages[StageBuild].status != phasePending {
 			const cellWidth = 26
-			for row := range 5 {
+			rows := phaseGridRows()
+			for row := range rows {
 				left := m.renderPhaseCell(row, cellWidth)
 				right := ""
-				ri := row + 5
-				if ri < 9 {
+				ri := row + rows
+				if ri < len(m.phases) {
 					right = m.renderPhaseCell(ri, cellWidth)
 				}
-				// Tree connector: ├── for rows 0-3, └── for last row
-				if row < 4 {
+				if row < rows-1 {
 					b.WriteString(treeStyle.Render("   ├ "))
 				} else {
 					b.WriteString(treeStyle.Render("   └ "))
@@ -983,6 +1160,11 @@ func (m buildModel) renderFooter() string {
 		spinElapsed := footerDimStyle.Render(formatDuration(time.Since(m.start)))
 		left = fSp.Render(" ") + spinnerView + fSp.Render(" ") +
 			footerBarStyle.Render(m.label) + fSp.Render("  ") + spinElapsed
+		if m.hasProgress {
+			left += fSp.Render("  ") +
+				renderProgressBar(m.progress, 100, 14) +
+				footerBarStyle.Render(fmt.Sprintf(" %3d%%", m.progress))
+		}
 	} else {
 		completed := 0
 		for _, p := range m.phases {
@@ -990,8 +1172,9 @@ func (m buildModel) renderFooter() string {
 				completed++
 			}
 		}
-		left = fSp.Render(" ") + renderProgressBar(completed, 9, 20) +
-			footerBarStyle.Render(fmt.Sprintf(" %d/9", completed))
+		total := max(len(m.phases), 1)
+		left = fSp.Render(" ") + renderProgressBar(completed, total, 20) +
+			footerBarStyle.Render(fmt.Sprintf(" %d/%d", completed, total))
 	}
 
 	// Right side: scroll indicator + elapsed
@@ -1012,73 +1195,36 @@ func (m buildModel) renderFooter() string {
 }
 
 // printSummary prints a detailed post-exit summary to stderr after the alt
-// screen closes. Shows each stage with elapsed time, and under Build shows
-// every phase with its status (cached, elapsed, or failed).
+// screen closes. For multi-target builds, prints one section per target
+// (archived snapshots + the live final target).
 func (m buildModel) printSummary(err error) {
 	totalElapsed := time.Since(m.totalStart)
 	dim := summaryDim
 	w := os.Stderr
 
-	fmt.Fprintf(w, "\n %s %s %s\n\n",
+	fmt.Fprintf(w, "\n %s %s\n\n",
 		headerStyle.Render("starforge"),
-		m.commandName,
-		m.targetName)
+		m.commandName)
 
-	for i := 0; i < m.stageCount; i++ {
-		s := m.stages[i]
-		switch s.status {
-		case phaseComplete:
-			fmt.Fprintf(w, "  %s %s  %s\n",
-				successStyle.Render("✓"),
-				s.name,
-				dim.Render(formatDuration(s.elapsed)))
-		case phaseRunning:
-			elapsed := time.Since(s.start)
-			fmt.Fprintf(w, "  %s %s  %s\n",
-				failStyle.Render("✗"),
-				failStyle.Render(s.name),
-				dim.Render(formatDuration(elapsed)))
-		default:
-			fmt.Fprintf(w, "  %s %s\n",
-				dim.Render("○"),
-				dim.Render(s.name))
-		}
-
-		// Show phase details under Build stage
-		if Stage(i) == StageBuild {
-			for j := range m.phases {
-				p := m.phases[j]
-				connector := "├"
-				if j == len(m.phases)-1 {
-					connector = "└"
-				}
-				switch p.status {
-				case phaseCached:
-					fmt.Fprintf(w, "    %s %s %s  %s\n",
-						dim.Render(connector),
-						successStyle.Render("✓"),
-						p.name,
-						cachedStyle.Render("cached"))
-				case phaseComplete:
-					fmt.Fprintf(w, "    %s %s %s  %s\n",
-						dim.Render(connector),
-						successStyle.Render("✓"),
-						p.name,
-						dim.Render(formatDuration(p.elapsed)))
-				case phaseFailed:
-					fmt.Fprintf(w, "    %s %s %s\n",
-						dim.Render(connector),
-						failStyle.Render("✗"),
-						failStyle.Render(p.name))
-				default:
-					fmt.Fprintf(w, "    %s %s %s\n",
-						dim.Render(connector),
-						dim.Render("○"),
-						dim.Render(p.name))
-				}
-			}
-		}
+	// Each archived target ran to completion before the next began. Render
+	// them as collapsed sections.
+	for _, t := range m.targets {
+		renderTargetSummary(w, dim, t.name, t.stages[:], t.stageCount, t.phases, t.elapsed)
+		fmt.Fprintln(w)
 	}
+
+	// The current (or only) target — its `elapsed` is "now - targetStart"
+	// since it didn't get archived.
+	current := targetSection{
+		name:       m.targetName,
+		stages:     m.stages,
+		stageCount: m.stageCount,
+		phases:     append([]phaseInfo(nil), m.phases...),
+		layers:     m.layers,
+		start:      m.targetStart,
+		elapsed:    time.Since(m.targetStart),
+	}
+	renderTargetSummary(w, dim, current.name, current.stages[:], current.stageCount, current.phases, current.elapsed)
 
 	fmt.Fprintln(w)
 	if err != nil {
@@ -1115,8 +1261,78 @@ func (m buildModel) printSummary(err error) {
 	}
 }
 
+// renderTargetSummary writes one target's stage tree to w. Used by both
+// archived target sections (in m.targets) and the live final target.
+func renderTargetSummary(w io.Writer, dim lipgloss.Style, name string, stages []stageInfo, stageCount int, phases []phaseInfo, elapsed time.Duration) {
+	header := name
+	if header == "" {
+		header = "(unnamed)"
+	}
+	fmt.Fprintf(w, " %s  %s\n",
+		accentStyle.Render(header),
+		dim.Render(formatDuration(elapsed)))
+
+	for i := 0; i < stageCount && i < len(stages); i++ {
+		s := stages[i]
+		switch s.status {
+		case phaseComplete:
+			fmt.Fprintf(w, "  %s %s  %s\n",
+				successStyle.Render("✓"),
+				s.name,
+				dim.Render(formatDuration(s.elapsed)))
+		case phaseRunning:
+			elapsed := time.Since(s.start)
+			fmt.Fprintf(w, "  %s %s  %s\n",
+				failStyle.Render("✗"),
+				failStyle.Render(s.name),
+				dim.Render(formatDuration(elapsed)))
+		default:
+			fmt.Fprintf(w, "  %s %s\n",
+				dim.Render("○"),
+				dim.Render(s.name))
+		}
+
+		if Stage(i) == StageBuild {
+			for j := range phases {
+				p := phases[j]
+				connector := "├"
+				if j == len(phases)-1 {
+					connector = "└"
+				}
+				switch p.status {
+				case phaseCached:
+					fmt.Fprintf(w, "    %s %s %s  %s\n",
+						dim.Render(connector),
+						successStyle.Render("✓"),
+						p.name,
+						cachedStyle.Render("cached"))
+				case phaseComplete:
+					fmt.Fprintf(w, "    %s %s %s  %s\n",
+						dim.Render(connector),
+						successStyle.Render("✓"),
+						p.name,
+						dim.Render(formatDuration(p.elapsed)))
+				case phaseFailed:
+					fmt.Fprintf(w, "    %s %s %s\n",
+						dim.Render(connector),
+						failStyle.Render("✗"),
+						failStyle.Render(p.name))
+				default:
+					fmt.Fprintf(w, "    %s %s %s\n",
+						dim.Render(connector),
+						dim.Render("○"),
+						dim.Render(p.name))
+				}
+			}
+		}
+	}
+}
+
 // renderPhaseCell renders a single phase cell for the dashboard grid.
 func (m buildModel) renderPhaseCell(index, width int) string {
+	if index < 0 || index >= len(m.phases) {
+		return ""
+	}
 	p := m.phases[index]
 
 	var icon, name, status string
@@ -1223,8 +1439,8 @@ func (w *logOnlyWriter) Write(p []byte) (int, error) {
 // Gradient endpoints for the log viewport background.
 // Top is slightly brighter, bottom fades to a deeper dark.
 var (
-	gradientTop    = color.RGBA{R: 0x28, G: 0x1e, B: 0x10, A: 0xff} // warm dark, slightly lighter than bg
-	gradientBottom = color.RGBA{R: 0x12, G: 0x0d, B: 0x08, A: 0xff} // matches colorBgDark
+	gradientTop    = color.RGBA{R: 0x16, G: 0x1d, B: 0x23, A: 0xff}
+	gradientBottom = color.RGBA{R: 0x0b, G: 0x0f, B: 0x12, A: 0xff}
 )
 
 // lerpColor linearly interpolates between two colors. t in [0,1].

@@ -3,7 +3,79 @@ package engine
 import (
 	"strings"
 	"testing"
+
+	"github.com/telemetryos/starforge/actions"
+	"github.com/telemetryos/starforge/config"
 )
+
+// --- validateTargetHasRoot tests ---
+
+func TestValidateTargetHasRoot_HasRoot(t *testing.T) {
+	ctx := &actions.BuildContext{
+		Partitions: []actions.PartitionDef{
+			{Name: "boot", MountPoint: "/boot"},
+			{Name: "root", MountPoint: "/"},
+		},
+	}
+	if err := validateTargetHasRoot("device", ctx); err != nil {
+		t.Errorf("validation should pass when / is declared: %v", err)
+	}
+}
+
+func TestValidateTargetHasRoot_MissingRoot(t *testing.T) {
+	ctx := &actions.BuildContext{
+		Partitions: []actions.PartitionDef{
+			{Name: "boot", MountPoint: "/boot"},
+			{Name: "data", MountPoint: "/data"},
+		},
+	}
+	err := validateTargetHasRoot("device", ctx)
+	if err == nil {
+		t.Fatal("expected error when no / partition declared")
+	}
+	if !strings.Contains(err.Error(), "no root (/) partition") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestValidateTargetHasRoot_NoPartitions(t *testing.T) {
+	ctx := &actions.BuildContext{Partitions: nil}
+	if err := validateTargetHasRoot("device", ctx); err == nil {
+		t.Error("expected error when no partitions declared at all")
+	}
+}
+
+// --- buildRecursive cycle-detection tests ---
+//
+// These exercise just the cycle-check / visited-shortcircuit logic, both
+// of which run before any filesystem work, so we don't need a real project.
+
+func TestBuildRecursive_CycleDetected(t *testing.T) {
+	b := &Builder{}
+	visited := map[string]bool{}
+	path := []string{"a", "b"}
+
+	// Simulate: building "a" reached "b", which is now trying to build "a"
+	// again. Should error before any other work.
+	err := b.buildRecursive("a", config.Target{}, false, visited, path)
+	if err == nil {
+		t.Fatal("expected cycle error")
+	}
+	if !strings.Contains(err.Error(), "cycle") {
+		t.Errorf("expected cycle in error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "a -> b -> a") {
+		t.Errorf("expected full path in error, got: %v", err)
+	}
+}
+
+func TestBuildRecursive_AlreadyVisitedShortCircuits(t *testing.T) {
+	b := &Builder{}
+	visited := map[string]bool{"x": true}
+	if err := b.buildRecursive("x", config.Target{}, false, visited, nil); err != nil {
+		t.Errorf("visited target should short-circuit cleanly, got: %v", err)
+	}
+}
 
 // --- validateImports tests ---
 

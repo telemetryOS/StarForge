@@ -17,5 +17,5 @@ type PayloadPartition struct {
 	Type       string `json:"type"`
 	Grow       bool   `json:"grow"`
 	Image      string `json:"image"` // filename, e.g. "boot.img"
+	Bmap       string `json:"bmap,omitempty"`
 }
-

@@ -15,17 +15,49 @@ import (
 type Builder struct {
 	project *config.Project
 	DryRun  bool // skip layer-run and file I/O (for inspect)
+
+	// packaging tracks targets whose EnsurePackaged is currently on the
+	// stack. Used by bundlePayloads (in installer.go) to short-circuit
+	// re-entry for self-payloads or payload cycles, avoiding runaway
+	// recursion. (buildRecursive already detects build-time cycles; this
+	// guards the packaging-time path.)
+	packaging map[string]bool
 }
 
 // NewBuilder creates a new builder for the given project.
 func NewBuilder(project *config.Project) *Builder {
-	return &Builder{project: project}
+	return &Builder{
+		project:   project,
+		packaging: map[string]bool{},
+	}
 }
 
 // Build collects all layer actions into a BuildContext, then executes
 // the resolved state in phase order using overlayfs for caching.
 // The clean flag forces a full rebuild by deleting the cache first.
+//
+// If the target's layers declare install-embed or install-payload actions,
+// each referenced target is recursively built first (its overlay populated
+// in its own .starforge/<name>/ build dir). Cycles are detected and
+// reported with the full dependency path.
 func (b *Builder) Build(targetName string, target config.Target, clean bool) error {
+	return b.buildRecursive(targetName, target, clean, map[string]bool{}, nil)
+}
+
+// buildRecursive is the recursive implementation of Build. visited tracks
+// targets whose builds have completed (handles diamond deps); path is the
+// current dependency stack for cycle detection.
+func (b *Builder) buildRecursive(targetName string, target config.Target, clean bool, visited map[string]bool, path []string) error {
+	if visited[targetName] {
+		return nil
+	}
+	for _, p := range path {
+		if p == targetName {
+			return fmt.Errorf("dependency cycle: %s -> %s",
+				strings.Join(path, " -> "), targetName)
+		}
+	}
+
 	// Create build directory
 	buildDir := b.project.TargetBuildDir(targetName)
 	if err := os.MkdirAll(buildDir, 0o755); err != nil {
@@ -38,6 +70,54 @@ func (b *Builder) Build(targetName string, target config.Target, clean bool) err
 		return err
 	}
 
+	// Validate that every target represents a complete bootable rootfs.
+	if err := validateTargetHasRoot(targetName, ctx); err != nil {
+		return err
+	}
+
+	// Recursively build target dependencies before this target's own phases.
+	// Both install-embed and install-payload need their referenced target's
+	// overlay built before host's packaging step (embed: to merge overlays,
+	// payload: to package and bundle .img.zst files).
+	nextPath := append(append([]string(nil), path...), targetName)
+	for _, embedName := range ctx.InstallEmbeds {
+		embedTarget, ok := b.project.Targets[embedName]
+		if !ok {
+			return fmt.Errorf("install-embed: target %q not found in project", embedName)
+		}
+		if err := b.buildRecursive(embedName, embedTarget, clean, visited, nextPath); err != nil {
+			return err
+		}
+	}
+	for _, payload := range ctx.InstallPayloads {
+		payloadTarget, ok := b.project.Targets[payload.Target]
+		if !ok {
+			return fmt.Errorf("install-payload: target %q not found in project", payload.Target)
+		}
+		// install-payload is a soft dep — it bundles another target's images
+		// at packaging time but doesn't strictly require an upfront recursive
+		// build. If the payload target is the current target or already on
+		// the build stack, skip recursion to avoid a false cycle. The lazy
+		// EnsurePackaged call in bundlePayloads will materialize images then
+		// if needed.
+		if payload.Target == targetName {
+			continue
+		}
+		alreadyInStack := false
+		for _, p := range path {
+			if p == payload.Target {
+				alreadyInStack = true
+				break
+			}
+		}
+		if alreadyInStack {
+			continue
+		}
+		if err := b.buildRecursive(payload.Target, payloadTarget, clean, visited, nextPath); err != nil {
+			return err
+		}
+	}
+
 	// Phase 2: Execute — run each phase in order with overlay caching
 	overlay := NewOverlayManager(buildDir)
 
@@ -47,6 +127,10 @@ func (b *Builder) Build(targetName string, target config.Target, clean bool) err
 			return fmt.Errorf("cleaning cache: %w", err)
 		}
 	}
+
+	// Mark this target as the one currently being built so the TUI title
+	// and non-interactive output clearly show which target is active.
+	out.TargetHeader(targetName)
 
 	if err := b.execute(ctx, buildDir, overlay); err != nil {
 		overlay.Unmount()
@@ -58,6 +142,7 @@ func (b *Builder) Build(targetName string, target config.Target, clean bool) err
 		return fmt.Errorf("saving build result: %w", err)
 	}
 
+	visited[targetName] = true
 	return nil
 }
 
@@ -91,6 +176,20 @@ func (b *Builder) EnsureBuiltAndPackaged(targetName string) (*actions.BuildConte
 // Returns the BuildContext (with partition definitions) so callers can use it
 // for RunQEMU or WriteToDevice without a separate Collect call.
 func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, error) {
+	// Re-entry guard: if this target is already being packaged on the
+	// current call stack (e.g. via a self-payload or payload cycle reached
+	// through bundlePayloads), short-circuit instead of recursing forever.
+	// We can't return a useful BuildContext here because the in-progress
+	// outer call hasn't finished yet, so the caller must already have one.
+	if b.packaging[targetName] {
+		return nil, fmt.Errorf("EnsurePackaged: re-entered for %q (payload cycle?) — caller must use the in-progress build's images", targetName)
+	}
+	if b.packaging == nil {
+		b.packaging = map[string]bool{}
+	}
+	b.packaging[targetName] = true
+	defer delete(b.packaging, targetName)
+
 	buildDir := b.project.TargetBuildDir(targetName)
 
 	overlay := NewOverlayManager(buildDir)
@@ -159,16 +258,24 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 	}
 	defer overlay.Unmount()
 
-	if err := PackageToImages(mergedDir, result.Partitions, buildDir, PackageOps{
+	// Multi-target packaging. With zero embeds this is structurally equivalent
+	// to single-target packaging (one overlay, trivial merge, host writes
+	// alone) but keeps a single code path.
+	mergedParts, err := b.PackageMultiTarget(targetName, ctx, mergedDir, buildDir, PackageOps{
 		Ownerships:  result.Ownerships,
 		Permissions: result.Permissions,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, fmt.Errorf("packaging: %w", err)
 	}
+	// Replace ctx.Partitions with the merged disk view so downstream consumers
+	// (run/write) see what's actually on the GPT. Per-target installer
+	// bundling now happens inside PackageMultiTarget.packageOneTarget so
+	// each target writes payload images into its own rootfs.
+	ctx.Partitions = mergedParts
 
-	// Bundle installer using a BuildContext from the saved result
-	if err := b.bundleInstaller(ctx, buildDir); err != nil {
-		return nil, fmt.Errorf("installer bundling: %w", err)
+	if err := SavePartitions(ctx.Partitions, buildDir); err != nil {
+		return nil, fmt.Errorf("saving partition layout: %w", err)
 	}
 
 	if err := InvalidateOverlays(buildDir); err != nil {
@@ -520,6 +627,19 @@ func validateImports(imports []string, vars map[string]string, layerPath string)
 	return nil
 }
 
+// validateTargetHasRoot ensures the target declares a partition mounted at /.
+// Every target represents a complete rootfs; there are no pure-orchestrator
+// targets that contribute only embed-target actions.
+func validateTargetHasRoot(targetName string, ctx *actions.BuildContext) error {
+	for _, p := range ctx.Partitions {
+		if p.MountPoint == "/" {
+			return nil
+		}
+	}
+	return fmt.Errorf("target %q has no root (/) partition — every target must declare a partition with mount_point: /",
+		targetName)
+}
+
 // substituteString replaces ${{ var }} references in a single string.
 func substituteString(s string, vars map[string]string) (string, error) {
 	if !strings.Contains(s, "${{") {
@@ -545,7 +665,6 @@ func substituteString(s string, vars map[string]string) (string, error) {
 	}
 	return result, nil
 }
-
 
 // execute runs each build phase in order against the resolved context,
 // using overlayfs layers for caching. Unchanged phases are skipped.

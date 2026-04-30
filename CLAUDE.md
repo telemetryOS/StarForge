@@ -25,7 +25,7 @@ StarForge is a declarative Arch Linux OS image builder. It reads a `starforge.ya
 cmd/starforge/       Entry point
 commands/            Cobra CLI commands (build, run, clean, export, write, init, list, status, chroot, inspect)
 config/              YAML parsing: Project, Target, Layer, Step types, variable substitution, remote fetching
-actions/             Declarative action implementations (31 registered actions + layer-run (handled by builder) + registry + helpers)
+actions/             Declarative action implementations (32 registered actions + layer-run (handled by builder) + registry + helpers)
 engine/              Build orchestration: overlay management, phase execution, packaging, QEMU, deps
 installer/           Installer server/client for writing images to devices
 docs/                Restored documentation (actions reference, YAML reference)
@@ -78,7 +78,7 @@ starforge build <target>
 | `!truncate_before` / `!truncate_after` | `file-edit` content | Remove content around match |
 | `!replace` | Systemd unit section values | Clear-then-set for drop-in overrides |
 
-## Actions (31 registered + layer-run)
+## Actions (32 registered + layer-run)
 
 All registered in `actions/actions.go`. Each maps to a `config.*Step` type in `config/layer.go`.
 
@@ -91,6 +91,7 @@ All registered in `actions/actions.go`. Each maps to a `config.*Step` type in `c
 | Partitions | `partition-add`, `partition-remove`, `partition-change` |
 | Scripts | `run`, `layer-run` (builder-handled) |
 | Installer | `install-server`, `install-client`, `install-payload` |
+| Multi-target | `install-embed` |
 
 ### Shared Helpers
 

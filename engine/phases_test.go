@@ -120,16 +120,43 @@ func TestBoolToNo(t *testing.T) {
 
 // --- phaseBoot entry routing tests ---
 
-func TestPhaseBoot_EntryDefaultGoesToBoot(t *testing.T) {
+// makeKernelOnBoot creates a fake kernel + initrd at <dir>/boot/ — the
+// canonical pacman destination for kernel files in the test fixtures.
+func makeKernelOnBoot(t *testing.T, dir, kernel string) {
+	t.Helper()
+	makeKernelAt(t, dir, "/boot", kernel)
+}
+
+// makeKernelAt creates a fake kernel + initrd at <dir><stagePath>/, used to
+// pre-stage boot files when the entry's mount point isn't /boot.
+func makeKernelAt(t *testing.T, dir, stagePath, kernel string) {
+	t.Helper()
+	stageDir := dir + stagePath
+	if err := os.MkdirAll(stageDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", stagePath, err)
+	}
+	if err := os.WriteFile(stageDir+"/vmlinuz-"+kernel, []byte("kernel"), 0o644); err != nil {
+		t.Fatalf("write vmlinuz: %v", err)
+	}
+	if err := os.WriteFile(stageDir+"/initramfs-"+kernel+".img", []byte("initrd"), 0o644); err != nil {
+		t.Fatalf("write initrd: %v", err)
+	}
+}
+
+func TestPhaseBoot_DefaultsToEspWhenNoXbootldr(t *testing.T) {
 	dir := t.TempDir()
 	o, _ := InitOutput(dir, "test", "target")
 	defer o.Close()
+	makeKernelOnBoot(t, dir, "linux")
 
 	ctx := &actions.BuildContext{
+		Partitions: []actions.PartitionDef{
+			{Name: "boot", Type: "efi", MountPoint: "/boot"},
+		},
 		Boot: &actions.BootConfig{
-			Loader: config.BootLoader{Default: "arch", Timeout: 3},
+			Loader: &config.BootLoader{Default: "arch", Timeout: 3},
 			Entries: []config.BootEntry{
-				{Name: "arch.conf", Title: "Arch", Linux: "/x", Initrd: "/y", Options: "rw"},
+				{Name: "arch.conf", Title: "Arch", Kernel: "linux", Options: "rw"},
 			},
 		},
 	}
@@ -140,20 +167,60 @@ func TestPhaseBoot_EntryDefaultGoesToBoot(t *testing.T) {
 	}
 
 	if _, err := os.Stat(dir + "/boot/loader/entries/arch.conf"); err != nil {
-		t.Errorf("expected entry under /boot, got: %v", err)
+		t.Errorf("expected entry under /boot (ESP only): %v", err)
 	}
 }
 
-func TestPhaseBoot_EntryEspGoesToEfi(t *testing.T) {
+func TestPhaseBoot_DefaultsToXbootldrWhenPresent(t *testing.T) {
 	dir := t.TempDir()
 	o, _ := InitOutput(dir, "test", "target")
 	defer o.Close()
+	makeKernelOnBoot(t, dir, "linux")
 
 	ctx := &actions.BuildContext{
+		Partitions: []actions.PartitionDef{
+			{Name: "boot", Type: "efi", MountPoint: "/efi"},
+			{Name: "xbootldr", Type: "xbootldr", MountPoint: "/boot"},
+		},
 		Boot: &actions.BootConfig{
-			Loader: config.BootLoader{Default: "arch", Timeout: 3},
+			Loader: &config.BootLoader{Default: "arch", Timeout: 3},
 			Entries: []config.BootEntry{
-				{Name: "fallback.conf", Title: "Fallback", Linux: "/x", Initrd: "/y", Options: "rw", Partition: "esp"},
+				{Name: "arch.conf", Title: "Arch", Kernel: "linux", Options: "rw"},
+			},
+		},
+	}
+
+	b := &Builder{project: nil}
+	if err := b.phaseBoot(ctx, dir); err != nil {
+		t.Fatalf("phaseBoot returned error: %v", err)
+	}
+
+	if _, err := os.Stat(dir + "/boot/loader/entries/arch.conf"); err != nil {
+		t.Errorf("expected entry under XBOOTLDR /boot: %v", err)
+	}
+}
+
+func TestPhaseBoot_ExplicitFalseGoesToEsp(t *testing.T) {
+	dir := t.TempDir()
+	o, _ := InitOutput(dir, "test", "target")
+	defer o.Close()
+	// With auto-staging removed, the kernel/initrd must already exist at
+	// the entry's destination. The OS layer is responsible for placing
+	// them there (e.g. via a file-copy action or by mounting the partition
+	// at /boot so pacstrap writes there directly). Pre-stage them by hand
+	// for this routing test.
+	makeKernelAt(t, dir, "/efi", "linux")
+
+	false_ := false
+	ctx := &actions.BuildContext{
+		Partitions: []actions.PartitionDef{
+			{Name: "boot", Type: "efi", MountPoint: "/efi"},
+			{Name: "xbootldr", Type: "xbootldr", MountPoint: "/boot"},
+		},
+		Boot: &actions.BootConfig{
+			Loader: &config.BootLoader{Default: "arch", Timeout: 3},
+			Entries: []config.BootEntry{
+				{Name: "fallback.conf", Title: "Fallback", Kernel: "linux", Options: "rw", Extended: &false_},
 			},
 		},
 	}
@@ -164,30 +231,118 @@ func TestPhaseBoot_EntryEspGoesToEfi(t *testing.T) {
 	}
 
 	if _, err := os.Stat(dir + "/efi/loader/entries/fallback.conf"); err != nil {
-		t.Errorf("expected entry under /efi, got: %v", err)
-	}
-	if _, err := os.Stat(dir + "/boot/loader/entries/fallback.conf"); err == nil {
-		t.Errorf("entry should not exist under /boot when partition=esp")
+		t.Errorf("expected entry under /efi: %v", err)
 	}
 }
 
-func TestPhaseBoot_UnknownPartitionRejected(t *testing.T) {
+func TestPhaseBoot_ExtendedTrueWithoutXbootldrErrors(t *testing.T) {
 	dir := t.TempDir()
 	o, _ := InitOutput(dir, "test", "target")
 	defer o.Close()
+	makeKernelOnBoot(t, dir, "linux")
 
+	true_ := true
 	ctx := &actions.BuildContext{
+		Partitions: []actions.PartitionDef{
+			{Name: "boot", Type: "efi", MountPoint: "/boot"},
+		},
 		Boot: &actions.BootConfig{
-			Loader: config.BootLoader{Default: "arch", Timeout: 3},
+			Loader: &config.BootLoader{Default: "arch", Timeout: 3},
 			Entries: []config.BootEntry{
-				{Name: "x.conf", Title: "X", Linux: "/x", Initrd: "/y", Options: "rw", Partition: "bogus"},
+				{Name: "arch.conf", Title: "Arch", Kernel: "linux", Options: "rw", Extended: &true_},
 			},
 		},
 	}
 
 	b := &Builder{project: nil}
 	if err := b.phaseBoot(ctx, dir); err == nil {
-		t.Errorf("expected error for unknown partition value, got nil")
+		t.Error("expected error when extended=true but no XBOOTLDR partition declared")
+	}
+}
+
+func TestPhaseBoot_MissingKernelAtEntryDestErrors(t *testing.T) {
+	// The engine no longer auto-copies kernels between mount points.
+	// If the entry's destination doesn't already have the kernel/initrd
+	// (because the OS layer didn't arrange for pacman/file-copy to put
+	// them there), phase_boot must fail with a clear error.
+	dir := t.TempDir()
+	o, _ := InitOutput(dir, "test", "target")
+	defer o.Close()
+	// Deliberately do NOT make a kernel.
+
+	false_ := false
+	ctx := &actions.BuildContext{
+		Partitions: []actions.PartitionDef{
+			{Name: "boot", Type: "efi", MountPoint: "/efi"},
+			{Name: "xbootldr", Type: "xbootldr", MountPoint: "/boot"},
+		},
+		Boot: &actions.BootConfig{
+			Entries: []config.BootEntry{
+				{Name: "fallback.conf", Title: "Fallback", Kernel: "linux", Extended: &false_, Options: "rw"},
+			},
+		},
+	}
+
+	b := &Builder{project: nil}
+	if err := b.phaseBoot(ctx, dir); err == nil {
+		t.Error("expected error when kernel file is missing at the entry destination")
+	}
+}
+
+func TestPhaseBoot_KernelPresentAtCanonicalDestSucceeds(t *testing.T) {
+	// When an entry on XBOOTLDR (mount /boot) names a kernel that this
+	// target's pacstrap wrote at /boot/vmlinuz-<kernel>, phase_boot writes
+	// the entry without copying anything. Verify that path succeeds.
+	dir := t.TempDir()
+	o, _ := InitOutput(dir, "test", "target")
+	defer o.Close()
+	makeKernelOnBoot(t, dir, "linux")
+
+	ctx := &actions.BuildContext{
+		Partitions: []actions.PartitionDef{
+			{Name: "boot", Type: "efi", MountPoint: "/efi"},
+			{Name: "xbootldr", Type: "xbootldr", MountPoint: "/boot"},
+		},
+		Boot: &actions.BootConfig{
+			Entries: []config.BootEntry{
+				{Name: "shared.conf", Title: "Shared", Kernel: "linux", Options: "rw"},
+			},
+		},
+	}
+
+	b := &Builder{project: nil}
+	if err := b.phaseBoot(ctx, dir); err != nil {
+		t.Errorf("phase_boot should succeed when kernel is present at the canonical /boot path; got: %v", err)
+	}
+	// Entry .conf should still be written.
+	if _, err := os.Stat(dir + "/boot/loader/entries/shared.conf"); err != nil {
+		t.Errorf("entry should be written: %v", err)
+	}
+}
+
+func TestPhaseBoot_PathOutsidePartitionRejected(t *testing.T) {
+	dir := t.TempDir()
+	o, _ := InitOutput(dir, "test", "target")
+	defer o.Close()
+	makeKernelOnBoot(t, dir, "linux")
+
+	ctx := &actions.BuildContext{
+		Partitions: []actions.PartitionDef{
+			{Name: "boot", Type: "efi", MountPoint: "/efi"},
+			{Name: "xbootldr", Type: "xbootldr", MountPoint: "/boot"},
+		},
+		Boot: &actions.BootConfig{
+			Loader: &config.BootLoader{Default: "arch", Timeout: 3},
+			Entries: []config.BootEntry{
+				// Default extended=true (XBOOTLDR/boot), but path is under /efi → invalid
+				{Name: "x.conf", Title: "X", Kernel: "linux", Path: "/efi/oops", Options: "rw"},
+			},
+		},
+	}
+
+	b := &Builder{project: nil}
+	if err := b.phaseBoot(ctx, dir); err == nil {
+		t.Error("expected error when path is outside the entry's partition mount")
 	}
 }
 
@@ -197,10 +352,14 @@ func TestPhaseBoot_EntryNameGetsConfExtension(t *testing.T) {
 	dir := t.TempDir()
 	o, _ := InitOutput(dir, "test", "target")
 	defer o.Close()
+	makeKernelOnBoot(t, dir, "linux")
 
 	ctx := &actions.BuildContext{
+		Partitions: []actions.PartitionDef{
+			{Name: "boot", Type: "efi", MountPoint: "/boot"},
+		},
 		Boot: &actions.BootConfig{
-			Loader: config.BootLoader{
+			Loader: &config.BootLoader{
 				Default: "arch",
 				Timeout: 3,
 			},
@@ -208,8 +367,7 @@ func TestPhaseBoot_EntryNameGetsConfExtension(t *testing.T) {
 				{
 					Name:    "arch", // no .conf extension
 					Title:   "Arch Linux",
-					Linux:   "/vmlinuz-linux",
-					Initrd:  "/initramfs-linux.img",
+					Kernel:  "linux",
 					Options: "root=/dev/sda2 rw",
 				},
 			},
@@ -232,16 +390,19 @@ func TestPhaseBoot_EntryNameAlreadyHasConf(t *testing.T) {
 	dir := t.TempDir()
 	o, _ := InitOutput(dir, "test", "target")
 	defer o.Close()
+	makeKernelOnBoot(t, dir, "linux")
 
 	ctx := &actions.BuildContext{
+		Partitions: []actions.PartitionDef{
+			{Name: "boot", Type: "efi", MountPoint: "/boot"},
+		},
 		Boot: &actions.BootConfig{
-			Loader: config.BootLoader{Default: "arch", Timeout: 3},
+			Loader: &config.BootLoader{Default: "arch", Timeout: 3},
 			Entries: []config.BootEntry{
 				{
 					Name:    "arch.conf", // already has .conf
 					Title:   "Arch Linux",
-					Linux:   "/vmlinuz-linux",
-					Initrd:  "/initramfs-linux.img",
+					Kernel:  "linux",
 					Options: "root=/dev/sda2 rw",
 				},
 			},

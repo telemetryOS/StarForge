@@ -49,9 +49,15 @@ type BuildContext struct {
 	Scripts []ScriptOp
 
 	// Installer
-	InstallerPayloads []InstallerPayloadDef
-	InstallerServer   *InstallerServerDef
-	InstallerClient   *InstallerClientDef
+	InstallPayloads []InstallPayloadDef
+	InstallServer   *InstallServerDef
+	InstallClient   *InstallClientDef
+
+	// Multi-target composition: targets whose builds are merged into this
+	// target's disk image. Populated by the install-embed action. Order is
+	// significant for partition merge tie-breaking and for predictable
+	// fstab generation.
+	InstallEmbeds []string
 
 	// Tracking / history for inspect command
 	HostnameHistory      []LayerValue
@@ -117,7 +123,7 @@ func NewBuildContext() *BuildContext {
 		Scripts: []ScriptOp{},
 
 		// Installer
-		InstallerPayloads: []InstallerPayloadDef{},
+		InstallPayloads: []InstallPayloadDef{},
 
 		// Tracking / history
 		HostnameHistory:      []LayerValue{},
@@ -286,10 +292,14 @@ type UserServiceOp struct {
 }
 
 // BootConfig holds systemd-boot configuration.
+//
+// Loader is a pointer so we can detect "this target did not configure a
+// loader: block" — only the host of a multi-target build typically owns
+// loader.conf, embeds usually contribute entries only.
 type BootConfig struct {
-	Loader  config.BootLoader
-	Entries []config.BootEntry
-	Layer   string
+	Loader  *config.BootLoader `json:"loader,omitempty"`
+	Entries []config.BootEntry `json:"entries,omitempty"`
+	Layer   string             `json:"layer,omitempty"`
 }
 
 // UserDef defines a user to create.
@@ -337,24 +347,27 @@ type UserServiceGroup struct {
 	Items []string
 }
 
-// InstallerPayloadDef defines a payload target to bundle.
-type InstallerPayloadDef struct {
+// InstallPayloadDef defines a payload target to bundle.
+type InstallPayloadDef struct {
 	Target string
 	Path   string
-	Layer  string
-	Label  string
+	// Partitions optionally restricts which of the target's partition images
+	// get bundled. Empty means all partitions.
+	Partitions []string
+	Layer      string
+	Label      string
 }
 
-// InstallerServerDef configures the installer server.
-type InstallerServerDef struct {
+// InstallServerDef configures the installer server.
+type InstallServerDef struct {
 	Port     int
 	Path     string
 	Layer    string
 	EFILabel string
 }
 
-// InstallerClientDef configures the installer client TUI.
-type InstallerClientDef struct {
+// InstallClientDef configures the installer client TUI.
+type InstallClientDef struct {
 	AutoLogin  string
 	Unattended bool
 	Layer      string

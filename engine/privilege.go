@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -26,9 +27,19 @@ func EnsureRootExec() error {
 		return fmt.Errorf("cannot resolve executable path: %w", err)
 	}
 
+	// Preserve only the env vars we actually need across sudo. Blanket
+	// `--preserve-env` would carry LD_LIBRARY_PATH / LD_PRELOAD into root
+	// if a misconfigured sudoers (env_keep += LD_*) lets them through —
+	// a privilege-escalation vector. Explicit allow-list closes that.
+	preserve := strings.Join([]string{
+		"PATH", "HOME", "USER", "TERM",
+		"SUDO_UID", "SUDO_GID", "SUDO_USER",
+		"COLORTERM", "NO_COLOR",
+	}, ",")
+
 	args := make([]string, len(os.Args)+2)
 	args[0] = sudo
-	args[1] = "--preserve-env"
+	args[1] = "--preserve-env=" + preserve
 	args[2] = exe
 	copy(args[3:], os.Args[1:])
 	return syscall.Exec(sudo, args, os.Environ())
