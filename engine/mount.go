@@ -331,15 +331,22 @@ func PartitionDevice(parts []actions.PartitionDef, device string) ([]actions.Par
 	cmd := exec.Command(resolveBin("sfdisk"), "--force", device)
 	cmd.Env = vendorEnv()
 	cmd.Stdin = strings.NewReader(script.String())
-	if out != nil {
-		cmd.Stdout = out.LogWriter()
-		cmd.Stderr = out.LogWriter()
-	} else {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+	output, err := cmd.CombinedOutput()
+	if len(output) > 0 {
+		if out != nil {
+			if _, writeErr := out.LogWriter().Write(output); writeErr != nil {
+				return nil, fmt.Errorf("logging sfdisk output: %w", writeErr)
+			}
+		} else {
+			_, _ = os.Stderr.Write(output)
+		}
 	}
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("partitioning %s: %w", device, err)
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			return nil, fmt.Errorf("partitioning %s: %w", device, err)
+		}
+		return nil, fmt.Errorf("partitioning %s: %w: %s", device, err, message)
 	}
 
 	run("partprobe", device)
