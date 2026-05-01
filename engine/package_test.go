@@ -1,53 +1,109 @@
 package engine
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/telemetryos/starforge/actions"
 )
 
-// --- filterSwapEntries ---
+// --- buildFstab ---
 
-func TestFilterSwapEntries_RemovesSwapLines(t *testing.T) {
-	input := "UUID=abc / ext4 defaults 0 1\nUUID=def none swap sw 0 0\nUUID=ghi /boot vfat defaults 0 2\n"
-	got := filterSwapEntries(input)
-	if containsLine(got, "swap") {
-		t.Errorf("swap line not removed:\n%s", got)
+func TestBuildFstab_GeneratesDeclaredMountsOnly(t *testing.T) {
+	parts := []actions.PartitionDef{
+		{Name: "boot", Filesystem: "fat32", MountPoint: "/boot"},
+		{Name: "root", Filesystem: "ext4", MountPoint: "/"},
+		{Name: "swap", Filesystem: "swap"},
+		{Name: "data", Filesystem: "ext4", MountPoint: "/data"},
+		{Name: "payload", Filesystem: "ext4"},
 	}
-	if !containsLine(got, "ext4") {
-		t.Errorf("ext4 line was removed unexpectedly:\n%s", got)
+	info := map[string]fstabMountInfo{
+		"/mnt/root":      {Source: "/dev/loop2", FSType: "ext4", UUID: "root-uuid"},
+		"/mnt/root/boot": {Source: "/dev/loop3", FSType: "vfat", UUID: "boot-uuid"},
+		"/mnt/root/data": {Source: "/dev/loop4", FSType: "ext4", UUID: "data-uuid"},
+	}
+
+	got, err := buildFstab(parts, "/mnt/root", func(target string) (fstabMountInfo, error) {
+		mountInfo, ok := info[target]
+		if !ok {
+			t.Fatalf("unexpected fstab lookup for %q", target)
+		}
+		return mountInfo, nil
+	})
+	if err != nil {
+		t.Fatalf("buildFstab failed: %v", err)
+	}
+
+	want := "UUID=root-uuid\t/\text4\trw,relatime\t0 1\n" +
+		"UUID=boot-uuid\t/boot\tvfat\trw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro\t0 0\n" +
+		"UUID=data-uuid\t/data\text4\trw,relatime\t0 2"
+	if got != want {
+		t.Errorf("unexpected fstab\ngot:\n%s\nwant:\n%s", got, want)
+	}
+	if containsLine(got, "swap") || containsLine(got, "/dev/loop") {
+		t.Errorf("swap or build device source leaked into fstab:\n%s", got)
 	}
 }
 
-func TestFilterSwapEntries_NoSwap_Unchanged(t *testing.T) {
-	input := "UUID=abc / ext4 defaults 0 1\nUUID=ghi /boot vfat defaults 0 2\n"
-	got := filterSwapEntries(input)
-	if got != input {
-		t.Errorf("non-swap fstab should be unchanged\ngot:  %q\nwant: %q", got, input)
+func TestBuildFstab_FallsBackToDeclaredFilesystem(t *testing.T) {
+	parts := []actions.PartitionDef{{Name: "boot", Filesystem: "fat32", MountPoint: "/boot"}}
+	got, err := buildFstab(parts, "/mnt/root", func(target string) (fstabMountInfo, error) {
+		return fstabMountInfo{UUID: "boot-uuid"}, nil
+	})
+	if err != nil {
+		t.Fatalf("buildFstab failed: %v", err)
+	}
+	if !containsLine(got, "\t/boot\tvfat\t") {
+		t.Errorf("fat32 filesystem was not normalized to vfat:\n%s", got)
 	}
 }
 
-func TestFilterSwapEntries_Empty(t *testing.T) {
-	if got := filterSwapEntries(""); got != "" {
-		t.Errorf("empty input should return empty, got %q", got)
+func TestBuildFstab_RequiresUUID(t *testing.T) {
+	parts := []actions.PartitionDef{{Name: "root", Filesystem: "ext4", MountPoint: "/"}}
+	_, err := buildFstab(parts, "/mnt/root", func(target string) (fstabMountInfo, error) {
+		return fstabMountInfo{FSType: "ext4"}, nil
+	})
+	if err == nil {
+		t.Fatal("expected missing UUID to fail")
 	}
 }
 
-func TestFilterSwapEntries_OnlySwap(t *testing.T) {
-	input := "UUID=def none swap sw 0 0"
-	got := filterSwapEntries(input)
-	if containsLine(got, "swap") {
-		t.Errorf("swap line should be removed, got: %q", got)
+func TestBuildFstab_SortsParentsBeforeChildren(t *testing.T) {
+	parts := []actions.PartitionDef{
+		{Name: "log", Filesystem: "ext4", MountPoint: "/var/log"},
+		{Name: "root", Filesystem: "ext4", MountPoint: "/"},
+		{Name: "var", Filesystem: "ext4", MountPoint: "/var"},
+		{Name: "boot", Filesystem: "vfat", MountPoint: "/boot"},
 	}
+	uuids := map[string]string{
+		"/mnt/root":         "root-uuid",
+		"/mnt/root/boot":    "boot-uuid",
+		"/mnt/root/var":     "var-uuid",
+		"/mnt/root/var/log": "log-uuid",
+	}
+
+	got, err := buildFstab(parts, "/mnt/root", func(target string) (fstabMountInfo, error) {
+		return fstabMountInfo{FSType: "ext4", UUID: uuids[target]}, nil
+	})
+	if err != nil {
+		t.Fatalf("buildFstab failed: %v", err)
+	}
+
+	assertLineOrder(t, got, "\t/\t", "\t/boot\t", "\t/var\t", "\t/var/log\t")
 }
 
-func TestFilterSwapEntries_CommentAndBlankLinesKept(t *testing.T) {
-	input := "# fstab\n\nUUID=abc / ext4 defaults 0 1\n"
-	got := filterSwapEntries(input)
-	if !containsLine(got, "# fstab") {
-		t.Errorf("comment line should be preserved:\n%s", got)
+func TestBuildFstab_PropagatesMountLookupError(t *testing.T) {
+	wantErr := errors.New("not mounted")
+	parts := []actions.PartitionDef{{Name: "root", Filesystem: "ext4", MountPoint: "/"}}
+
+	_, err := buildFstab(parts, "/mnt/root", func(target string) (fstabMountInfo, error) {
+		return fstabMountInfo{}, wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected lookup error %v, got %v", wantErr, err)
 	}
 }
 
@@ -280,6 +336,21 @@ func containsLine(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func assertLineOrder(t *testing.T, s string, substrs ...string) {
+	t.Helper()
+	last := -1
+	for _, substr := range substrs {
+		idx := strings.Index(s, substr)
+		if idx == -1 {
+			t.Fatalf("expected %q in:\n%s", substr, s)
+		}
+		if idx < last {
+			t.Fatalf("expected %q after previous mount in:\n%s", substr, s)
+		}
+		last = idx
+	}
 }
 
 func splitLines(s string) []string {

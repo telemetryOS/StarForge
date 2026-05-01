@@ -14,7 +14,7 @@ var installerDeps = []string{
 	"dosfstools",           // mkfs.vfat
 	"e2fsprogs",            // mkfs.ext4
 	"efibootmgr",           // EFI boot entry management
-	"arch-install-scripts", // genfstab, arch-chroot
+	"arch-install-scripts", // arch-chroot
 	"zstd",                 // zstd decompression
 	"python",               // bmaptool runtime
 	"python-six",           // bmaptool runtime

@@ -419,13 +419,12 @@ func packagePipeline(mergedDir string, parts []actions.PartitionDef, mounts []Pa
 		return err
 	}
 
-	// Generate /etc/fstab with UUIDs from the formatted partitions.
-	// This must run before applyImageOwnership because arch-chroot
-	// bind-mounts /proc, /sys, /dev into the rootfs which can pollute
-	// the mount table that genfstab reads.
+	// Generate /etc/fstab from StarForge's declared partition model. This
+	// must run before applyImageOwnership because arch-chroot bind-mounts
+	// /proc, /sys, /dev into the rootfs.
 	out.Blank()
 	out.Phase("Generating fstab")
-	if err := GenerateFstab(rootfs); err != nil {
+	if err := GenerateFstab(parts, rootfs); err != nil {
 		return err
 	}
 
@@ -766,17 +765,16 @@ func injectRootUUID(path, rootUUID string) error {
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
 }
 
-// GenerateFstab runs genfstab -U against the mounted rootfs to produce
-// /etc/fstab with UUID-based entries for all mounted partitions.
-// Swap entries from the host are filtered out since genfstab picks up
-// system-wide swap mounts that don't belong to the target.
-func GenerateFstab(rootfs string) error {
-	out, err := runOutput("genfstab", "-U", rootfs)
+// GenerateFstab writes /etc/fstab from StarForge's declared partition model.
+// It resolves UUIDs from each declared mount point instead of reading the whole
+// live mount table, so host swap devices and build-time loop devices cannot
+// leak into the target image.
+func GenerateFstab(parts []actions.PartitionDef, rootfs string) error {
+	content, err := buildFstab(parts, rootfs, mountedFstabInfo)
 	if err != nil {
-		return fmt.Errorf("genfstab: %w", err)
+		return err
 	}
-	out = filterSwapEntries(out)
-	return writeFile(filepath.Join(rootfs, "etc", "fstab"), out+"\n")
+	return writeFile(filepath.Join(rootfs, "etc", "fstab"), content+"\n")
 }
 
 // ConfigureInstallation regenerates fstab for a mounted installation rootfs.
@@ -786,26 +784,120 @@ func GenerateFstab(rootfs string) error {
 // Boot-entry root=UUID values are baked in at build time and travel through
 // dd-copy unchanged, so no runtime re-patching is needed here.
 func ConfigureInstallation(parts []actions.PartitionDef, rootfs string) error {
-	if err := GenerateFstab(rootfs); err != nil {
+	if err := GenerateFstab(parts, rootfs); err != nil {
 		return fmt.Errorf("generating fstab: %w", err)
 	}
 
 	return nil
 }
 
-// filterSwapEntries removes swap mount entries from genfstab output.
-// genfstab picks up host swap partitions since swap is system-wide,
-// not scoped to the rootfs path.
-func filterSwapEntries(fstab string) string {
-	var filtered []string
-	for _, line := range strings.Split(fstab, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && fields[2] == "swap" {
+type fstabMountInfo struct {
+	Source string
+	FSType string
+	UUID   string
+}
+
+func buildFstab(parts []actions.PartitionDef, rootfs string, infoFn func(string) (fstabMountInfo, error)) (string, error) {
+	mounted := make([]actions.PartitionDef, 0, len(parts))
+	for _, part := range parts {
+		if part.MountPoint == "" || part.Filesystem == "swap" {
 			continue
 		}
-		filtered = append(filtered, line)
+		mounted = append(mounted, part)
 	}
-	return strings.Join(filtered, "\n")
+	sort.SliceStable(mounted, func(i, j int) bool {
+		return mountSortKey(mounted[i].MountPoint) < mountSortKey(mounted[j].MountPoint)
+	})
+
+	lines := make([]string, 0, len(mounted))
+	for _, part := range mounted {
+		target := mountedPath(rootfs, part.MountPoint)
+		info, err := infoFn(target)
+		if err != nil {
+			return "", fmt.Errorf("resolve fstab info for %s: %w", part.MountPoint, err)
+		}
+		if info.UUID == "" {
+			return "", fmt.Errorf("mounted partition %s has no UUID", part.MountPoint)
+		}
+		fstype := info.FSType
+		if fstype == "" {
+			fstype = normalizeFSType(part.Filesystem)
+		}
+		if fstype == "" {
+			return "", fmt.Errorf("partition %s has no filesystem type", part.Name)
+		}
+		lines = append(lines, fmt.Sprintf("UUID=%s\t%s\t%s\t%s\t0 %d",
+			info.UUID,
+			part.MountPoint,
+			fstype,
+			fstabOptions(fstype),
+			fstabPassNo(part.MountPoint, fstype),
+		))
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+func mountedFstabInfo(target string) (fstabMountInfo, error) {
+	source, err := runOutput("findmnt", "-n", "-o", "SOURCE", "--target", target)
+	if err != nil {
+		return fstabMountInfo{}, err
+	}
+	fstype, err := runOutput("findmnt", "-n", "-o", "FSTYPE", "--target", target)
+	if err != nil {
+		return fstabMountInfo{}, err
+	}
+	uuid, err := runOutput("blkid", "-s", "UUID", "-o", "value", source)
+	if err != nil {
+		return fstabMountInfo{}, fmt.Errorf("blkid %s: %w", source, err)
+	}
+	return fstabMountInfo{
+		Source: source,
+		FSType: strings.TrimSpace(fstype),
+		UUID:   strings.TrimSpace(uuid),
+	}, nil
+}
+
+func mountedPath(rootfs, mountPoint string) string {
+	if mountPoint == "/" {
+		return rootfs
+	}
+	return filepath.Join(rootfs, strings.TrimPrefix(mountPoint, "/"))
+}
+
+func mountSortKey(mountPoint string) string {
+	if mountPoint == "/" {
+		return "000000:/"
+	}
+	return fmt.Sprintf("%06d:%s", strings.Count(strings.Trim(mountPoint, "/"), "/")+1, mountPoint)
+}
+
+func normalizeFSType(filesystem string) string {
+	switch filesystem {
+	case "fat32":
+		return "vfat"
+	default:
+		return filesystem
+	}
+}
+
+func fstabOptions(fstype string) string {
+	switch fstype {
+	case "vfat":
+		return "rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro"
+	default:
+		return "rw,relatime"
+	}
+}
+
+func fstabPassNo(mountPoint, fstype string) int {
+	switch fstype {
+	case "vfat", "swap":
+		return 0
+	}
+	if mountPoint == "/" {
+		return 1
+	}
+	return 2
 }
 
 // SavePartitions writes the partition layout to partitions.json in buildDir.

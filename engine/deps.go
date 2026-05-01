@@ -26,7 +26,7 @@ type vendorPkg struct {
 // Arch packages to vendor. These are extracted into ~/.local/share/starforge/
 // providing usr/bin/ and usr/lib/ trees.
 var vendorPackages = []vendorPkg{
-	// Orchestration scripts (pacstrap, arch-chroot, genfstab)
+	// Orchestration scripts (pacstrap, arch-chroot)
 	{"arch-install-scripts", "extra", "any", []string{"build"}},
 	// Shell: bash is required by the orchestration scripts and host-side
 	// layer-run/layer-script steps. Vendor it so we never rely on the
@@ -109,7 +109,6 @@ var vendorChecks = []vendorCheck{
 	// Orchestration
 	{"usr/bin/pacstrap", []string{"build"}},
 	{"usr/bin/arch-chroot", []string{"build"}},
-	{"usr/bin/genfstab", []string{"build"}},
 	// Shell (must come from vendor, never from host)
 	{"usr/bin/bash", []string{"build"}},
 	// Package manager
@@ -382,7 +381,7 @@ func checkGroupMissing(vendorDir string, groups []string) []string {
 //     by the script also find vendored binaries first.
 func patchPacstrap(binDir string) error {
 	vendoredBash := filepath.Join(binDir, "bash")
-	for _, script := range []string{"pacstrap", "arch-chroot", "genfstab", "pacman-key"} {
+	for _, script := range []string{"pacstrap", "arch-chroot", "pacman-key"} {
 		path := filepath.Join(binDir, script)
 		data, err := os.ReadFile(path)
 		if err != nil {

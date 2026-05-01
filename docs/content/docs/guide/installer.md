@@ -220,7 +220,7 @@ starforge export installer disk --size 8G --output ./release/installer.img
 2. Writes each compressed partition image directly to the corresponding device partition with `bmaptool`
 3. Expands growable partitions to fill available space
 4. Creates filesystems on expanded partitions
-5. Regenerates fstab and bootloader entries with the correct UUIDs from the target disk
+5. Regenerates fstab with the correct UUIDs from the target disk and installs the bootloader
 
 ## Companion Binaries
 

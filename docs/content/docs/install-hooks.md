@@ -36,7 +36,7 @@ Hooks should treat both arguments as required and validate them, especially `tar
 
 ## Output and logging
 
-Hook stdout and stderr stream into the installation log line-by-line, alongside `genfstab` / `mkinitcpio` output. The TUI renders them live; the persisted log keeps the full transcript.
+Hook stdout and stderr stream into the installation log line-by-line, alongside fstab generation and `mkinitcpio` output. The TUI renders them live; the persisted log keeps the full transcript.
 
 ## Example: stage restore images on recovery partitions (Edge-OS)
 

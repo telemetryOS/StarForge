@@ -573,10 +573,9 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 		return
 	}
 
-	// Phase 3: Post-install configuration — regenerate fstab and boot entries
-	// with UUIDs from the actual target disk. During the build, genfstab ran
-	// against loop-mounted images. After copying images and formatting empty
-	// partitions, the on-disk UUIDs may differ from what's baked into the images.
+	// Phase 3: Post-install configuration — regenerate fstab with UUIDs from
+	// the actual target disk and install the bootloader. Boot entries' root UUIDs
+	// are baked into the images at build time.
 	inst.setStatus("configuring", 0.95)
 	inst.addLog("Configuring fstab and bootloader")
 
@@ -615,7 +614,7 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 		return
 	}
 
-	if err := engine.GenerateFstab(rootfs); err != nil {
+	if err := engine.GenerateFstab(toEngineParts(parts), rootfs); err != nil {
 		mt.Unmount()
 		inst.fail(fmt.Errorf("generating fstab: %w", err))
 		return

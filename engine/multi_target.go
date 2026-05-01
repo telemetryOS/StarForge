@@ -286,7 +286,7 @@ func (b *Builder) packageOneTarget(
 
 	out.Blank()
 	out.Phase(fmt.Sprintf("Generating fstab for %s", targetName))
-	if err := GenerateFstab(rootfs); err != nil {
+	if err := GenerateFstab(perTargetParts, rootfs); err != nil {
 		return err
 	}
 
