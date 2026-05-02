@@ -1,17 +1,12 @@
 package engine
 
 import (
-	"bufio"
-	"bytes"
-	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,6 +15,7 @@ import (
 
 	"github.com/telemetryos/starforge/actions"
 	"github.com/telemetryos/starforge/config"
+	"github.com/telemetryos/starforge/corona"
 )
 
 // PackageOps holds file ownership and permission operations to apply on
@@ -62,7 +58,7 @@ func PackageToImages(mergedDir string, parts []actions.PartitionDef, buildDir st
 }
 
 // WriteToDevice partitions a block device and writes pre-built partition
-// images using bmaptool so sparse image extents are skipped.
+// images through the Corona writer.
 // Growable ext4 partitions are expanded to fill the device partition.
 // This replaces PackageToDevice — no overlay mount or tar copy is needed
 // because the images already contain the complete filesystem.
@@ -87,13 +83,14 @@ func WriteToDevice(parts []actions.PartitionDef, device, buildDir string) error 
 		}
 		imgPath := filepath.Join(buildDir, fmt.Sprintf("%s.img", part.Name))
 
-		bmapPath := imgPath + ".bmap"
-		if err := ensureBmap(imgPath, bmapPath); err != nil {
-			return fmt.Errorf("creating bmap for %s: %w", part.Name, err)
-		}
-
-		if err := out.RunWithProgress(fmt.Sprintf("bmaptool %s -> %s", part.Name, partDev), func(update func(int)) error {
-			return runBmaptoolCopy(imgPath, bmapPath, partDev, update)
+		if err := out.RunWithProgress(fmt.Sprintf("corona %s -> %s", part.Name, partDev), func(update func(int)) error {
+			return corona.WriteImage(context.Background(), corona.WriteImageOptions{
+				ImagePath:  imgPath,
+				TargetPath: partDev,
+				Progress: func(p corona.Progress) {
+					update(p.Percent)
+				},
+			})
 		}); err != nil {
 			return fmt.Errorf("writing %s: %w", part.Name, err)
 		}
@@ -112,79 +109,29 @@ func WriteToDevice(parts []actions.PartitionDef, device, buildDir string) error 
 	return nil
 }
 
-// EnsureBmap creates or refreshes the bmap sidecar for imagePath.
-func EnsureBmap(imagePath, bmapPath string) error {
+// EnsureCoronaFile creates or refreshes artifactPath from imagePath.
+func EnsureCoronaFile(imagePath, artifactPath string) error {
 	imgInfo, err := os.Stat(imagePath)
 	if err != nil {
 		return err
 	}
-	bmapInfo, err := os.Stat(bmapPath)
-	if err == nil && !bmapInfo.ModTime().Before(imgInfo.ModTime()) {
+	artifactInfo, err := os.Stat(artifactPath)
+	if err == nil && !artifactInfo.ModTime().Before(imgInfo.ModTime()) {
 		return nil
 	}
-	return runSilent("bmaptool", "create", "-o", bmapPath, imagePath)
-}
-
-// ensureBmap is kept for package-local callers that predate the exported
-// helper name.
-func ensureBmap(imagePath, bmapPath string) error {
-	return EnsureBmap(imagePath, bmapPath)
-}
-
-func runBmaptoolCopy(imagePath, bmapPath, destPath string, update func(int)) error {
-	tmpDir, err := os.MkdirTemp("", "starforge-bmap-progress-*")
-	if err != nil {
+	tmp := artifactPath + ".tmp"
+	if err := corona.Pack(context.Background(), corona.PackOptions{
+		ImagePath:    imagePath,
+		ArtifactPath: tmp,
+	}); err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
-	defer os.RemoveAll(tmpDir)
-
-	progressPath := filepath.Join(tmpDir, "progress")
-	if err := syscall.Mkfifo(progressPath, 0o600); err != nil {
-		return fmt.Errorf("creating progress fifo: %w", err)
+	if err := os.Rename(tmp, artifactPath); err != nil {
+		_ = os.Remove(tmp)
+		return err
 	}
-	progressFile, err := os.OpenFile(progressPath, os.O_RDWR, 0o600)
-	if err != nil {
-		return fmt.Errorf("opening progress fifo: %w", err)
-	}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		scanner := bufio.NewScanner(progressFile)
-		for scanner.Scan() {
-			fields := strings.Fields(scanner.Text())
-			if len(fields) == 2 && fields[0] == "PROGRESS" {
-				if pct, err := strconv.Atoi(fields[1]); err == nil {
-					update(pct)
-				}
-			}
-		}
-	}()
-
-	cmd := exec.Command(resolveBin("bmaptool"), "copy", "--bmap", bmapPath, "--psplash-pipe", progressPath, imagePath, destPath)
-	cmd.Env = vendorEnv()
-	var stderr bytes.Buffer
-	if out != nil {
-		cmd.Stdout = out.LogWriter()
-		cmd.Stderr = io.MultiWriter(out.LogWriter(), &stderr)
-	} else {
-		cmd.Stdout = io.Discard
-		cmd.Stderr = &stderr
-	}
-	err = cmd.Run()
-	progressFile.Close()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-	}
-	if err == nil {
-		update(100)
-		return nil
-	}
-	if msg := strings.TrimSpace(stderr.String()); msg != "" {
-		return fmt.Errorf("%w: %s", err, msg)
-	}
-	return err
+	return nil
 }
 
 // WriteToDiskImage creates a sparse disk image from pre-built partition images.
@@ -249,65 +196,6 @@ func WriteToDiskImage(parts []actions.PartitionDef, buildDir, imagePath string) 
 	}
 
 	return loopDev, cleanup, nil
-}
-
-// CompressDiskImage compresses a raw disk image with gzip for compatibility
-// with flash tools (Balena Etcher, Rufus). Returns the path to the compressed
-// file. The original uncompressed file is removed on success.
-func CompressDiskImage(imagePath string) (string, error) {
-	out.Blank()
-	out.Phase("Compressing disk image")
-
-	gzPath := imagePath + ".gz"
-
-	if err := out.RunWithSpinner(fmt.Sprintf("gzip %s", filepath.Base(gzPath)), func() error {
-		return gzipFile(imagePath, gzPath)
-	}); err != nil {
-		return "", fmt.Errorf("compressing disk image: %w", err)
-	}
-
-	return gzPath, nil
-}
-
-// gzipFile compresses src into dest using gzip best-compression and removes src on success.
-func gzipFile(src, dest string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	outFile, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	defer outFile.Close()
-
-	gw, err := gzip.NewWriterLevel(outFile, gzip.BestCompression)
-	if err != nil {
-		outFile.Close()
-		os.Remove(dest)
-		return err
-	}
-
-	if _, err := io.Copy(gw, in); err != nil {
-		gw.Close()
-		outFile.Close()
-		os.Remove(dest)
-		return err
-	}
-	if err := gw.Close(); err != nil {
-		outFile.Close()
-		os.Remove(dest)
-		return err
-	}
-	if err := outFile.Close(); err != nil {
-		os.Remove(dest)
-		return err
-	}
-
-	in.Close()
-	return os.Remove(src)
 }
 
 // expandFilesystem grows a filesystem to fill its partition.

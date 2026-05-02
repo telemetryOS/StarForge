@@ -211,13 +211,13 @@ You will be prompted to confirm before any data is written.
 Export a single bootable disk image for flashing or distribution:
 
 ```bash
-starforge export distribution disk --size 16G --output ./release/my-os.img
+starforge export distribution disk ./release/my-os.img
 ```
 
 Export individual partition images for OTA update systems or custom deployment workflows:
 
 ```bash
-starforge export distribution partitions --output ./release/
+starforge export distribution partitions ./release/
 ```
 
 ## Next Steps

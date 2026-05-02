@@ -14,7 +14,7 @@ starforge build <target> [--clean]
 
 ## Description
 
-Resolve layers for a target and execute build phases using overlayfs caching. Overlay layers are stored in the `.starforge/` build directory. Partition images (`.img` files) are created on demand by `starforge run` or `starforge write`.
+Resolve layers for a target and execute build phases using overlayfs caching. Overlay layers are stored in the `.starforge/` build directory. Partition images (`.img` files) are created when a target is packaged for `starforge run`, `starforge write`, or `starforge export`.
 
 The build process follows three stages:
 
@@ -83,7 +83,7 @@ starforge build device --clean
 
 ## See Also
 
-- [write](write/) -- Write a target to a device or disk image
+- [write](write/) -- Write a target to a block device
 - [export](export/) -- Export as a disk image or partition images
 - [run](run/) -- Boot the build in QEMU for testing
 - [clean](clean/) -- Remove build artifacts

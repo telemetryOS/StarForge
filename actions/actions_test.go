@@ -1294,7 +1294,7 @@ func TestInstallServer_Defaults(t *testing.T) {
 	for _, p := range ctx.Packages {
 		found[p.Name] = true
 	}
-	for _, dep := range []string{"dosfstools", "e2fsprogs", "zstd", "python", "python-six"} {
+	for _, dep := range []string{"dosfstools", "e2fsprogs"} {
 		if !found[dep] {
 			t.Errorf("missing installer dep %q in Packages", dep)
 		}
@@ -1313,6 +1313,17 @@ func TestInstallServer_CustomPortPath(t *testing.T) {
 	}
 	if ctx.InstallServer.Path != "/images" {
 		t.Errorf("Path = %q", ctx.InstallServer.Path)
+	}
+}
+
+func TestInstallServer_RejectsUnsafePath(t *testing.T) {
+	ctx := NewBuildContext()
+	err := execActionErr(t, config.Step{
+		Action:        "install-server",
+		InstallServer: &config.InstallServerStep{Path: "/images/%n"},
+	}, ctx)
+	if err == nil || !strings.Contains(err.Error(), "systemd specifiers") {
+		t.Fatalf("err = %v, want systemd specifier rejection", err)
 	}
 }
 
@@ -1358,6 +1369,17 @@ func TestInstallPayload_MissingTarget(t *testing.T) {
 	}, ctx)
 	if err == nil {
 		t.Error("expected error for missing target")
+	}
+}
+
+func TestInstallPayload_RejectsUnsafePath(t *testing.T) {
+	ctx := NewBuildContext()
+	err := execActionErr(t, config.Step{
+		Action:         "install-payload",
+		InstallPayload: &config.InstallPayloadStep{Target: "device", Path: "/images/../escape"},
+	}, ctx)
+	if err == nil || !strings.Contains(err.Error(), "must be clean") {
+		t.Fatalf("err = %v, want clean path rejection", err)
 	}
 }
 

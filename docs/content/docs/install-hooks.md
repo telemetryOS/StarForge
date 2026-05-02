@@ -30,7 +30,7 @@ Each hook is invoked as:
 | Arg | What it points at |
 |---|---|
 | `target_rootfs` | The temporary mount point where every target partition is mounted at its declared `mount_point`. Empty string for `pre-partition` and `post-write` (rootfs not yet mounted) and best-effort for `on-failure`. |
-| `payload_dir` | The directory on the installer USB that holds this install's `manifest.json` and `*.img.zst` files (i.e. the resolved path under `/images/<payload-name>/`). |
+| `payload_dir` | The directory on the installer USB that holds this install's `manifest.json` and `*.corona` files (i.e. the resolved path under `/images/<payload-name>/`). |
 
 Hooks should treat both arguments as required and validate them, especially `target_rootfs` for the `post-install` phase.
 
@@ -59,7 +59,7 @@ Hook stdout and stderr stream into the installation log line-by-line, alongside 
         restore=$abs/var/lib/telemetryos/restore
         mkdir -p "$restore"
         for img in "$@"; do
-            cp -- "$payload_dir/$img.img.zst" "$restore/"
+            cp -- "$payload_dir/$img.corona" "$restore/"
         done
         echo "Staged $* on $label"
     }

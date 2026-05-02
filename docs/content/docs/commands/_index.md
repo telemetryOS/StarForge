@@ -13,7 +13,7 @@ StarForge provides commands for creating, building, testing, and deploying OS im
 | [init](init/) | Create a new StarForge project |
 | [build](build/) | Build overlay layers for a target |
 | [run](run/) | Boot a target in QEMU |
-| [write](write/) | Write a target to a device or disk image |
+| [write](write/) | Write a target to a block device |
 | [export](export/) | Export build artifacts as disk or partition images |
 | [inspect](inspect/) | Inspect the resolved build context |
 | [chroot](chroot/) | Enter the target filesystem interactively |

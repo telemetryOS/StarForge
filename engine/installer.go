@@ -34,12 +34,6 @@ func (b *Builder) BundleInstallerToRootfs(ctx *actions.BuildContext, rootfs stri
 		}
 	}
 
-	if ctx.InstallServer != nil {
-		if err := bundleBmaptool(rootfs); err != nil {
-			return err
-		}
-	}
-
 	// Bundle server systemd service
 	if ctx.InstallServer != nil {
 		if err := bundleServer(ctx.InstallServer, rootfs); err != nil {
@@ -134,22 +128,12 @@ func (b *Builder) bundlePayloads(ctx *actions.BuildContext, rootfs string) error
 		for _, part := range parts {
 			srcFile := fmt.Sprintf("%s.img", part.Name)
 			srcImg := filepath.Join(payloadBuildDir, srcFile)
-			srcBmap := srcImg + ".bmap"
-			if err := ensureBmap(srcImg, srcBmap); err != nil {
-				return fmt.Errorf("creating bmap for partition image %s: %w", srcFile, err)
-			}
-
-			zstFile := fmt.Sprintf("%s.img.zst", part.Name)
-			destImg := filepath.Join(payloadDir, zstFile)
-			if err := out.RunWithSpinner(fmt.Sprintf("%s → %s (%s)", srcFile, zstFile, actions.FormatSize(part.Size)), func() error {
-				return runSilent("zstd", "-T0", "-9", "-f", srcImg, "-o", destImg)
+			coronaFile := fmt.Sprintf("%s.corona", part.Name)
+			destArtifact := filepath.Join(payloadDir, coronaFile)
+			if err := out.RunWithSpinner(fmt.Sprintf("%s → %s (%s)", srcFile, coronaFile, actions.FormatSize(part.Size)), func() error {
+				return EnsureCoronaFile(srcImg, destArtifact)
 			}); err != nil {
-				return fmt.Errorf("compressing partition image %s: %w", srcFile, err)
-			}
-			bmapFile := fmt.Sprintf("%s.img.bmap", part.Name)
-			destBmap := filepath.Join(payloadDir, bmapFile)
-			if err := CopyFile(srcBmap, destBmap); err != nil {
-				return fmt.Errorf("copying bmap %s: %w", bmapFile, err)
+				return fmt.Errorf("creating Corona file for partition image %s: %w", srcFile, err)
 			}
 
 			pp := installer.PayloadPartition{
@@ -159,8 +143,7 @@ func (b *Builder) bundlePayloads(ctx *actions.BuildContext, rootfs string) error
 				MountPoint: part.MountPoint,
 				Type:       part.Type,
 				Grow:       part.Grow,
-				Image:      zstFile,
-				Bmap:       bmapFile,
+				Artifact:   coronaFile,
 			}
 
 			manifest.Partitions = append(manifest.Partitions, pp)
@@ -232,27 +215,6 @@ func bundleStarforgeBinary(rootfs string) error {
 	}
 
 	return nil
-}
-
-func bundleBmaptool(rootfs string) error {
-	vendorRoot := VendorDir()
-	srcDir := filepath.Join(vendorRoot, "usr", "lib", "starforge", "bmaptool")
-	destDir := filepath.Join(rootfs, "usr", "lib", "starforge", "bmaptool")
-	if err := copyTree(srcDir, destDir, true); err != nil {
-		return fmt.Errorf("copying bmaptool: %w", err)
-	}
-
-	wrapper := `#!/usr/bin/python
-import runpy
-import sys
-sys.path.insert(0, "/usr/lib/starforge/bmaptool/src")
-runpy.run_module("bmaptool", run_name="__main__")
-`
-	destBin := filepath.Join(rootfs, "usr", "bin", "bmaptool")
-	if err := os.MkdirAll(filepath.Dir(destBin), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(destBin, []byte(wrapper), 0o755)
 }
 
 // bundleServer creates a systemd service that runs `starforge install-server`

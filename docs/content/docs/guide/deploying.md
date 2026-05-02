@@ -39,12 +39,10 @@ For example, a partition defined as `256M+` will use at least 256 MB during the 
 The [`starforge export`](../../commands/export/) command with the `disk` subcommand creates a single bootable `.img` file:
 
 ```bash
-starforge export distribution disk --size 16G --output ./release/my-os.img
+starforge export distribution disk ./release/my-os.img
 ```
 
-The `--size` flag specifies the total disk image size. Growable partitions expand to fill the allocated space, just as they do when writing to a physical device.
-
-The `--output` flag sets the destination path. If the output directory does not exist, it is created.
+StarForge derives the disk image size from the target partition layout. The optional output argument sets the destination path. If the output directory does not exist, it is created.
 
 The resulting image can be flashed to a device with `dd`:
 
@@ -59,7 +57,7 @@ Or distributed for flashing with any disk imaging tool (Etcher, Raspberry Pi Ima
 The `partitions` subcommand exports individual partition images rather than a single disk image:
 
 ```bash
-starforge export distribution partitions --output ./release/
+starforge export distribution partitions ./release/
 ```
 
 This produces separate files for each partition:
@@ -69,6 +67,12 @@ release/
 ├── boot.img
 ├── root.img
 └── data.img
+```
+
+Use `--format corona` when the consumer understands Corona files:
+
+```bash
+starforge export distribution partitions ./release/ --format corona
 ```
 
 Individual partition images are useful for:

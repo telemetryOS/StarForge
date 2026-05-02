@@ -47,14 +47,8 @@ func validateManifest(m *installer.PayloadManifest) error {
 		if err := validatePartitionType(p.Type); err != nil {
 			return fmt.Errorf("partitions[%d] (%s).type %q: %w", i, p.Name, p.Type, err)
 		}
-		if err := validateImageRef(p.Image); err != nil {
-			return fmt.Errorf("partitions[%d] (%s).image %q: %w", i, p.Name, p.Image, err)
-		}
-		if err := validateImageRef(p.Bmap); err != nil {
-			return fmt.Errorf("partitions[%d] (%s).bmap %q: %w", i, p.Name, p.Bmap, err)
-		}
-		if p.Image != "" && p.Bmap == "" {
-			return fmt.Errorf("partitions[%d] (%s).bmap: must be set when image is set", i, p.Name)
+		if err := validateImageRef(p.Artifact); err != nil {
+			return fmt.Errorf("partitions[%d] (%s).artifact %q: %w", i, p.Name, p.Artifact, err)
 		}
 	}
 

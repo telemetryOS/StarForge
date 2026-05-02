@@ -1,23 +1,19 @@
 package actions
 
-import (
-	"github.com/telemetryos/starforge/config"
-)
+import "github.com/telemetryos/starforge/config"
 
 type InstallServer struct{}
 
 func (a *InstallServer) Name() string { return "install-server" }
 
 // installerDeps are packages required at install time for partitioning,
-// formatting, and payload decompression.
+// formatting, and EFI boot setup. Payload flashing is handled by the
+// statically-linked starforge binary via the Corona writer.
 var installerDeps = []string{
 	"dosfstools",           // mkfs.vfat
 	"e2fsprogs",            // mkfs.ext4
 	"efibootmgr",           // EFI boot entry management
 	"arch-install-scripts", // arch-chroot
-	"zstd",                 // zstd decompression
-	"python",               // bmaptool runtime
-	"python-six",           // bmaptool runtime
 }
 
 func (a *InstallServer) Execute(step config.Step, layerDir string, ctx *BuildContext) error {
@@ -31,6 +27,9 @@ func (a *InstallServer) Execute(step config.Step, layerDir string, ctx *BuildCon
 	path := s.Path
 	if path == "" {
 		path = "/usr/lib/starforge/payloads"
+	}
+	if err := validateInstallPath("install-server", "path", path); err != nil {
+		return err
 	}
 
 	ctx.InstallServer = &InstallServerDef{

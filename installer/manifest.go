@@ -16,6 +16,5 @@ type PayloadPartition struct {
 	MountPoint string `json:"mount_point"`
 	Type       string `json:"type"`
 	Grow       bool   `json:"grow"`
-	Image      string `json:"image"` // filename, e.g. "boot.img"
-	Bmap       string `json:"bmap,omitempty"`
+	Artifact   string `json:"artifact"` // filename, e.g. "boot.corona"
 }

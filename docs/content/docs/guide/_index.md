@@ -30,6 +30,7 @@ This guide covers every aspect of building OS images with StarForge, organized b
 - [Remote Layers](remote-layers/) -- Git repositories, archives, and HTTP layer sources.
 - [Multi-Target Projects](multi-target-projects/) -- Producing multiple OS variants from shared layers.
 - [Installer](installer/) -- Building installer images for device provisioning.
+- [Corona](corona-files/) -- Chunked image writes, `.corona` artifacts, and why they are useful for installers, recovery, and OTA systems.
 
 ### Build & Deploy
 

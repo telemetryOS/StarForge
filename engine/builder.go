@@ -78,7 +78,7 @@ func (b *Builder) buildRecursive(targetName string, target config.Target, clean 
 	// Recursively build target dependencies before this target's own phases.
 	// Both install-embed and install-payload need their referenced target's
 	// overlay built before host's packaging step (embed: to merge overlays,
-	// payload: to package and bundle .img.zst files).
+	// payload: to package and bundle .corona files).
 	nextPath := append(append([]string(nil), path...), targetName)
 	for _, embedName := range ctx.InstallEmbeds {
 		embedTarget, ok := b.project.Targets[embedName]

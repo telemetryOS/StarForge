@@ -11,7 +11,7 @@ The installer is itself a bootable Linux system built as a StarForge target. At 
 
 The three components:
 
-1. **Payloads** -- Built OS targets bundled as compressed partition images into the installer image. Each payload includes a `manifest.json` describing its partitions.
+1. **Payloads** -- Built OS targets bundled as Corona files into the installer image. Each payload includes a `manifest.json` describing its partitions.
 2. **Server** -- A REST API daemon (`starforge-install-server`) that manages disk detection, partition writing, and installation progress.
 3. **Client** -- A terminal UI (`starforge-install`) that guides the user through payload selection, disk selection, and installation.
 
@@ -83,7 +83,7 @@ For testing the installer in QEMU, add a `qemu` section with an extra disk to si
 
 ### install-payload
 
-Bundles a built target's partition images as compressed payloads. The `target` field references another target by name -- that target must be built first.
+Bundles a built target's partition images as Corona payloads. The `target` field references another target by name -- that target must be built first.
 
 ```yaml
 - action: install-payload
@@ -91,13 +91,13 @@ Bundles a built target's partition images as compressed payloads. The `target` f
   path: /images/device
 ```
 
-StarForge reads the named target's partition images from the build directory, compresses them with zstd, and stores them at the specified `path` inside the installer's root filesystem. Both `target` and `path` are required. Each payload directory contains a `manifest.json` and compressed partition images (`*.img.zst`).
+StarForge reads the named target's partition images from the build directory, packs them as Corona files, and stores them at the specified `path` inside the installer's root filesystem. Both `target` and `path` are required. Each payload directory contains a `manifest.json` and Corona partition files (`*.corona`).
 
 See the [`install-payload` reference](../../actions/install-payload/) for all fields.
 
 ### install-server
 
-Configures the `starforge-install-server` daemon. Sets the listening port and payload directory. Also adds runtime dependencies (`dosfstools`, `e2fsprogs`, `arch-install-scripts`, `zstd`, `python`, `python-six`) to the package list automatically.
+Configures the `starforge-install-server` daemon. Sets the listening port and payload directory. Also adds runtime dependencies (`dosfstools`, `e2fsprogs`, `efibootmgr`, `arch-install-scripts`) to the package list automatically.
 
 ```yaml
 - action: install-server
@@ -203,12 +203,12 @@ starforge write installer /dev/sdX
 Or export as a disk image for distribution:
 
 ```bash
-starforge export installer disk --size 8G --output ./release/installer.img
+starforge export installer disk ./release/installer.img
 ```
 
 ## Runtime Details
 
-**Payload storage.** Payloads are stored at `/usr/lib/starforge/payloads/<target>/` inside the installer image. Each payload directory contains a `manifest.json` describing the partition layout and compressed partition images (`*.img.zst`).
+**Payload storage.** Payloads are stored at `/usr/lib/starforge/payloads/<target>/` inside the installer image. Each payload directory contains a `manifest.json` describing the partition layout and Corona partition files (`*.corona`).
 
 **Server.** The `starforge-install-server` binary runs as a systemd service (`starforge-install-server.service`) and listens on the configured port. It exposes REST endpoints for listing payloads, detecting disks, starting installations, and polling progress.
 
@@ -217,7 +217,7 @@ starforge export installer disk --size 8G --output ./release/installer.img
 **Installation pipeline.** When an installation starts, the server:
 
 1. Partitions the target disk with GPT via sfdisk
-2. Writes each compressed partition image directly to the corresponding device partition with `bmaptool`
+2. Writes each Corona file directly to the corresponding device partition
 3. Expands growable partitions to fill available space
 4. Creates filesystems on expanded partitions
 5. Regenerates fstab with the correct UUIDs from the target disk and installs the bootloader

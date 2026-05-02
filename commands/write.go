@@ -3,7 +3,6 @@ package commands
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -15,16 +14,13 @@ import (
 
 var writeCmd = &cobra.Command{
 	Use:   "write <target> <output>",
-	Short: "Write a target to a device or disk image",
-	Long: `Write a target to a block device or compressed disk image.
+	Short: "Write a target to a block device",
+	Long: `Write a target to a block device.
 The target is built automatically if needed.
 
 For block devices (e.g. /dev/sda), partition images are written directly
-using dd and growable partitions are expanded to fill available space.
-
-For file paths, a compressed disk image (.img.gz) is created that can be
-flashed with tools like Balena Etcher or Rufus. Parent directories are
-created automatically if they don't exist.`,
+through the Corona writer and growable partitions are expanded to fill
+available space. Use "starforge export" to create disk image files.`,
 	Args: cobra.ExactArgs(2),
 	RunE: runWrite,
 }
@@ -46,7 +42,8 @@ func runWrite(cmd *cobra.Command, args []string) error {
 	// Detect if output is an existing block device
 	isDevice := false
 	if info, statErr := os.Stat(outputPath); statErr == nil {
-		isDevice = info.Mode()&os.ModeDevice != 0
+		mode := info.Mode()
+		isDevice = mode&os.ModeDevice != 0 && mode&os.ModeCharDevice == 0
 	}
 
 	// Paths under /dev/ that aren't block devices are an error
@@ -56,6 +53,9 @@ func runWrite(cmd *cobra.Command, args []string) error {
 		}
 		return fmt.Errorf("%s is not a block device", outputPath)
 	}
+	if !isDevice {
+		return fmt.Errorf("%s is not a block device; use 'starforge export %s disk %s' to create a disk image", outputPath, targetName, outputPath)
+	}
 
 	// Elevate to root before fetching sources
 	if err := engine.EnsureRootExec(); err != nil {
@@ -63,15 +63,13 @@ func runWrite(cmd *cobra.Command, args []string) error {
 	}
 
 	// Confirmation for device writes (after elevation so we only ask once)
-	if isDevice {
-		fmt.Printf("WARNING: All data on %s will be destroyed.\n", outputPath)
-		fmt.Print("Continue? [y/N] ")
-		var confirm string
-		fmt.Scanln(&confirm)
-		if strings.ToLower(confirm) != "y" {
-			fmt.Println("Aborted.")
-			return nil
-		}
+	fmt.Printf("WARNING: All data on %s will be destroyed.\n", outputPath)
+	fmt.Print("Continue? [y/N] ")
+	var confirm string
+	fmt.Scanln(&confirm)
+	if strings.ToLower(confirm) != "y" {
+		fmt.Println("Aborted.")
+		return nil
 	}
 
 	buildDir := proj.TargetBuildDir(targetName)
@@ -92,10 +90,7 @@ func runWrite(cmd *cobra.Command, args []string) error {
 		}
 		engine.ChownToInvoker(proj.BuildDir())
 
-		if isDevice {
-			return writeToDevice(builder, ctx, buildDir, outputPath)
-		}
-		return writeToFile(builder, ctx, buildDir, outputPath)
+		return writeToDevice(builder, ctx, buildDir, outputPath)
 	})
 }
 
@@ -114,56 +109,6 @@ func writeToDevice(builder *engine.Builder, ctx *actions.BuildContext, buildDir,
 		}
 	}
 
-	return nil
-}
-
-// writeToFile creates a compressed disk image (.img.gz) suitable for
-// flashing with tools like Balena Etcher or Rufus.
-func writeToFile(builder *engine.Builder, ctx *actions.BuildContext, buildDir, outputPath string) error {
-	// Ensure parent directory exists
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
-		return fmt.Errorf("creating output directory: %w", err)
-	}
-
-	// Normalize the output path to ensure it ends with .img.gz:
-	//   "foo.img.gz" → raw "foo.img", compressed "foo.img.gz"
-	//   "foo.img"    → raw "foo.img", compressed "foo.img.gz"
-	//   "foo"        → raw "foo.img", compressed "foo.img.gz"
-	rawPath := outputPath
-	if trimmed, ok := strings.CutSuffix(rawPath, ".gz"); ok {
-		rawPath = trimmed
-	}
-	if !strings.HasSuffix(rawPath, ".img") {
-		rawPath += ".img"
-	}
-
-	// Create disk image and write partition images via loop device
-	loopDev, cleanup, err := engine.WriteToDiskImage(ctx.Partitions, buildDir, rawPath)
-	if err != nil {
-		return err
-	}
-
-	// Bundle installer components if needed (before detaching loop)
-	if engine.HasInstallerActions(ctx) {
-		if err := bundleInstaller(builder, ctx, loopDev); err != nil {
-			cleanup()
-			return err
-		}
-	}
-
-	// Detach loop device before compression
-	cleanup()
-
-	// Compress the raw image with gzip
-	gzPath, err := engine.CompressDiskImage(rawPath)
-	if err != nil {
-		return err
-	}
-
-	// Ensure the output file is owned by the invoking user
-	engine.ChownToInvoker(gzPath)
-
-	engine.OutputSuccess(fmt.Sprintf("Disk image: %s", gzPath))
 	return nil
 }
 

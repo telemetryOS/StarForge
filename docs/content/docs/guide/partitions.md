@@ -45,7 +45,7 @@ Partition sizes use integer values with a unit suffix:
 
 ### Growable Partitions
 
-Append `+` to a size to make the partition growable. A growable partition has a minimum size for the build image but expands to fill remaining disk space when writing to a device or exporting a disk image:
+Append `+` to a size to make the partition growable. A growable partition has a minimum size for the build image and expands to fill remaining disk space when writing to a real device. Disk exports use the target's natural image size unless the layout declares larger fixed partition sizes.
 
 ```yaml
 - name: data

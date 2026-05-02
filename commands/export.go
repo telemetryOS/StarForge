@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/telemetryos/starforge/actions"
 	"github.com/telemetryos/starforge/config"
 	"github.com/telemetryos/starforge/engine"
 )
@@ -25,33 +25,38 @@ func loadProjectAndTarget(targetName string) (*config.Project, config.Target, er
 	return proj, target, nil
 }
 
-var exportDiskOutput string
-var exportDiskSize string
+var exportPartitionFormat string
 
 var exportCmd = &cobra.Command{
-	Use:   "export <target> <type>",
+	Use:   "export <target> <type> [output]",
 	Short: "Export build artifacts as images",
 	Long: `Export a target as disk images. The target is built automatically if needed.
 
 Type must be "disk" or "partitions".
 
-  starforge export device disk --size 8G
-  starforge export device partitions --output ./release/
+  starforge export device disk ./release/device.img
+  starforge export device disk ./release/device.corona --format corona
+  starforge export device partitions ./release/
+  starforge export device partitions ./release/ --format corona
 
 Use "disk" to create a single bootable disk image with a GPT partition table.
-Use "partitions" to produce individual partition image files.`,
-	Args: cobra.ExactArgs(2),
+Use "partitions" to produce individual partition image files. Use --format
+corona to create Corona files instead.`,
+	Args: cobra.RangeArgs(2, 3),
 	RunE: runExport,
 }
 
 func init() {
-	exportCmd.Flags().StringVar(&exportDiskSize, "size", "", "total disk image size for 'disk' type (e.g. 8G, 16G)")
-	exportCmd.Flags().StringVar(&exportDiskOutput, "output", "", "output path: file for 'disk', directory for 'partitions'")
+	exportCmd.Flags().StringVar(&exportPartitionFormat, "format", "image", "export format: image or corona")
 }
 
 func runExport(cmd *cobra.Command, args []string) error {
 	targetName := args[0]
 	exportType := args[1]
+	outputPath := ""
+	if len(args) == 3 {
+		outputPath = args[2]
+	}
 
 	proj, target, err := loadProjectAndTarget(targetName)
 	if err != nil {
@@ -60,23 +65,19 @@ func runExport(cmd *cobra.Command, args []string) error {
 
 	switch exportType {
 	case "disk":
-		return runExportDisk(proj, targetName, target)
+		return runExportDisk(proj, targetName, target, outputPath)
 	case "partitions":
-		return runExportPartitions(proj, targetName, target)
+		return runExportPartitions(proj, targetName, target, outputPath)
 	default:
 		return fmt.Errorf("unknown export type %q — must be 'disk' or 'partitions'", exportType)
 	}
 }
 
-func runExportDisk(proj *config.Project, targetName string, target config.Target) error {
-	if exportDiskSize == "" {
-		return fmt.Errorf("--size is required for disk export (e.g. --size 8G)")
-	}
-
-	// Parse size flag
-	diskSize, _, err := actions.ParseSize(exportDiskSize)
-	if err != nil {
-		return fmt.Errorf("invalid --size: %w", err)
+func runExportDisk(proj *config.Project, targetName string, _ config.Target, outputPath string) error {
+	switch exportPartitionFormat {
+	case "image", "corona":
+	default:
+		return fmt.Errorf("invalid --format %q — must be 'image' or 'corona'", exportPartitionFormat)
 	}
 
 	// Elevate to root before building
@@ -94,55 +95,70 @@ func runExportDisk(proj *config.Project, targetName string, target config.Target
 	defer output.Close()
 
 	return output.Run(func() error {
-		// Incremental build — detects source changes via cache hashing
 		builder := engine.NewBuilder(proj)
-		if err := builder.Build(targetName, target, false); err != nil {
+		ctx, err := builder.EnsureBuiltAndPackaged(targetName)
+		if err != nil {
 			return err
 		}
 
-		result, err := engine.LoadBuildResult(buildDir)
-		if err != nil {
-			return fmt.Errorf("loading build result: %w", err)
-		}
-
-		if len(result.Partitions) == 0 {
+		if len(ctx.Partitions) == 0 {
 			return fmt.Errorf("target %q has no partitions defined", targetName)
 		}
 
-		// Validate disk size fits all partitions
-		var totalFixed uint64
-		for _, p := range result.Partitions {
-			totalFixed += p.Size
-		}
-		if diskSize < totalFixed {
-			return fmt.Errorf("disk size %s is too small for partitions (need at least %s)",
-				actions.FormatSize(diskSize), actions.FormatSize(totalFixed))
-		}
-
-		// Determine output path
-		outputPath := exportDiskOutput
 		if outputPath == "" {
-			outputPath = filepath.Join(buildDir, "disk.img")
+			if exportPartitionFormat == "corona" {
+				outputPath = filepath.Join(buildDir, "disk.corona")
+			} else {
+				outputPath = filepath.Join(buildDir, "disk.img")
+			}
 		}
 
-		// Clean up any stale mounts from a previous interrupted build
-		engine.CleanupAll(buildDir)
+		var rawPath string
+		if exportPartitionFormat == "corona" {
+			rawPath = strings.TrimSuffix(outputPath, ".corona")
+			if !strings.HasSuffix(rawPath, ".img") {
+				rawPath += ".img"
+			}
+			if !strings.HasSuffix(outputPath, ".corona") {
+				outputPath += ".corona"
+			}
+		} else {
+			rawPath = outputPath
+			if !strings.HasSuffix(rawPath, ".img") {
+				rawPath += ".img"
+			}
+		}
+		if err := os.MkdirAll(filepath.Dir(rawPath), 0o755); err != nil {
+			return fmt.Errorf("creating output directory: %w", err)
+		}
 
-		// Mount cached overlay layers as read-only merged view
-		overlay := engine.NewOverlayManager(buildDir)
-		mergedDir, err := overlay.MountMerged()
+		loopDev, cleanup, err := engine.WriteToDiskImage(ctx.Partitions, buildDir, rawPath)
 		if err != nil {
-			return fmt.Errorf("mounting overlay: %w", err)
+			return err
 		}
-		defer overlay.Unmount()
 
-		// Create disk image — SetupDevicePartitions handles GPT overhead and
-		// growable partition resolution internally.
-		if err := engine.PackageToDiskImage(mergedDir, result.Partitions, diskSize, outputPath, engine.PackageOps{
-			Ownerships:  result.Ownerships,
-			Permissions: result.Permissions,
-		}); err != nil {
-			return fmt.Errorf("creating disk image: %w", err)
+		if engine.HasInstallerActions(ctx) {
+			if err := bundleInstaller(builder, ctx, loopDev); err != nil {
+				cleanup()
+				os.Remove(rawPath)
+				return err
+			}
+		}
+
+		cleanup()
+
+		if exportPartitionFormat == "corona" {
+			if err := engine.EnsureCoronaFile(rawPath, outputPath); err != nil {
+				return fmt.Errorf("creating Corona file: %w", err)
+			}
+			if err := os.Remove(rawPath); err != nil {
+				return fmt.Errorf("removing raw disk image: %w", err)
+			}
+			engine.ChownToInvoker(outputPath)
+			engine.OutputSuccess(fmt.Sprintf("Corona file: %s", outputPath))
+		} else {
+			engine.ChownToInvoker(rawPath)
+			engine.OutputSuccess(fmt.Sprintf("Disk image: %s", rawPath))
 		}
 
 		// Ensure build dir is owned by the invoking user
@@ -152,7 +168,13 @@ func runExportDisk(proj *config.Project, targetName string, target config.Target
 	})
 }
 
-func runExportPartitions(proj *config.Project, targetName string, target config.Target) error {
+func runExportPartitions(proj *config.Project, targetName string, target config.Target, outputDir string) error {
+	switch exportPartitionFormat {
+	case "image", "corona":
+	default:
+		return fmt.Errorf("invalid --format %q — must be 'image' or 'corona'", exportPartitionFormat)
+	}
+
 	// Elevate to root before building
 	if err := engine.EnsureRootExec(); err != nil {
 		return fmt.Errorf("failed to elevate privileges: %w", err)
@@ -181,34 +203,39 @@ func runExportPartitions(proj *config.Project, targetName string, target config.
 			return fmt.Errorf("target %q has no partitions defined", targetName)
 		}
 
-		// Copy to output directory if specified
-		outputDir := exportDiskOutput // reuse --output flag
 		if outputDir != "" {
 			if err := os.MkdirAll(outputDir, 0o755); err != nil {
 				return fmt.Errorf("creating output directory: %w", err)
 			}
+		}
 
-			for _, part := range ctx.Partitions {
-				imgName := fmt.Sprintf("%s.img", part.Name)
-				src := filepath.Join(buildDir, imgName)
-				dest := filepath.Join(outputDir, imgName)
+		for _, part := range ctx.Partitions {
+			imgName := fmt.Sprintf("%s.img", part.Name)
+			src := filepath.Join(buildDir, imgName)
 
-				if _, err := os.Stat(src); err != nil {
-					return fmt.Errorf("partition image %s not found — run 'starforge build' first: %w", imgName, err)
+			if _, err := os.Stat(src); err != nil {
+				return fmt.Errorf("partition image %s not found — run 'starforge build' first: %w", imgName, err)
+			}
+
+			if exportPartitionFormat == "image" {
+				if outputDir != "" {
+					dest := filepath.Join(outputDir, imgName)
+					if err := engine.CopyFile(src, dest); err != nil {
+						return fmt.Errorf("copying %s: %w", imgName, err)
+					}
 				}
+				continue
+			}
 
-				if err := engine.CopyFile(src, dest); err != nil {
-					return fmt.Errorf("copying %s: %w", imgName, err)
-				}
-
-				bmapName := imgName + ".bmap"
-				srcBmap := src + ".bmap"
-				destBmap := filepath.Join(outputDir, bmapName)
-				if err := engine.EnsureBmap(src, srcBmap); err != nil {
-					return fmt.Errorf("creating bmap for %s: %w", imgName, err)
-				}
-				if err := engine.CopyFile(srcBmap, destBmap); err != nil {
-					return fmt.Errorf("copying %s: %w", bmapName, err)
+			coronaName := fmt.Sprintf("%s.corona", part.Name)
+			srcCorona := filepath.Join(buildDir, coronaName)
+			if err := engine.EnsureCoronaFile(src, srcCorona); err != nil {
+				return fmt.Errorf("creating Corona file for %s: %w", imgName, err)
+			}
+			if outputDir != "" {
+				destCorona := filepath.Join(outputDir, coronaName)
+				if err := engine.CopyFile(srcCorona, destCorona); err != nil {
+					return fmt.Errorf("copying %s: %w", coronaName, err)
 				}
 			}
 		}

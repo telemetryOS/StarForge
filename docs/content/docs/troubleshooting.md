@@ -176,17 +176,6 @@ starforge write distribution /dev/sdb1
 starforge write distribution /dev/sdb
 ```
 
-### "disk size too small" on `starforge export disk`
-
-The `--size` value must be large enough to fit all partitions plus GPT overhead. Sum your partition sizes and add at least 1MB for the GPT header:
-
-```bash
-# If partitions total ~10G, use at least 11G
-starforge export distribution disk --size 11G
-```
-
-Growable partitions (defined with `+` suffix) expand to fill remaining space in the disk image.
-
 ## Named Overlay Issues
 
 ### Overlay recreated unexpectedly

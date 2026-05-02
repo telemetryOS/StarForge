@@ -2,6 +2,7 @@ package installations
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/RobertWHurst/navaros"
 
 	"github.com/telemetryos/starforge/actions"
+	"github.com/telemetryos/starforge/corona"
 	"github.com/telemetryos/starforge/engine"
 	"github.com/telemetryos/starforge/installer"
 	"github.com/telemetryos/starforge/installer/diskutil"
@@ -452,7 +454,7 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 	}
 
 	// Validate every untrusted manifest field before letting it influence
-	// mount/format/bmaptool operations. The manifest comes from the payload USB,
+	// mount/format/Corona file writes. The manifest comes from the payload USB,
 	// which is conceptually attacker-controlled (e.g. a tampered installer
 	// image), so a bogus mount_point: "../.." or a name with shell metas
 	// must NOT escape rootfs or compose into an unsafe argv.
@@ -474,8 +476,7 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 			mountPoint: p.MountPoint,
 			partType:   p.Type,
 			grow:       p.Grow,
-			image:      p.Image,
-			bmap:       p.Bmap,
+			artifact:   p.Artifact,
 		})
 	}
 
@@ -515,7 +516,7 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 
 		partDev := engine.PartitionPath(disk.Path, i+1)
 
-		if p.image == "" {
+		if p.artifact == "" {
 			// No image — format an empty filesystem
 			inst.addLog(fmt.Sprintf("Formatting %s (%s)", p.name, p.filesystem))
 			if err := formatPartition(partDev, p.filesystem, p.name); err != nil {
@@ -531,21 +532,12 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 			return
 		}
 
-		if p.image != filepath.Base(p.image) || p.image == "." || p.image == ".." {
-			inst.fail(fmt.Errorf("invalid image path in manifest: %q", p.image))
+		if p.artifact != filepath.Base(p.artifact) || p.artifact == "." || p.artifact == ".." {
+			inst.fail(fmt.Errorf("invalid artifact path in manifest: %q", p.artifact))
 			return
 		}
-		imgPath := filepath.Join(resolvedDir, p.image)
-		if p.bmap == "" {
-			inst.fail(fmt.Errorf("missing bmap for image %s", p.image))
-			return
-		}
-		if p.bmap != filepath.Base(p.bmap) || p.bmap == "." || p.bmap == ".." {
-			inst.fail(fmt.Errorf("invalid bmap path in manifest: %q", p.bmap))
-			return
-		}
-		bmapPath := filepath.Join(resolvedDir, p.bmap)
-		if err := writePartitionImage(imgPath, bmapPath, partDev); err != nil {
+		artifactPath := filepath.Join(resolvedDir, p.artifact)
+		if err := writePartitionImage(artifactPath, partDev); err != nil {
 			inst.fail(fmt.Errorf("writing %s: %w", p.name, err))
 			return
 		}
@@ -667,8 +659,7 @@ type partDef struct {
 	mountPoint string
 	partType   string
 	grow       bool
-	image      string
-	bmap       string
+	artifact   string
 }
 
 func toEngineParts(parts []partDef) []actions.PartitionDef {
@@ -690,12 +681,12 @@ func toEnginePart(p partDef) actions.PartitionDef {
 	}
 }
 
-// writePartitionImage writes a partition image to a block device using bmaptool.
-func writePartitionImage(imgPath, bmapPath, partDev string) error {
-	cmd := exec.Command("bmaptool", "copy", "--bmap", bmapPath, imgPath, partDev)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+// writePartitionImage writes a Corona file to a block device.
+func writePartitionImage(artifactPath, partDev string) error {
+	return corona.Write(context.Background(), corona.WriteOptions{
+		ArtifactPath: artifactPath,
+		TargetPath:   partDev,
+	})
 }
 
 // formatPartition formats a partition with the given filesystem.

@@ -82,7 +82,7 @@ Define disk partitions for the target system. Partitions are created as individu
 
 ### Growable partitions
 
-Sizes ending with `+` indicate a growable partition. The image is created at the specified minimum size, but when written to a device (`starforge write`) or exported as a disk image (`starforge export disk`), the partition expands to fill any remaining space.
+Sizes ending with `+` indicate a growable partition. The image is created at the specified minimum size. When written to a real device (`starforge write`), the partition expands to fill available disk space. Disk exports use the target's natural image size unless the target layout itself declares larger fixed partition sizes.
 
 ```yaml
 - name: root

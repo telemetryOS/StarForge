@@ -42,5 +42,5 @@ Collected during Collect. Configured during the Package phase, after partition i
 - Installs the `starforge-install-server` binary to `/usr/bin/starforge-install-server` inside the target image.
 - Creates a systemd service (`starforge-install-server.service`) that starts the server at boot, listening on the configured port and serving payloads from the configured path.
 - The service is enabled via a symlink in `multi-user.target.wants`.
-- Installer runtime packages (`dosfstools`, `e2fsprogs`, `efibootmgr`, `arch-install-scripts`, `zstd`, `python`, `python-six`) are automatically added to the package list.
+- Installer runtime packages (`dosfstools`, `e2fsprogs`, `efibootmgr`, `arch-install-scripts`) are automatically added to the package list.
 - See [install-payload](install-payload/) for bundling target images and [install-client](install-client/) for the TUI client.

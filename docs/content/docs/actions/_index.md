@@ -127,7 +127,7 @@ Runs a host-side build script in the resolved source directory before the action
 
 | Action | Description | Page |
 |--------|-------------|------|
-| [install-payload](install-payload/) | Bundle a built target as a compressed payload | -- |
+| [install-payload](install-payload/) | Bundle a built target as a Corona payload | -- |
 | [install-server](install-server/) | Configure the installer REST API server | -- |
 | [install-client](install-client/) | Configure the installer TUI client | -- |
 

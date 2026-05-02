@@ -356,7 +356,7 @@ func PartitionDevice(parts []actions.PartitionDef, device string) ([]actions.Par
 }
 
 // UnmountDevice unmounts any currently mounted filesystem from device or one
-// of its partitions. This prevents bmaptool's exclusive open from failing
+// of its partitions. This prevents exclusive block-device writes from failing
 // after desktop automount or a previous interrupted install.
 func UnmountDevice(device string) error {
 	sources := map[string]bool{device: true}
