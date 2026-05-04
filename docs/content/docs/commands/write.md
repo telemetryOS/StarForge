@@ -21,7 +21,7 @@ starforge write <target> <device>
 
 ## Description
 
-Writes partition images to a block device. StarForge creates a GPT partition table and writes each partition image through the Corona writer, which skips redundant image data while explicitly zeroing required ranges on dirty targets. Growable partitions are expanded to fill available space on the device.
+Writes partition images to a block device. StarForge creates a GPT partition table and writes each partition image through the Corona writer, which skips known-unallocated filesystem ranges while explicitly zeroing allocated zero ranges on dirty targets. Growable partitions are expanded to fill available space on the device.
 
 The target is built automatically if needed.
 

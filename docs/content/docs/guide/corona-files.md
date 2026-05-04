@@ -3,7 +3,7 @@ title: "Corona"
 weight: 88
 ---
 
-Corona is StarForge's chunked image writer and artifact format. It is used directly by `starforge write` when writing raw partition images to block devices, and it can also package a partition image as a `.corona` file when that image needs to be stored, moved, and flashed later without carrying a separate block map file.
+Corona is StarForge's chunked image writer and corona format. It is used directly by `starforge write` when writing raw partition images to block devices, and it can also package a partition or full-disk image as a `.corona` file when that image needs to be stored, moved, and flashed later without carrying a separate block map file.
 
 The format is designed for installer payloads, recovery payloads, and OTA systems. For normal local development and generic image interchange, raw `.img` exports are still the default.
 
@@ -13,15 +13,15 @@ Raw partition images are simple, but they are often much larger than the useful 
 
 Corona solves three problems:
 
-- **Smaller artifacts.** Zero chunks are represented as zero operations instead of stored as payload bytes.
+- **Smaller coronas.** Zero chunks are represented as zero operations instead of stored as payload bytes.
 - **Faster writes.** Flashing writes only useful compressed chunks plus explicit zero ranges.
-- **Dirty-target correctness.** Zero ranges are not skipped. They are written back as zeros, so flashing onto an old partition cannot leave stale data behind.
+- **Dirty-target correctness.** Allocated zero ranges are written back as zeros, so flashing onto an old partition cannot leave stale data inside meaningful filesystem data. Known-unallocated filesystem ranges are skipped intentionally.
 
 This makes the Corona writer a better fit than plain `dd` for device writes, and makes Corona files a better fit than plain compressed images for device provisioning and recovery. A compressed raw image can transfer fewer bytes, but during restore it still expands back into a full image stream. A Corona file preserves the sparse write plan all the way to the block device.
 
 ## Where They Are Used
 
-StarForge uses Corona in three places:
+StarForge uses Corona in four places:
 
 - `starforge write <target> /dev/...` writes raw partition images through the Corona writer.
 - `starforge export <target> disk ./disk.corona --format corona` writes a full GPT disk image as a Corona file.
@@ -30,19 +30,23 @@ StarForge uses Corona in three places:
 
 `starforge export <target> partitions` defaults to raw partition `.img` files, and `starforge export <target> disk ./disk.img` defaults to a raw full-disk image. Use `--format corona` only when the consumer understands the Corona format.
 
-The installer server reads each payload manifest, creates the requested partition table, and writes every manifest `artifact` to its matching block partition.
+The installer server reads each payload manifest, creates the requested partition table, and writes every manifest `corona` to its matching block partition.
 
 ## Architecture
 
-The implementation lives in the `corona` Go package. The package handles both direct image writes and `.corona` artifact reads/writes.
+The implementation lives in the `corona` Go package. The package handles both direct image writes and Corona file reads and writes.
 
-The package has three primary paths:
+The public package interface is:
 
-- **Pack:** `Pack` scans a raw partition image and writes a `.corona` file.
-- **Write:** `Write` validates a `.corona` file and applies it to a target path or block device.
-- **WriteImage:** writes a raw `.img` directly to a target using the same chunk scheduler and zero-range handling, without first creating a `.corona` file.
+```go
+err := corona.Convert(ctx, sourcePath, targetPath, corona.Options{})
+```
 
-StarForge uses `WriteImage` for direct `starforge write` device writes, and uses `Pack`/`Write` for installer payloads and exported Corona files.
+`Convert` detects whether the source and target paths are raw images, block devices, or `.corona` files, rejects same-type conversions, and dispatches to the correct internal streaming path.
+
+StarForge uses this interface for direct `starforge write` device writes, installer payloads, and exported Corona files. For supported filesystems, the package uses the same allocation planner across all paths so known-unallocated ext blocks and FAT clusters are skipped consistently.
+
+The planner is also disk-aware. When the source is a GPT disk image, Corona keeps GPT metadata, treats gaps between partitions as skippable, and lazily chooses the right sub-planner as each partition boundary is reached. An ext partition uses ext block bitmaps, a FAT partition uses FAT allocation tables, and an unknown partition falls back to raw allocated data.
 
 ## File Layout
 
@@ -50,8 +54,8 @@ A Corona file is a single binary file:
 
 ```text
 header
-chunk frame
-chunk frame
+operation frame
+operation frame
 ...
 trailer
 ```
@@ -66,13 +70,13 @@ The header contains:
 - filesystem version
 - filesystem block size when known
 
-Each chunk frame records:
+Each operation frame records:
 
 - frame type: skip, zero, or zstd
 - target offset
 - uncompressed size
 - compressed size
-- CRC32C over the uncompressed chunk for zstd frames
+- CRC32C over the uncompressed data for zstd frames
 - compressed payload bytes for zstd frames
 
 The trailer contains:
@@ -83,32 +87,34 @@ The trailer contains:
 - stored byte count
 - SHA-256 of allocated content
 
-The allocated-content SHA-256 validates the meaningful reconstructed data. For supported filesystems, skipped unallocated ranges are intentionally excluded. For unknown or unsupported filesystems, every source range is treated as allocated, so this matches the full source image SHA-256. Per-chunk CRC32C detects decompression or chunk corruption at the exact frame being applied.
+The allocated-content SHA-256 validates the meaningful reconstructed data. For supported filesystems, skipped unallocated ranges are intentionally excluded. For unknown or unsupported filesystems, every source range is treated as allocated, so this matches the full source image SHA-256. Per-frame CRC32C detects decompression or data corruption at the exact frame being applied.
 
 ## Packing Flow
 
-Packing walks the source image in chunks. The default chunk size is 8 MiB, which gives the worker pool enough independent chunks to keep more CPU cores busy on typical images.
+Packing walks the source image in fixed-size chunks. The default chunk size is 8 MiB, which gives the worker pool enough independent chunks to keep more CPU cores busy on typical images.
 
-For each chunk or filesystem allocation span:
+Each worker receives one stable chunk. If a chunk crosses an allocation boundary, it carries an internal ordered list of data and skip operations, but the chunk itself does not resize. This keeps worker results independent and lets the writer drain result channels in source order without depending on another worker's compressed output size.
 
-1. Ask the filesystem allocation checker whether the current range is allocated.
-2. If the range is known-unallocated, emit a skip frame without reading or hashing the source bytes.
+For each chunk:
+
+1. Ask the allocation planner for the ordered data/skip operations inside the fixed chunk.
+2. If a range is known-unallocated, record a skip operation without reading or hashing the source bytes.
 3. Otherwise, read the range once.
 4. Feed the range into the allocated-content hasher.
-5. Create a per-frame result channel and pass the range to the compression worker pool.
+5. Create a per-chunk result channel and pass the chunk operations to the compression worker pool.
 6. Pass the result channel to the writer in source order.
-7. If the range is all zeros, the worker returns a zero frame.
+7. If a data operation is all zeros, the worker returns a zero frame.
 8. Otherwise, the worker computes CRC32C, compresses with zstd, and returns a zstd frame.
-9. The writer drains result channels in order and appends frames to the output.
+9. The writer drains chunk result channels in order, coalesces adjacent skip or zero operation frames, and appends frames to the output.
 10. After all frames are written, append the trailer.
 
-Compression runs with worker goroutines while the reader computes the source hash. The final artifact remains deterministic because the writer appends frames in source order, regardless of which worker finishes first.
+Compression runs with worker goroutines while the reader computes the source hash. The final corona remains deterministic because the writer appends frames in source order, regardless of which worker finishes first.
 
-Corona currently understands ext block bitmaps and FAT16/FAT32 allocation tables. FAT12 and any unsupported or suspicious filesystem metadata falls back to full-image packing.
+Corona currently understands GPT partition tables, ext block bitmaps, and FAT16/FAT32 allocation tables. FAT12 and any unsupported or suspicious filesystem metadata falls back to raw allocated data for the affected source range.
 
 ## Flashing Flow
 
-Writing a Corona file starts by scanning the frames, checking bounds, validating per-frame CRC32C, and verifying the reconstructed allocated-content SHA-256. Only then does StarForge open the target for writing.
+Writing a Corona file is a single streaming pass over the Corona file. The writer checks frame bounds as it reads, validates each zstd frame's CRC32C before writing that frame, and verifies the reconstructed allocated-content SHA-256 when the trailer is reached. This avoids reading the Corona file twice, but it also means a Corona file with a bad final aggregate hash can fail after earlier valid frames have already been written.
 
 For each frame:
 
@@ -125,10 +131,11 @@ Corona writes are designed to be safe for dirty block targets:
 - Zero ranges are explicit writes, not assumptions about the target state.
 - Frame offsets and sizes are checked against the original image size.
 - Out-of-order or overlapping frames are rejected.
-- Allocated-content integrity is checked before flashing.
-- Each decompressed write chunk is checked before it is written.
+- Allocated-content integrity is checked during the same streaming pass and finalized at the trailer.
+- Each decompressed write frame is checked before it is written.
+- Same-type conversions are rejected; use a `.corona` extension for Corona file targets and any other regular-file extension for raw images.
 
-Corona does not replace partition-table logic. The caller is still responsible for creating a target partition of the correct size and writing the image or artifact to the correct block device.
+Corona does not replace partition-table logic. The caller is still responsible for creating a target partition of the correct size and writing the image or corona to the correct block device.
 
 ## Tradeoffs
 

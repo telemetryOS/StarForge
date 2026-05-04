@@ -11,8 +11,8 @@ func TestValidateManifest_HappyPath(t *testing.T) {
 	m := &installer.PayloadManifest{
 		Name: "device",
 		Partitions: []installer.PayloadPartition{
-			{Name: "boot", Filesystem: "vfat", Type: "efi", MountPoint: "/efi", Artifact: "boot.img.corona"},
-			{Name: "root", Filesystem: "ext4", Type: "linux", MountPoint: "/", Artifact: "root.img.corona"},
+			{Name: "boot", Filesystem: "vfat", Type: "efi", MountPoint: "/efi", Corona: "boot.img.corona"},
+			{Name: "root", Filesystem: "ext4", Type: "linux", MountPoint: "/", Corona: "root.img.corona"},
 		},
 	}
 	if err := validateManifest(m); err != nil {
@@ -28,7 +28,7 @@ func TestValidateManifest_RejectsTraversalMountPoint(t *testing.T) {
 		}
 		m := &installer.PayloadManifest{
 			Partitions: []installer.PayloadPartition{
-				{Name: "x", Filesystem: "ext4", Type: "linux", MountPoint: mp, Artifact: "x.img.corona"},
+				{Name: "x", Filesystem: "ext4", Type: "linux", MountPoint: mp, Corona: "x.img.corona"},
 			},
 		}
 		if err := validateManifest(m); err == nil {
@@ -41,7 +41,7 @@ func TestValidateManifest_RejectsKernelVfsTargets(t *testing.T) {
 	for _, mp := range []string{"/proc", "/sys", "/dev", "/run"} {
 		m := &installer.PayloadManifest{
 			Partitions: []installer.PayloadPartition{
-				{Name: "x", Filesystem: "ext4", Type: "linux", MountPoint: mp, Artifact: "x.img.corona"},
+				{Name: "x", Filesystem: "ext4", Type: "linux", MountPoint: mp, Corona: "x.img.corona"},
 			},
 		}
 		if err := validateManifest(m); err == nil {
@@ -54,7 +54,7 @@ func TestValidateManifest_RejectsBadName(t *testing.T) {
 	for _, name := range []string{"", "name with space", "../traversal", "name;rm", strings.Repeat("a", 37)} {
 		m := &installer.PayloadManifest{
 			Partitions: []installer.PayloadPartition{
-				{Name: name, Filesystem: "ext4", Type: "linux", MountPoint: "/", Artifact: "x.img.corona"},
+				{Name: name, Filesystem: "ext4", Type: "linux", MountPoint: "/", Corona: "x.img.corona"},
 			},
 		}
 		if err := validateManifest(m); err == nil {
@@ -63,15 +63,15 @@ func TestValidateManifest_RejectsBadName(t *testing.T) {
 	}
 }
 
-func TestValidateManifest_RejectsBadArtifact(t *testing.T) {
+func TestValidateManifest_RejectsBadCorona(t *testing.T) {
 	for _, img := range []string{"../etc/passwd", "/abs/path", "sub/dir/img", "..", "."} {
 		m := &installer.PayloadManifest{
 			Partitions: []installer.PayloadPartition{
-				{Name: "x", Filesystem: "ext4", Type: "linux", MountPoint: "/", Artifact: img},
+				{Name: "x", Filesystem: "ext4", Type: "linux", MountPoint: "/", Corona: img},
 			},
 		}
 		if err := validateManifest(m); err == nil {
-			t.Errorf("artifact %q should be rejected", img)
+			t.Errorf("corona %q should be rejected", img)
 		}
 	}
 }
@@ -79,7 +79,7 @@ func TestValidateManifest_RejectsBadArtifact(t *testing.T) {
 func TestValidateManifest_RejectsBadFilesystem(t *testing.T) {
 	m := &installer.PayloadManifest{
 		Partitions: []installer.PayloadPartition{
-			{Name: "x", Filesystem: "ntfs-corrupt", Type: "linux", MountPoint: "/", Artifact: "x.img.corona"},
+			{Name: "x", Filesystem: "ntfs-corrupt", Type: "linux", MountPoint: "/", Corona: "x.img.corona"},
 		},
 	}
 	if err := validateManifest(m); err == nil {
@@ -90,7 +90,7 @@ func TestValidateManifest_RejectsBadFilesystem(t *testing.T) {
 func TestValidateManifest_RejectsBadPartType(t *testing.T) {
 	m := &installer.PayloadManifest{
 		Partitions: []installer.PayloadPartition{
-			{Name: "x", Filesystem: "ext4", Type: "made-up", MountPoint: "/", Artifact: "x.img.corona"},
+			{Name: "x", Filesystem: "ext4", Type: "made-up", MountPoint: "/", Corona: "x.img.corona"},
 		},
 	}
 	if err := validateManifest(m); err == nil {
@@ -101,8 +101,8 @@ func TestValidateManifest_RejectsBadPartType(t *testing.T) {
 func TestValidateManifest_RejectsDuplicateNames(t *testing.T) {
 	m := &installer.PayloadManifest{
 		Partitions: []installer.PayloadPartition{
-			{Name: "x", Filesystem: "ext4", Type: "linux", MountPoint: "/a", Artifact: "x.img.corona"},
-			{Name: "x", Filesystem: "ext4", Type: "linux", MountPoint: "/b", Artifact: "y.img.corona"},
+			{Name: "x", Filesystem: "ext4", Type: "linux", MountPoint: "/a", Corona: "x.img.corona"},
+			{Name: "x", Filesystem: "ext4", Type: "linux", MountPoint: "/b", Corona: "y.img.corona"},
 		},
 	}
 	if err := validateManifest(m); err == nil {
@@ -113,8 +113,8 @@ func TestValidateManifest_RejectsDuplicateNames(t *testing.T) {
 func TestValidateManifest_RejectsDuplicateMountPoints(t *testing.T) {
 	m := &installer.PayloadManifest{
 		Partitions: []installer.PayloadPartition{
-			{Name: "a", Filesystem: "ext4", Type: "linux", MountPoint: "/", Artifact: "a.img.corona"},
-			{Name: "b", Filesystem: "ext4", Type: "linux", MountPoint: "/", Artifact: "b.img.corona"},
+			{Name: "a", Filesystem: "ext4", Type: "linux", MountPoint: "/", Corona: "a.img.corona"},
+			{Name: "b", Filesystem: "ext4", Type: "linux", MountPoint: "/", Corona: "b.img.corona"},
 		},
 	}
 	if err := validateManifest(m); err == nil {
@@ -125,12 +125,12 @@ func TestValidateManifest_RejectsDuplicateMountPoints(t *testing.T) {
 func TestValidateManifest_AllowsEmptyMountPointForSwap(t *testing.T) {
 	m := &installer.PayloadManifest{
 		Partitions: []installer.PayloadPartition{
-			{Name: "swap", Filesystem: "swap", Type: "swap", MountPoint: "", Artifact: ""},
-			{Name: "root", Filesystem: "ext4", Type: "linux", MountPoint: "/", Artifact: "root.img.corona"},
+			{Name: "swap", Filesystem: "swap", Type: "swap", MountPoint: "", Corona: ""},
+			{Name: "root", Filesystem: "ext4", Type: "linux", MountPoint: "/", Corona: "root.img.corona"},
 		},
 	}
 	if err := validateManifest(m); err != nil {
-		t.Errorf("swap with empty mount_point + empty artifact should be legal: %v", err)
+		t.Errorf("swap with empty mount_point + empty corona should be legal: %v", err)
 	}
 }
 
@@ -138,7 +138,7 @@ func TestValidateManifest_RejectsEFILabelControlChars(t *testing.T) {
 	m := &installer.PayloadManifest{
 		EFILabel: "Edge\x1bOS",
 		Partitions: []installer.PayloadPartition{
-			{Name: "root", Filesystem: "ext4", Type: "linux", MountPoint: "/", Artifact: "x.img.corona"},
+			{Name: "root", Filesystem: "ext4", Type: "linux", MountPoint: "/", Corona: "x.img.corona"},
 		},
 	}
 	if err := validateManifest(m); err == nil {

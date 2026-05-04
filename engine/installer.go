@@ -129,9 +129,9 @@ func (b *Builder) bundlePayloads(ctx *actions.BuildContext, rootfs string) error
 			srcFile := fmt.Sprintf("%s.img", part.Name)
 			srcImg := filepath.Join(payloadBuildDir, srcFile)
 			coronaFile := fmt.Sprintf("%s.corona", part.Name)
-			destArtifact := filepath.Join(payloadDir, coronaFile)
+			destCorona := filepath.Join(payloadDir, coronaFile)
 			if err := out.RunWithSpinner(fmt.Sprintf("%s → %s (%s)", srcFile, coronaFile, actions.FormatSize(part.Size)), func() error {
-				return EnsureCoronaFile(srcImg, destArtifact)
+				return EnsureCoronaFile(srcImg, destCorona)
 			}); err != nil {
 				return fmt.Errorf("creating Corona file for partition image %s: %w", srcFile, err)
 			}
@@ -143,7 +143,7 @@ func (b *Builder) bundlePayloads(ctx *actions.BuildContext, rootfs string) error
 				MountPoint: part.MountPoint,
 				Type:       part.Type,
 				Grow:       part.Grow,
-				Artifact:   coronaFile,
+				Corona:     coronaFile,
 			}
 
 			manifest.Partitions = append(manifest.Partitions, pp)

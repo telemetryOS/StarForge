@@ -25,9 +25,10 @@ const (
 )
 
 var (
-	magic          = [8]byte{'C', 'O', 'R', 'O', 'N', 'A', 0, 2}
-	trailerMagic   = [8]byte{'C', 'F', 'S', 'H', 'A', '2', '5', '6'}
-	errShortHeader = errors.New("corona: short header")
+	magic           = [8]byte{'C', 'O', 'R', 'O', 'N', 'A', 0, 2}
+	trailerMagic    = [8]byte{'C', 'F', 'S', 'H', 'A', '2', '5', '6'}
+	errShortHeader  = errors.New("corona: short header")
+	errInvalidMagic = errors.New("corona: invalid magic")
 )
 
 type fileHeader struct {
@@ -76,7 +77,7 @@ func readFileHeader(r io.Reader) (fileHeader, error) {
 		return fileHeader{}, fmt.Errorf("read header: %w", err)
 	}
 	if !bytes.Equal(prefix[:len(magic)], magic[:]) {
-		return fileHeader{}, errors.New("corona: invalid magic")
+		return fileHeader{}, errInvalidMagic
 	}
 	version := binary.BigEndian.Uint16(prefix[len(magic):10])
 	if version != Version {
@@ -159,6 +160,18 @@ func readFileTrailer(f *os.File, size int64) (fileTrailer, error) {
 	if _, err := f.ReadAt(buf[:], size-fileTrailerLen); err != nil {
 		return fileTrailer{}, fmt.Errorf("read trailer: %w", err)
 	}
+	return parseFileTrailer(buf[:])
+}
+
+func readFileTrailerFromReader(r io.Reader) (fileTrailer, error) {
+	var buf [fileTrailerLen]byte
+	if _, err := io.ReadFull(r, buf[:]); err != nil {
+		return fileTrailer{}, fmt.Errorf("read trailer: %w", err)
+	}
+	return parseFileTrailer(buf[:])
+}
+
+func parseFileTrailer(buf []byte) (fileTrailer, error) {
 	if !bytes.Equal(buf[:len(trailerMagic)], trailerMagic[:]) {
 		return fileTrailer{}, errors.New("corona: invalid trailer")
 	}

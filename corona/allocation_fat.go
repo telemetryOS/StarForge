@@ -8,6 +8,7 @@ import (
 
 type fatAllocationChecker struct {
 	src               *os.File
+	baseOffset        uint64
 	version           uint16
 	fsSize            uint64
 	bytesPerSector    uint64
@@ -16,17 +17,25 @@ type fatAllocationChecker struct {
 	fatOffset         uint64
 	dataOffset        uint64
 	clusterCount      uint64
+	fat               []byte
 }
 
 func detectFATAllocationChecker(src *os.File, imageSize uint64) (*fatAllocationChecker, error) {
+	return detectFATAllocationCheckerAt(src, 0, imageSize)
+}
+
+func detectFATAllocationCheckerAt(src *os.File, baseOffset, imageSize uint64) (*fatAllocationChecker, error) {
 	if imageSize < 512 {
 		return nil, nil
 	}
 	var boot [512]byte
-	if _, err := src.ReadAt(boot[:], 0); err != nil {
+	if _, err := src.ReadAt(boot[:], int64(baseOffset)); err != nil {
 		return nil, err
 	}
 	if boot[510] != 0x55 || boot[511] != 0xaa {
+		return nil, nil
+	}
+	if boot[0] != 0xeb && boot[0] != 0xe9 {
 		return nil, nil
 	}
 	bytesPerSector := uint64(binary.LittleEndian.Uint16(boot[11:13]))
@@ -64,15 +73,27 @@ func detectFATAllocationChecker(src *os.File, imageSize uint64) (*fatAllocationC
 		return nil, nil
 	case clusterCount < 65525:
 		version = 16
+		if string(boot[54:62]) != "FAT16   " {
+			return nil, nil
+		}
 	default:
 		version = 32
+		if string(boot[82:90]) != "FAT32   " {
+			return nil, nil
+		}
 	}
 	fsSize := totalSectors * bytesPerSector
 	if fsSize > imageSize {
 		return nil, nil
 	}
+	fatBytes := fatSectors * bytesPerSector
+	fat := make([]byte, fatBytes)
+	if _, err := src.ReadAt(fat, int64(baseOffset+reservedSectors*bytesPerSector)); err != nil {
+		return nil, err
+	}
 	return &fatAllocationChecker{
 		src:               src,
+		baseOffset:        baseOffset,
 		version:           version,
 		fsSize:            fsSize,
 		bytesPerSector:    bytesPerSector,
@@ -81,6 +102,7 @@ func detectFATAllocationChecker(src *os.File, imageSize uint64) (*fatAllocationC
 		fatOffset:         reservedSectors * bytesPerSector,
 		dataOffset:        dataStartSector * bytesPerSector,
 		clusterCount:      clusterCount,
+		fat:               fat,
 	}, nil
 }
 
@@ -96,15 +118,17 @@ func (c *fatAllocationChecker) nextFramePlan(offset, maxSize uint64) (framePlan,
 	if maxSize == 0 {
 		return framePlan{}, errEmptyFramePlan
 	}
-	if offset >= c.fsSize {
+	if offset >= c.baseOffset+c.fsSize {
 		return framePlan{offset: offset, size: maxSize}, nil
 	}
-	if offset < c.dataOffset {
-		return framePlan{offset: offset, size: minUint64(maxSize, c.dataOffset-offset)}, nil
+	localOffset := offset - c.baseOffset
+	if localOffset < c.dataOffset {
+		return framePlan{offset: offset, size: minUint64(maxSize, c.dataOffset-localOffset)}, nil
 	}
 	return contiguousAllocationPlan(
 		offset,
 		maxSize,
+		c.baseOffset,
 		c.fsSize,
 		func(offset uint64) (bool, error) {
 			return c.clusterAllocated(c.clusterForOffset(offset))
@@ -129,17 +153,17 @@ func (c *fatAllocationChecker) clusterAllocated(cluster uint64) (bool, error) {
 	}
 	switch c.version {
 	case 16:
-		var entry [2]byte
-		if _, err := c.src.ReadAt(entry[:], int64(c.fatOffset+cluster*2)); err != nil {
-			return false, fmt.Errorf("read fat16 entry %d: %w", cluster, err)
+		entryOffset := cluster * 2
+		if entryOffset+2 > uint64(len(c.fat)) {
+			return false, fmt.Errorf("corona: fat16 entry %d outside FAT", cluster)
 		}
-		return binary.LittleEndian.Uint16(entry[:]) != 0, nil
+		return binary.LittleEndian.Uint16(c.fat[entryOffset:entryOffset+2]) != 0, nil
 	case 32:
-		var entry [4]byte
-		if _, err := c.src.ReadAt(entry[:], int64(c.fatOffset+cluster*4)); err != nil {
-			return false, fmt.Errorf("read fat32 entry %d: %w", cluster, err)
+		entryOffset := cluster * 4
+		if entryOffset+4 > uint64(len(c.fat)) {
+			return false, fmt.Errorf("corona: fat32 entry %d outside FAT", cluster)
 		}
-		return binary.LittleEndian.Uint32(entry[:])&0x0fffffff != 0, nil
+		return binary.LittleEndian.Uint32(c.fat[entryOffset:entryOffset+4])&0x0fffffff != 0, nil
 	default:
 		return true, nil
 	}

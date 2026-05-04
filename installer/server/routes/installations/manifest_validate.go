@@ -47,8 +47,8 @@ func validateManifest(m *installer.PayloadManifest) error {
 		if err := validatePartitionType(p.Type); err != nil {
 			return fmt.Errorf("partitions[%d] (%s).type %q: %w", i, p.Name, p.Type, err)
 		}
-		if err := validateImageRef(p.Artifact); err != nil {
-			return fmt.Errorf("partitions[%d] (%s).artifact %q: %w", i, p.Name, p.Artifact, err)
+		if err := validateImageRef(p.Corona); err != nil {
+			return fmt.Errorf("partitions[%d] (%s).corona %q: %w", i, p.Name, p.Corona, err)
 		}
 	}
 

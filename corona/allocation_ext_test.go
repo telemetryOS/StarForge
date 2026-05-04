@@ -11,10 +11,10 @@ import (
 	"testing"
 )
 
-func TestPackExtSkipsUnallocatedBlocks(t *testing.T) {
+func TestCreateExtSkipsUnallocatedBlocks(t *testing.T) {
 	dir := t.TempDir()
 	image := filepath.Join(dir, "ext.img")
-	artifact := filepath.Join(dir, "ext.corona")
+	corona := filepath.Join(dir, "ext.corona")
 	target := filepath.Join(dir, "target.blk")
 
 	src, allocated := extFixtureImage()
@@ -25,17 +25,17 @@ func TestPackExtSkipsUnallocatedBlocks(t *testing.T) {
 	if err := os.WriteFile(target, dirty, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := Pack(context.Background(), PackOptions{
-		ImagePath:    image,
-		ArtifactPath: artifact,
-		ChunkSize:    4096,
-		Workers:      2,
+	if err := create(context.Background(), createOptions{
+		SourcePath: image,
+		CoronaPath: corona,
+		ChunkSize:  4096,
+		Workers:    2,
 	}); err != nil {
-		t.Fatalf("Pack: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
-	info, err := Inspect(context.Background(), artifact)
+	info, err := validateCoronaForTest(t, corona)
 	if err != nil {
-		t.Fatalf("Inspect: %v", err)
+		t.Fatalf("Validate: %v", err)
 	}
 	if info.FSType != fsExt || info.FSBlockSize != 1024 {
 		t.Fatalf("filesystem metadata = type %d block %d, want ext block 1024", info.FSType, info.FSBlockSize)
@@ -43,8 +43,8 @@ func TestPackExtSkipsUnallocatedBlocks(t *testing.T) {
 	if info.AllocatedSHA256 != allocatedSHA(src, allocated, 1024) {
 		t.Fatalf("AllocatedSHA256 = %q, want allocated-only hash", info.AllocatedSHA256)
 	}
-	if err := Write(context.Background(), WriteOptions{ArtifactPath: artifact, TargetPath: target}); err != nil {
-		t.Fatalf("Write: %v", err)
+	if err := writeCoronaToRegularForTest(t, corona, target, 0, WriteOrderSequential); err != nil {
+		t.Fatalf("Flash: %v", err)
 	}
 	got, err := os.ReadFile(target)
 	if err != nil {
@@ -61,6 +61,87 @@ func TestPackExtSkipsUnallocatedBlocks(t *testing.T) {
 		}
 		if !bytes.Equal(got[start:end], dirty[start:end]) {
 			t.Fatalf("unallocated block %d was overwritten", block)
+		}
+	}
+}
+
+func TestFlashImageExtSkipsUnallocatedBlocks(t *testing.T) {
+	dir := t.TempDir()
+	image := filepath.Join(dir, "ext.img")
+	target := filepath.Join(dir, "target.blk")
+
+	src, allocated := extFixtureImage()
+	if err := os.WriteFile(image, src, 0644); err != nil {
+		t.Fatal(err)
+	}
+	dirty := bytes.Repeat([]byte{0xbb}, len(src))
+	if err := os.WriteFile(target, dirty, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeImageToRegularForTest(t, image, target, 4096, 2, WriteOrderSequential); err != nil {
+		t.Fatalf("FlashImage: %v", err)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for block, isAllocated := range allocated {
+		start := block * 1024
+		end := start + 1024
+		if isAllocated {
+			if !bytes.Equal(got[start:end], src[start:end]) {
+				t.Fatalf("allocated block %d was not restored", block)
+			}
+			continue
+		}
+		if !bytes.Equal(got[start:end], dirty[start:end]) {
+			t.Fatalf("unallocated block %d was overwritten", block)
+		}
+	}
+}
+
+func TestFlashImageExtCanZeroSkippedBlocks(t *testing.T) {
+	dir := t.TempDir()
+	image := filepath.Join(dir, "ext.img")
+	target := filepath.Join(dir, "target.blk")
+
+	src, allocated := extFixtureImage()
+	if err := os.WriteFile(image, src, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, bytes.Repeat([]byte{0xbb}, len(src)), 0644); err != nil {
+		t.Fatal(err)
+	}
+	srcFile, err := os.Open(image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srcFile.Close()
+	targetFile, err := os.OpenFile(target, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer targetFile.Close()
+	imageSize := uint64(len(src))
+	alloc := detectAllocationChecker(srcFile, imageSize)
+	if err := writeImageChunks(context.Background(), srcFile, targetFile, imageSize, 4096, 2, WriteOrderSequential, nil, alloc, false, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for block, isAllocated := range allocated {
+		start := block * 1024
+		end := start + 1024
+		if isAllocated {
+			if !bytes.Equal(got[start:end], src[start:end]) {
+				t.Fatalf("allocated block %d was not restored", block)
+			}
+			continue
+		}
+		if !bytes.Equal(got[start:end], zeroBlock[:1024]) {
+			t.Fatalf("unallocated block %d was not zeroed", block)
 		}
 	}
 }
@@ -99,8 +180,9 @@ func extFixtureImage() ([]byte, []bool) {
 	bitmap := data[3072 : 3072+1024]
 	clear(bitmap)
 	for block, isAllocated := range allocated {
-		if isAllocated {
-			bitmap[block/8] |= 1 << (block % 8)
+		if isAllocated && block > 0 {
+			bit := block - 1
+			bitmap[bit/8] |= 1 << (bit % 8)
 		}
 	}
 	return data, allocated

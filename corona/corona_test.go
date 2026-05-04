@@ -7,13 +7,14 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestPackInspectWriteReconstructsDirtyTarget(t *testing.T) {
+func TestCreateFlashReconstructsDirtyTarget(t *testing.T) {
 	dir := t.TempDir()
 	image := filepath.Join(dir, "root.img")
-	artifact := filepath.Join(dir, "root.corona")
+	corona := filepath.Join(dir, "root.corona")
 	target := filepath.Join(dir, "target.blk")
 
 	src := make([]byte, 96*1024)
@@ -27,21 +28,21 @@ func TestPackInspectWriteReconstructsDirtyTarget(t *testing.T) {
 	}
 
 	var createProgress []int
-	if err := Pack(context.Background(), PackOptions{
-		ImagePath:    image,
-		ArtifactPath: artifact,
-		ChunkSize:    4096,
-		Workers:      2,
+	if err := create(context.Background(), createOptions{
+		SourcePath: image,
+		CoronaPath: corona,
+		ChunkSize:  4096,
+		Workers:    2,
 		Progress: func(p Progress) {
 			createProgress = append(createProgress, p.Percent)
 		},
 	}); err != nil {
-		t.Fatalf("Pack: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
-	info, err := Inspect(context.Background(), artifact)
+	info, err := validateCoronaForTest(t, corona)
 	if err != nil {
-		t.Fatalf("Inspect: %v", err)
+		t.Fatalf("Validate: %v", err)
 	}
 	if info.ImageSize != uint64(len(src)) {
 		t.Fatalf("ImageSize = %d, want %d", info.ImageSize, len(src))
@@ -58,16 +59,10 @@ func TestPackInspectWriteReconstructsDirtyTarget(t *testing.T) {
 	}
 
 	var flashProgress []int
-	if err := Write(context.Background(), WriteOptions{
-		ArtifactPath: artifact,
-		TargetPath:   target,
-		Workers:      3,
-		WriteOrder:   WriteOrderStriped,
-		Progress: func(p Progress) {
-			flashProgress = append(flashProgress, p.Percent)
-		},
+	if err := writeCoronaToRegularForTestWithProgress(t, corona, target, 3, WriteOrderStriped, func(p Progress) {
+		flashProgress = append(flashProgress, p.Percent)
 	}); err != nil {
-		t.Fatalf("Write: %v", err)
+		t.Fatalf("Flash: %v", err)
 	}
 	got, err := os.ReadFile(target)
 	if err != nil {
@@ -81,10 +76,10 @@ func TestPackInspectWriteReconstructsDirtyTarget(t *testing.T) {
 	}
 }
 
-func TestPackWriteLargeRoundTrip(t *testing.T) {
+func TestCreateFlashLargeRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	image := filepath.Join(dir, "large.img")
-	artifact := filepath.Join(dir, "large.corona")
+	corona := filepath.Join(dir, "large.corona")
 	target := filepath.Join(dir, "large.target")
 
 	src := make([]byte, 18*1024*1024+12345)
@@ -104,21 +99,16 @@ func TestPackWriteLargeRoundTrip(t *testing.T) {
 	if err := os.WriteFile(target, bytes.Repeat([]byte{0xa5}, len(src)), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := Pack(context.Background(), PackOptions{
-		ImagePath:    image,
-		ArtifactPath: artifact,
-		ChunkSize:    1024 * 1024,
-		Workers:      4,
+	if err := create(context.Background(), createOptions{
+		SourcePath: image,
+		CoronaPath: corona,
+		ChunkSize:  1024 * 1024,
+		Workers:    4,
 	}); err != nil {
-		t.Fatalf("Pack: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
-	if err := Write(context.Background(), WriteOptions{
-		ArtifactPath: artifact,
-		TargetPath:   target,
-		Workers:      4,
-		WriteOrder:   WriteOrderStriped,
-	}); err != nil {
-		t.Fatalf("Write: %v", err)
+	if err := writeCoronaToRegularForTest(t, corona, target, 4, WriteOrderStriped); err != nil {
+		t.Fatalf("Flash: %v", err)
 	}
 	got, err := os.ReadFile(target)
 	if err != nil {
@@ -129,22 +119,82 @@ func TestPackWriteLargeRoundTrip(t *testing.T) {
 	}
 }
 
-func createFixtureArtifact(t *testing.T) string {
+func TestCreateDeterministicAcrossWorkerCounts(t *testing.T) {
+	dir := t.TempDir()
+	image := filepath.Join(dir, "deterministic.img")
+	a := filepath.Join(dir, "a.corona")
+	b := filepath.Join(dir, "b.corona")
+
+	src := make([]byte, 3*1024*1024+17)
+	for i := range src {
+		if i%5 == 0 {
+			src[i] = byte((i * 29) % 251)
+		}
+	}
+	if err := os.WriteFile(image, src, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := create(context.Background(), createOptions{SourcePath: image, CoronaPath: a, ChunkSize: 256 * 1024, Workers: 1}); err != nil {
+		t.Fatalf("Create workers=1: %v", err)
+	}
+	if err := create(context.Background(), createOptions{SourcePath: image, CoronaPath: b, ChunkSize: 256 * 1024, Workers: 4}); err != nil {
+		t.Fatalf("Create workers=4: %v", err)
+	}
+	ab, err := os.ReadFile(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bb, err := os.ReadFile(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(ab, bb) {
+		t.Fatal("Corona files differ across worker counts")
+	}
+}
+
+func TestCreateRejectsSamePath(t *testing.T) {
+	image := filepath.Join(t.TempDir(), "same.img")
+	if err := os.WriteFile(image, bytes.Repeat([]byte{0x55}, 8192), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := create(context.Background(), createOptions{SourcePath: image, CoronaPath: image, ChunkSize: 4096})
+	if err == nil || !strings.Contains(err.Error(), "must be different") {
+		t.Fatalf("Create err = %v, want same path rejection", err)
+	}
+}
+
+func TestConvertAllowsExplicitCoronaTargetType(t *testing.T) {
+	dir := t.TempDir()
+	image := filepath.Join(dir, "root.img")
+	tmp := filepath.Join(dir, "root.corona.tmp")
+	if err := os.WriteFile(image, bytes.Repeat([]byte{0x44}, 8192), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Convert(context.Background(), image, tmp, Options{ChunkSize: 4096, TargetType: TypeCorona}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validateCoronaForTest(t, tmp); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func createFixtureCorona(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	image := filepath.Join(dir, "fixture.img")
-	artifact := filepath.Join(dir, "fixture.corona")
+	corona := filepath.Join(dir, "fixture.corona")
 	data := append(bytes.Repeat([]byte{0}, 4096), bytes.Repeat([]byte("abcd"), 2048)...)
 	if err := os.WriteFile(image, data, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := Pack(context.Background(), PackOptions{
-		ImagePath:    image,
-		ArtifactPath: artifact,
-		ChunkSize:    4096,
-		Workers:      1,
+	if err := create(context.Background(), createOptions{
+		SourcePath: image,
+		CoronaPath: corona,
+		ChunkSize:  4096,
+		Workers:    1,
 	}); err != nil {
 		t.Fatalf("create fixture: %v", err)
 	}
-	return artifact
+	return corona
 }

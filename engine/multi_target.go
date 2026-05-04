@@ -301,7 +301,7 @@ func (b *Builder) packageOneTarget(
 	// images for later flashing.
 	if targetCtx != nil && HasInstallerActions(targetCtx) {
 		if err := b.BundleInstallerToRootfs(targetCtx, rootfs); err != nil {
-			return fmt.Errorf("bundling installer artifacts: %w", err)
+			return fmt.Errorf("bundling installer coronas: %w", err)
 		}
 	}
 

@@ -476,7 +476,7 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 			mountPoint: p.MountPoint,
 			partType:   p.Type,
 			grow:       p.Grow,
-			artifact:   p.Artifact,
+			corona:     p.Corona,
 		})
 	}
 
@@ -516,7 +516,7 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 
 		partDev := engine.PartitionPath(disk.Path, i+1)
 
-		if p.artifact == "" {
+		if p.corona == "" {
 			// No image — format an empty filesystem
 			inst.addLog(fmt.Sprintf("Formatting %s (%s)", p.name, p.filesystem))
 			if err := formatPartition(partDev, p.filesystem, p.name); err != nil {
@@ -532,12 +532,12 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 			return
 		}
 
-		if p.artifact != filepath.Base(p.artifact) || p.artifact == "." || p.artifact == ".." {
-			inst.fail(fmt.Errorf("invalid artifact path in manifest: %q", p.artifact))
+		if p.corona != filepath.Base(p.corona) || p.corona == "." || p.corona == ".." {
+			inst.fail(fmt.Errorf("invalid corona path in manifest: %q", p.corona))
 			return
 		}
-		artifactPath := filepath.Join(resolvedDir, p.artifact)
-		if err := writePartitionImage(artifactPath, partDev); err != nil {
+		coronaPath := filepath.Join(resolvedDir, p.corona)
+		if err := writePartitionImage(coronaPath, partDev); err != nil {
 			inst.fail(fmt.Errorf("writing %s: %w", p.name, err))
 			return
 		}
@@ -659,7 +659,7 @@ type partDef struct {
 	mountPoint string
 	partType   string
 	grow       bool
-	artifact   string
+	corona     string
 }
 
 func toEngineParts(parts []partDef) []actions.PartitionDef {
@@ -682,11 +682,8 @@ func toEnginePart(p partDef) actions.PartitionDef {
 }
 
 // writePartitionImage writes a Corona file to a block device.
-func writePartitionImage(artifactPath, partDev string) error {
-	return corona.Write(context.Background(), corona.WriteOptions{
-		ArtifactPath: artifactPath,
-		TargetPath:   partDev,
-	})
+func writePartitionImage(coronaPath, partDev string) error {
+	return corona.Convert(context.Background(), coronaPath, partDev, corona.Options{})
 }
 
 // formatPartition formats a partition with the given filesystem.

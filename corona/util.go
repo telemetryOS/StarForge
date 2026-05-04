@@ -1,6 +1,7 @@
 package corona
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"hash"
 	"hash/crc32"
@@ -40,10 +41,15 @@ func (h allocatedHasher) Sum() []byte {
 }
 
 func allZero(buf []byte) bool {
-	for _, b := range buf {
-		if b != 0 {
+	for len(buf) > 0 {
+		n := len(zeroBlock)
+		if len(buf) < n {
+			n = len(buf)
+		}
+		if !bytes.Equal(buf[:n], zeroBlock[:n]) {
 			return false
 		}
+		buf = buf[n:]
 	}
 	return true
 }

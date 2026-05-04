@@ -84,9 +84,7 @@ func WriteToDevice(parts []actions.PartitionDef, device, buildDir string) error 
 		imgPath := filepath.Join(buildDir, fmt.Sprintf("%s.img", part.Name))
 
 		if err := out.RunWithProgress(fmt.Sprintf("corona %s -> %s", part.Name, partDev), func(update func(int)) error {
-			return corona.WriteImage(context.Background(), corona.WriteImageOptions{
-				ImagePath:  imgPath,
-				TargetPath: partDev,
+			return corona.Convert(context.Background(), imgPath, partDev, corona.Options{
 				Progress: func(p corona.Progress) {
 					update(p.Percent)
 				},
@@ -109,25 +107,17 @@ func WriteToDevice(parts []actions.PartitionDef, device, buildDir string) error 
 	return nil
 }
 
-// EnsureCoronaFile creates or refreshes artifactPath from imagePath.
-func EnsureCoronaFile(imagePath, artifactPath string) error {
-	imgInfo, err := os.Stat(imagePath)
-	if err != nil {
+// EnsureCoronaFile creates or refreshes coronaPath from imagePath.
+func EnsureCoronaFile(imagePath, coronaPath string) error {
+	if _, err := os.Stat(imagePath); err != nil {
 		return err
 	}
-	artifactInfo, err := os.Stat(artifactPath)
-	if err == nil && !artifactInfo.ModTime().Before(imgInfo.ModTime()) {
-		return nil
-	}
-	tmp := artifactPath + ".tmp"
-	if err := corona.Pack(context.Background(), corona.PackOptions{
-		ImagePath:    imagePath,
-		ArtifactPath: tmp,
-	}); err != nil {
+	tmp := coronaPath + ".tmp"
+	if err := corona.Convert(context.Background(), imagePath, tmp, corona.Options{TargetType: corona.TypeCorona}); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
-	if err := os.Rename(tmp, artifactPath); err != nil {
+	if err := os.Rename(tmp, coronaPath); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}

@@ -9,10 +9,12 @@ import (
 
 type extAllocationChecker struct {
 	src            *os.File
+	baseOffset     uint64
 	fsType         uint8
 	fsVersion      uint16
 	fsBlockSize    uint64
 	fsSize         uint64
+	firstDataBlock uint64
 	blocksCount    uint64
 	blocksPerGroup uint64
 	descSize       uint64
@@ -21,11 +23,15 @@ type extAllocationChecker struct {
 }
 
 func detectExtAllocationChecker(src *os.File, imageSize uint64) (*extAllocationChecker, error) {
+	return detectExtAllocationCheckerAt(src, 0, imageSize)
+}
+
+func detectExtAllocationCheckerAt(src *os.File, baseOffset, imageSize uint64) (*extAllocationChecker, error) {
 	if imageSize < 2048 {
 		return nil, nil
 	}
 	var super [1024]byte
-	if _, err := src.ReadAt(super[:], 1024); err != nil {
+	if _, err := src.ReadAt(super[:], int64(baseOffset+1024)); err != nil {
 		return nil, err
 	}
 	if binary.LittleEndian.Uint16(super[56:58]) != 0xef53 {
@@ -72,10 +78,12 @@ func detectExtAllocationChecker(src *os.File, imageSize uint64) (*extAllocationC
 
 	return &extAllocationChecker{
 		src:            src,
+		baseOffset:     baseOffset,
 		fsType:         fsExt,
 		fsVersion:      4,
 		fsBlockSize:    blockSize,
 		fsSize:         fsSize,
+		firstDataBlock: firstDataBlock,
 		blocksCount:    blocksCount,
 		blocksPerGroup: blocksPerGroup,
 		descSize:       descSize,
@@ -96,6 +104,7 @@ func (c *extAllocationChecker) nextFramePlan(offset, maxSize uint64) (framePlan,
 	return contiguousAllocationPlan(
 		offset,
 		maxSize,
+		c.baseOffset,
 		c.fsSize,
 		func(offset uint64) (bool, error) {
 			return c.blockAllocated(offset / c.fsBlockSize)
@@ -108,11 +117,15 @@ func (c *extAllocationChecker) nextFramePlan(offset, maxSize uint64) (framePlan,
 }
 
 func (c *extAllocationChecker) blockAllocated(block uint64) (bool, error) {
+	if block < c.firstDataBlock {
+		return true, nil
+	}
+	logicalBlock := block - c.firstDataBlock
 	if block >= c.blocksCount {
 		return true, nil
 	}
-	group := block / c.blocksPerGroup
-	groupOffset := block % c.blocksPerGroup
+	group := logicalBlock / c.blocksPerGroup
+	groupOffset := logicalBlock % c.blocksPerGroup
 	bitmap, err := c.groupBitmap(group)
 	if err != nil {
 		return false, err
@@ -125,7 +138,7 @@ func (c *extAllocationChecker) groupBitmap(group uint64) ([]byte, error) {
 		return bitmap, nil
 	}
 	desc := make([]byte, c.descSize)
-	if _, err := c.src.ReadAt(desc, int64(c.gdtOffset+group*c.descSize)); err != nil {
+	if _, err := c.src.ReadAt(desc, int64(c.baseOffset+c.gdtOffset+group*c.descSize)); err != nil {
 		return nil, fmt.Errorf("read ext group descriptor %d: %w", group, err)
 	}
 	bitmapBlock := uint64(binary.LittleEndian.Uint32(desc[0:4]))
@@ -136,7 +149,7 @@ func (c *extAllocationChecker) groupBitmap(group uint64) ([]byte, error) {
 		return nil, fmt.Errorf("corona: ext block bitmap %d outside filesystem", bitmapBlock)
 	}
 	bitmap := make([]byte, c.fsBlockSize)
-	if _, err := c.src.ReadAt(bitmap, int64(bitmapBlock*c.fsBlockSize)); err != nil {
+	if _, err := c.src.ReadAt(bitmap, int64(c.baseOffset+bitmapBlock*c.fsBlockSize)); err != nil {
 		return nil, fmt.Errorf("read ext block bitmap %d: %w", group, err)
 	}
 	c.bitmaps[group] = bitmap
