@@ -6,7 +6,7 @@ require (
 	charm.land/bubbles/v2 v2.0.0
 	charm.land/bubbletea/v2 v2.0.0
 	charm.land/lipgloss/v2 v2.0.0
-	github.com/RobertWHurst/navaros v1.22.0
+	github.com/RobertWHurst/navaros v1.23.0
 	github.com/klauspost/compress v1.18.4
 	github.com/mattn/go-isatty v0.0.20
 	github.com/spf13/cobra v1.10.2
