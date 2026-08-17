@@ -4,7 +4,7 @@ package installer
 type PayloadManifest struct {
 	Name        string             `json:"name"`
 	Description string             `json:"description,omitempty"`
-	EFILabel    string             `json:"efi_label,omitempty"`
+	EFILabel    string             `json:"efiLabel,omitempty"`
 	Partitions  []PayloadPartition `json:"partitions"`
 }
 
@@ -13,7 +13,7 @@ type PayloadPartition struct {
 	Name       string `json:"name"`
 	Filesystem string `json:"filesystem"`
 	Size       uint64 `json:"size"`
-	MountPoint string `json:"mount_point"`
+	MountPoint string `json:"mountPoint"`
 	Type       string `json:"type"`
 	Grow       bool   `json:"grow"`
 	Corona     string `json:"corona"` // filename, e.g. "boot.corona"

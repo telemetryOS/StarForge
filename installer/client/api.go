@@ -36,7 +36,7 @@ type Installation struct {
 	Status    string    `json:"status"`
 	Progress  float64   `json:"progress"`
 	Error     string    `json:"error,omitempty"`
-	StartedAt time.Time `json:"started_at"`
+	StartedAt time.Time `json:"startedAt"`
 }
 
 // LogResponse is the response from the log polling endpoint.
@@ -116,7 +116,7 @@ func (c *Client) GetInstallation(id string) (*Installation, error) {
 // GetLog returns log lines starting from the given offset.
 func (c *Client) GetLog(id string, offset int) ([]string, int, error) {
 	var result LogResponse
-	if err := c.getJSON(fmt.Sprintf("/installations/%s/log?offset=%d", id, offset), &result); err != nil {
+	if err := c.getJSON(fmt.Sprintf("/installations/%s/log?$offset=%d", id, offset), &result); err != nil {
 		return nil, 0, err
 	}
 	return result.Lines, result.Offset, nil

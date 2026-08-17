@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,7 +32,7 @@ type Installation struct {
 	Status    string    `json:"status"`   // pending, partitioning, copying, bootloader, configuring, complete, failed
 	Progress  float64   `json:"progress"` // 0.0 - 1.0
 	Error     string    `json:"error,omitempty"`
-	StartedAt time.Time `json:"started_at"`
+	StartedAt time.Time `json:"startedAt"`
 
 	mu  sync.Mutex
 	log []string
@@ -172,7 +171,7 @@ func NewManager(payloadDir string) *Manager {
 func Router() *navaros.Router {
 	r := navaros.NewRouter()
 	r.Post("/installations", create)
-	r.Get("/installations", list)
+	r.Get("/installations", installationPaginationMiddleware, list)
 	r.Get("/installations/:id", get)
 	r.Get("/installations/:id/log", getLog)
 	r.Delete("/installations/:id", cancel)
@@ -268,15 +267,28 @@ func list(ctx *navaros.Context) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 
-	var result []*Installation
+	result := make([]*Installation, 0, len(manager.installations))
 	for _, inst := range manager.installations {
-		result = append(result, inst)
+		inst.mu.Lock()
+		result = append(result, &Installation{
+			ID:        inst.ID,
+			Payload:   inst.Payload,
+			Disk:      inst.Disk,
+			Status:    inst.Status,
+			Progress:  inst.Progress,
+			Error:     inst.Error,
+			StartedAt: inst.StartedAt,
+		})
+		inst.mu.Unlock()
 	}
-
-	// Sort by start time
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].StartedAt.Before(result[j].StartedAt)
-	})
+	ctx.Headers.Set("Total-Records-Count", strconv.Itoa(len(result)))
+	page := ctx.MustGet(installationPageKey).(installationPage)
+	result, err := paginateInstallations(page, result)
+	if err != nil {
+		ctx.Status = http.StatusBadRequest
+		ctx.Body = map[string]string{"error": err.Error()}
+		return
+	}
 
 	ctx.Status = http.StatusOK
 	ctx.Body = result
@@ -309,11 +321,11 @@ func getLog(ctx *navaros.Context) {
 	}
 
 	offset := 0
-	if offsetStr := ctx.Query().Get("offset"); offsetStr != "" {
+	if offsetStr := ctx.Query().Get("$offset"); offsetStr != "" {
 		v, err := strconv.Atoi(offsetStr)
 		if err != nil || v < 0 {
 			ctx.Status = http.StatusBadRequest
-			ctx.Body = map[string]string{"error": "offset must be a non-negative integer"}
+			ctx.Body = map[string]string{"error": "$offset must be a non-negative integer"}
 			return
 		}
 		offset = v
@@ -456,7 +468,7 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 	// Validate every untrusted manifest field before letting it influence
 	// mount/format/Corona file writes. The manifest comes from the payload USB,
 	// which is conceptually attacker-controlled (e.g. a tampered installer
-	// image), so a bogus mount_point: "../.." or a name with shell metas
+	// image), so a bogus mountPoint: "../.." or a name with shell metas
 	// must NOT escape rootfs or compose into an unsafe argv.
 	if err := validateManifest(&manifest); err != nil {
 		inst.fail(fmt.Errorf("invalid manifest: %w", err))
