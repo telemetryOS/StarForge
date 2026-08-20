@@ -32,11 +32,11 @@ func validateManifest(m *installer.PayloadManifest) error {
 		seenName[p.Name] = true
 
 		if err := validateMountPoint(p.MountPoint); err != nil {
-			return fmt.Errorf("partitions[%d] (%s).mount_point %q: %w", i, p.Name, p.MountPoint, err)
+			return fmt.Errorf("partitions[%d] (%s).mountPoint %q: %w", i, p.Name, p.MountPoint, err)
 		}
 		if p.MountPoint != "" {
 			if seenMount[p.MountPoint] {
-				return fmt.Errorf("partitions[%d]: mount_point %q already used by another partition", i, p.MountPoint)
+				return fmt.Errorf("partitions[%d]: mountPoint %q already used by another partition", i, p.MountPoint)
 			}
 			seenMount[p.MountPoint] = true
 		}
@@ -55,7 +55,7 @@ func validateManifest(m *installer.PayloadManifest) error {
 	// EFI label flows into `efibootmgr --label`; argv-only (no shell), but
 	// keep it printable / bounded length to avoid NVRAM clutter.
 	if err := validateEFILabel(m.EFILabel); err != nil {
-		return fmt.Errorf("efi_label %q: %w", m.EFILabel, err)
+		return fmt.Errorf("efiLabel %q: %w", m.EFILabel, err)
 	}
 	return nil
 }

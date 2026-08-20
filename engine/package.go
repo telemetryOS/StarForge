@@ -794,10 +794,10 @@ type BuildResult struct {
 	Partitions      []actions.PartitionDef      `json:"partitions"`
 	Ownerships      []actions.FileOwnershipOp   `json:"ownerships,omitempty"`
 	Permissions     []actions.FilePermissionOp  `json:"permissions,omitempty"`
-	InstallPayloads []actions.InstallPayloadDef `json:"install_payloads,omitempty"`
-	InstallServer   *actions.InstallServerDef   `json:"install_server,omitempty"`
-	InstallClient   *actions.InstallClientDef   `json:"install_client,omitempty"`
-	InstallEmbeds   []string                    `json:"install_embeds,omitempty"`
+	InstallPayloads []actions.InstallPayloadDef `json:"installPayloads,omitempty"`
+	InstallServer   *actions.InstallServerDef   `json:"installServer,omitempty"`
+	InstallClient   *actions.InstallClientDef   `json:"installClient,omitempty"`
+	InstallEmbeds   []string                    `json:"installEmbeds,omitempty"`
 	Boot            *actions.BootConfig         `json:"boot,omitempty"`
 }
 

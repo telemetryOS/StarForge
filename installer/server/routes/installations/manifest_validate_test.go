@@ -32,7 +32,7 @@ func TestValidateManifest_RejectsTraversalMountPoint(t *testing.T) {
 			},
 		}
 		if err := validateManifest(m); err == nil {
-			t.Errorf("mount_point %q should be rejected", mp)
+			t.Errorf("mountPoint %q should be rejected", mp)
 		}
 	}
 }
@@ -45,7 +45,7 @@ func TestValidateManifest_RejectsKernelVfsTargets(t *testing.T) {
 			},
 		}
 		if err := validateManifest(m); err == nil {
-			t.Errorf("mount_point %q (kernel vfs) should be rejected", mp)
+			t.Errorf("mountPoint %q (kernel vfs) should be rejected", mp)
 		}
 	}
 }
@@ -118,7 +118,7 @@ func TestValidateManifest_RejectsDuplicateMountPoints(t *testing.T) {
 		},
 	}
 	if err := validateManifest(m); err == nil {
-		t.Error("duplicate mount_point should be rejected")
+		t.Error("duplicate mountPoint should be rejected")
 	}
 }
 
@@ -130,7 +130,7 @@ func TestValidateManifest_AllowsEmptyMountPointForSwap(t *testing.T) {
 		},
 	}
 	if err := validateManifest(m); err != nil {
-		t.Errorf("swap with empty mount_point + empty corona should be legal: %v", err)
+		t.Errorf("swap with empty mountPoint + empty corona should be legal: %v", err)
 	}
 }
 

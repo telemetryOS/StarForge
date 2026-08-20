@@ -208,9 +208,9 @@ starforge export installer disk ./release/installer.img
 
 ## Runtime Details
 
-**Payload storage.** Payloads are stored at `/usr/lib/starforge/payloads/<target>/` inside the installer image. Each payload directory contains a `manifest.json` describing the partition layout and Corona partition files (`*.corona`).
+**Payload storage.** Payloads are stored at `/usr/lib/starforge/payloads/<target>/` inside the installer image. Each payload directory contains a `manifest.json` describing the partition layout and Corona partition files (`*.corona`). Manifest fields use camel case, including `efiLabel` and `mountPoint`.
 
-**Server.** The `starforge-install-server` binary runs as a systemd service (`starforge-install-server.service`) and listens on the configured port. It exposes REST endpoints for listing payloads, detecting disks, starting installations, and polling progress.
+**Server.** The `starforge-install-server` binary runs as a systemd service (`starforge-install-server.service`) and listens on the configured port. It exposes REST endpoints for listing payloads, detecting disks, starting installations, and polling progress. HTTP response fields use camel case, including `startedAt`. Log polling uses the canonical numeric `$offset`. The installations collection supports `$limit`, numeric `$offset`, and `$sort[field]`; sort field names are camel case.
 
 **Client.** The `starforge-install` binary is launched via a getty autologin drop-in on the configured TTY. It runs as root and only activates on the specified TTY -- SSH and serial sessions get a normal shell.
 

@@ -106,6 +106,7 @@ func TestListDisks_Success(t *testing.T) {
 }
 
 func TestStartInstallation_Created(t *testing.T) {
+	startedAt := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
@@ -116,7 +117,7 @@ func TestStartInstallation_Created(t *testing.T) {
 			t.Errorf("unexpected body: %v", req)
 		}
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(Installation{ID: "1", Status: "pending"})
+		json.NewEncoder(w).Encode(Installation{ID: "1", Status: "pending", StartedAt: startedAt})
 	}))
 	defer srv.Close()
 
@@ -126,6 +127,9 @@ func TestStartInstallation_Created(t *testing.T) {
 	}
 	if inst.ID != "1" || inst.Status != "pending" {
 		t.Errorf("unexpected installation: %+v", inst)
+	}
+	if !inst.StartedAt.Equal(startedAt) {
+		t.Errorf("StartedAt = %v, want %v", inst.StartedAt, startedAt)
 	}
 }
 
@@ -145,8 +149,11 @@ func TestStartInstallation_ConflictError(t *testing.T) {
 
 func TestGetLog_ReturnsLinesAndOffset(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("offset") != "5" {
-			t.Errorf("expected offset=5, got %s", r.URL.RawQuery)
+		if r.URL.Query().Get("$offset") != "5" {
+			t.Errorf("expected $offset=5, got %s", r.URL.RawQuery)
+		}
+		if _, ok := r.URL.Query()["offset"]; ok {
+			t.Errorf("retired offset alias present in %s", r.URL.RawQuery)
 		}
 		json.NewEncoder(w).Encode(LogResponse{Lines: []string{"line1", "line2"}, Offset: 7})
 	}))

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,6 +10,33 @@ import (
 
 	"github.com/telemetryos/starforge/actions"
 )
+
+func TestBuildResultUsesCamelCaseJSON(t *testing.T) {
+	raw, err := json.Marshal(BuildResult{
+		InstallPayloads: []actions.InstallPayloadDef{{}},
+		InstallServer:   &actions.InstallServerDef{},
+		InstallClient:   &actions.InstallClientDef{},
+		InstallEmbeds:   []string{"device"},
+	})
+	if err != nil {
+		t.Fatalf("marshal build result: %v", err)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("decode build result: %v", err)
+	}
+	for _, key := range []string{"installPayloads", "installServer", "installClient", "installEmbeds"} {
+		if _, ok := body[key]; !ok {
+			t.Errorf("%s missing from %#v", key, body)
+		}
+	}
+	for _, key := range []string{"install_payloads", "install_server", "install_client", "install_embeds"} {
+		if _, ok := body[key]; ok {
+			t.Errorf("retired %s leaked into %#v", key, body)
+		}
+	}
+}
 
 // --- buildFstab ---
 
