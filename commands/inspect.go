@@ -442,6 +442,12 @@ func renderUsers(w *strings.Builder, ctx *actions.BuildContext) {
 	for _, u := range ctx.Users {
 		if inspectLayers && u.Layer != "" {
 			line := fmt.Sprintf("  %-21s %s", u.Layer, u.Name)
+			if u.UID != 0 {
+				line += fmt.Sprintf("  uid: %d", u.UID)
+			}
+			if u.PrimaryGroup != "" {
+				line += fmt.Sprintf("  primary group: %s", u.PrimaryGroup)
+			}
 			if u.Shell != "" {
 				line += fmt.Sprintf("  shell: %s", u.Shell)
 			}
@@ -451,6 +457,12 @@ func renderUsers(w *strings.Builder, ctx *actions.BuildContext) {
 			fmt.Fprintln(w, line)
 		} else {
 			line := fmt.Sprintf("  %-12s", u.Name)
+			if u.UID != 0 {
+				line += fmt.Sprintf(" uid: %d", u.UID)
+			}
+			if u.PrimaryGroup != "" {
+				line += fmt.Sprintf("  primary group: %s", u.PrimaryGroup)
+			}
 			if u.Shell != "" {
 				line += fmt.Sprintf(" shell: %s", u.Shell)
 			}
