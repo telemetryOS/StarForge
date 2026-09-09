@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/telemetryos/starforge/actions"
@@ -23,6 +25,11 @@ func (b *Builder) phaseUsers(ctx *actions.BuildContext, rootfs string) error {
 		out.Info("group: %s", group.Name)
 		if err := ChrootRun(rootfs, args...); err != nil {
 			return fmt.Errorf("creating group %s: %w", group.Name, err)
+		}
+		if group.GID != 0 {
+			if err := verifyGroupGID(rootfs, group.Name, group.GID); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -50,22 +57,7 @@ func (b *Builder) phaseUsers(ctx *actions.BuildContext, rootfs string) error {
 			return fmt.Errorf("password for %s must not contain newline characters", user.Name)
 		}
 
-		args := []string{"useradd"}
-		if user.System {
-			args = append(args, "-r", "-M") // system user, no home directory
-		} else {
-			args = append(args, "-m") // create home directory
-		}
-		if user.Shell != "" {
-			args = append(args, "-s", user.Shell)
-		}
-		if user.UID != 0 {
-			args = append(args, "-u", fmt.Sprintf("%d", user.UID))
-		}
-		if len(user.Groups) > 0 {
-			args = append(args, "-G", strings.Join(user.Groups, ","))
-		}
-		args = append(args, user.Name)
+		args := useraddArgs(user)
 
 		if err := ChrootRun(rootfs, args...); err != nil {
 			return fmt.Errorf("creating user %s: %w", user.Name, err)
@@ -93,4 +85,51 @@ func (b *Builder) phaseUsers(ctx *actions.BuildContext, rootfs string) error {
 		}
 	}
 	return nil
+}
+
+func useraddArgs(user actions.UserDef) []string {
+	args := []string{"useradd"}
+	if user.System {
+		args = append(args, "-r", "-M")
+	} else {
+		args = append(args, "-m")
+	}
+	if user.Shell != "" {
+		args = append(args, "-s", user.Shell)
+	}
+	if user.UID != 0 {
+		args = append(args, "-u", strconv.Itoa(user.UID))
+	}
+	if user.PrimaryGroup != "" {
+		args = append(args, "-g", user.PrimaryGroup)
+	}
+	if len(user.Groups) > 0 {
+		args = append(args, "-G", strings.Join(user.Groups, ","))
+	}
+	return append(args, user.Name)
+}
+
+func verifyGroupGID(rootfs, name string, want int) error {
+	groupFile := filepath.Join(rootfs, "etc", "group")
+	contents, err := os.ReadFile(groupFile)
+	if err != nil {
+		return fmt.Errorf("verify gid for group %s: read %s: %w", name, groupFile, err)
+	}
+
+	for _, line := range strings.Split(string(contents), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) < 3 || fields[0] != name {
+			continue
+		}
+		got, err := strconv.Atoi(fields[2])
+		if err != nil {
+			return fmt.Errorf("verify gid for group %s: parse %q: %w", name, fields[2], err)
+		}
+		if got != want {
+			return fmt.Errorf("group %s has gid %d, want pinned gid %d", name, got, want)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("group %s was not created with pinned gid %d", name, want)
 }

@@ -308,6 +308,8 @@ func TestStep_SystemUser(t *testing.T) {
 	// Matches Edge-OS base layer player user definition
 	input := `action: system-user
 name: player
+primary_group: player
+uid: 1000
 groups: [wheel, video, render, seat, audio, input, data, docker, lp, network]
 shell: /bin/bash`
 	var step Step
@@ -319,6 +321,12 @@ shell: /bin/bash`
 	}
 	if step.SystemUser.Name != "player" {
 		t.Errorf("Name = %q", step.SystemUser.Name)
+	}
+	if step.SystemUser.PrimaryGroup != "player" {
+		t.Errorf("PrimaryGroup = %q", step.SystemUser.PrimaryGroup)
+	}
+	if step.SystemUser.UID != 1000 {
+		t.Errorf("UID = %d", step.SystemUser.UID)
 	}
 	if len(step.SystemUser.Groups.Value) != 10 {
 		t.Errorf("Groups = %v (len=%d)", step.SystemUser.Groups.Value, len(step.SystemUser.Groups.Value))

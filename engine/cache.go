@@ -148,8 +148,8 @@ func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 			groups := make([]string, len(u.Groups))
 			copy(groups, u.Groups)
 			sort.Strings(groups)
-			fmt.Fprintf(h, "user=%s,groups=%s,shell=%s,uid=%d,system=%v,nopassword=%v\n",
-				u.Name, strings.Join(groups, "+"), u.Shell, u.UID, u.System, u.NoPassword)
+			fmt.Fprintf(h, "user=%s,primary_group=%s,groups=%s,shell=%s,uid=%d,system=%v,nopassword=%v\n",
+				u.Name, u.PrimaryGroup, strings.Join(groups, "+"), u.Shell, u.UID, u.System, u.NoPassword)
 			if u.Password != "" {
 				fmt.Fprintf(h, "password=%x\n", sha256.Sum256([]byte(u.Password)))
 			}

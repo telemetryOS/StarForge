@@ -508,14 +508,15 @@ type FileMkdirStep struct {
 // Use system: true for system accounts (no home dir). Use no_password: true to
 // allow passwordless login (e.g. for autologin users).
 type SystemUserStep struct {
-	Action     string              `yaml:"action"`
-	Name       string              `yaml:"name"`
-	Groups     Mergeable[[]string] `yaml:"groups,omitempty"`
-	Shell      string              `yaml:"shell,omitempty"`
-	Password   string              `yaml:"password,omitempty"`
-	NoPassword bool                `yaml:"no_password,omitempty"`
-	System     bool                `yaml:"system,omitempty"`
-	UID        int                 `yaml:"uid,omitempty"`
+	Action       string              `yaml:"action"`
+	Name         string              `yaml:"name"`
+	PrimaryGroup string              `yaml:"primary_group,omitempty"`
+	Groups       Mergeable[[]string] `yaml:"groups,omitempty"`
+	Shell        string              `yaml:"shell,omitempty"`
+	Password     string              `yaml:"password,omitempty"`
+	NoPassword   bool                `yaml:"no_password,omitempty"`
+	System       bool                `yaml:"system,omitempty"`
+	UID          int                 `yaml:"uid,omitempty"`
 }
 
 type SystemGroupStep struct {

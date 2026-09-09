@@ -45,6 +45,9 @@ func (a *SystemUser) Execute(step config.Step, layerDir string, ctx *BuildContex
 			if s.Shell != "" {
 				ctx.Users[i].Shell = s.Shell
 			}
+			if s.PrimaryGroup != "" {
+				ctx.Users[i].PrimaryGroup = s.PrimaryGroup
+			}
 			if s.Password != "" {
 				ctx.Users[i].Password = s.Password
 				ctx.Users[i].NoPassword = false
@@ -63,14 +66,15 @@ func (a *SystemUser) Execute(step config.Step, layerDir string, ctx *BuildContex
 
 	// New user
 	ctx.Users = append(ctx.Users, UserDef{
-		Name:       s.Name,
-		Groups:     s.Groups.Value,
-		Shell:      s.Shell,
-		Password:   s.Password,
-		NoPassword: s.NoPassword,
-		System:     s.System,
-		UID:        s.UID,
-		Layer:      ctx.CurrentLayer,
+		Name:         s.Name,
+		PrimaryGroup: s.PrimaryGroup,
+		Groups:       s.Groups.Value,
+		Shell:        s.Shell,
+		Password:     s.Password,
+		NoPassword:   s.NoPassword,
+		System:       s.System,
+		UID:          s.UID,
+		Layer:        ctx.CurrentLayer,
 	})
 	return nil
 }
