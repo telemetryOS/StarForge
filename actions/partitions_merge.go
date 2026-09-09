@@ -4,7 +4,7 @@ import "fmt"
 
 // GPT partition-type aliases used by the engine to look up partitions by
 // role. Matches the values accepted by isValidPartitionType in resolve.go
-// and sfdiskTypeAlias in engine/qemu.go.
+// and the disk writer's GPT type mapping.
 const (
 	PartTypeEFI      = "efi"
 	PartTypeXBOOTLDR = "xbootldr"

@@ -3,11 +3,37 @@ package engine
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 )
+
+// RunAsRoot invokes a private StarForge operation as root while preserving the
+// caller's terminal. It is intended for narrow device operations after all
+// unprivileged build work has completed.
+func RunAsRoot(args ...string) error {
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("cannot resolve executable path: %w", err)
+	}
+	commandArgs := append([]string(nil), args...)
+	commandPath := executable
+	if os.Geteuid() != 0 {
+		sudo, findErr := exec_LookPath("sudo")
+		if findErr != nil {
+			return fmt.Errorf("sudo not found: %w", findErr)
+		}
+		commandPath = sudo
+		commandArgs = append([]string{"--", executable}, commandArgs...)
+	}
+	command := exec.Command(commandPath, commandArgs...)
+	command.Stdin = os.Stdin
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	return command.Run()
+}
 
 // EnsureRootExec re-execs the current process under sudo if not already root.
 func EnsureRootExec() error {

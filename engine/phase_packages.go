@@ -115,6 +115,13 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 	if err := os.WriteFile(mirrorlist, []byte(mirrorContent), 0o644); err != nil {
 		return fmt.Errorf("writing mirrorlist: %w", err)
 	}
+	systemGPGDir := filepath.Join(rootfs, "etc", "pacman.d", "gnupg")
+	if err := os.MkdirAll(systemGPGDir, 0o700); err != nil {
+		return fmt.Errorf("creating system package keyring: %w", err)
+	}
+	if err := os.Chmod(systemGPGDir, 0o700); err != nil {
+		return fmt.Errorf("securing system package keyring: %w", err)
+	}
 
 	// Re-initialize a proper system keyring inside the chroot so the
 	// installed OS has its own master key and locally-signed trust chain.

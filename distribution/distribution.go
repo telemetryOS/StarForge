@@ -77,10 +77,10 @@ type archLinuxARM struct{}
 func (archLinuxARM) Distribution() platform.Distribution { return platform.DistributionArchLinuxARM }
 func (archLinuxARM) Repositories() []Repository {
 	return []Repository{
-		{Name: "core", Server: "http://mirror.archlinuxarm.org/$arch/$repo"},
-		{Name: "extra", Server: "http://mirror.archlinuxarm.org/$arch/$repo"},
-		{Name: "alarm", Server: "http://mirror.archlinuxarm.org/$arch/$repo"},
-		{Name: "aur", Server: "http://mirror.archlinuxarm.org/$arch/$repo"},
+		{Name: "core", Server: "https://ca.us.mirror.archlinuxarm.org/$arch/$repo"},
+		{Name: "extra", Server: "https://ca.us.mirror.archlinuxarm.org/$arch/$repo"},
+		{Name: "alarm", Server: "https://ca.us.mirror.archlinuxarm.org/$arch/$repo"},
+		{Name: "aur", Server: "https://ca.us.mirror.archlinuxarm.org/$arch/$repo"},
 	}
 }
 func (archLinuxARM) PopulateKeyrings() []string { return []string{"archlinuxarm"} }

@@ -14,9 +14,10 @@ import (
 
 // Builder orchestrates the build process for a project.
 type Builder struct {
-	project   *config.Project
-	hostTools HostToolProvider
-	DryRun    bool // skip layer-run and file I/O (for inspect)
+	project       *config.Project
+	hostTools     HostToolProvider
+	runtimeBinary string
+	DryRun        bool // skip layer-run and file I/O (for inspect)
 
 	// packaging tracks targets whose EnsurePackaged is currently on the
 	// stack. Used by bundlePayloads (in installer.go) to short-circuit
@@ -24,6 +25,13 @@ type Builder struct {
 	// recursion. (buildRecursive already detects build-time cycles; this
 	// guards the packaging-time path.)
 	packaging map[string]bool
+}
+
+// SetRuntimeBinary overrides the StarForge executable bundled into installer
+// targets. Build appliances use this to bundle the exact worker executable
+// that is available inside the guest rather than the appliance launcher.
+func (b *Builder) SetRuntimeBinary(path string) {
+	b.runtimeBinary = path
 }
 
 // NewBuilder creates a new builder for the given project.
@@ -255,7 +263,11 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 		}
 		if allExist {
 			out.Success("Packaging up to date")
-			return buildResultToContext(result), nil
+			cachedContext := buildResultToContext(result)
+			if packagedPartitions, err := LoadPartitions(buildDir); err == nil {
+				cachedContext.Partitions = packagedPartitions
+			}
+			return cachedContext, nil
 		}
 	}
 
@@ -302,10 +314,6 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 
 	if err := SavePartitions(ctx.Partitions, buildDir); err != nil {
 		return nil, fmt.Errorf("saving partition layout: %w", err)
-	}
-
-	if err := InvalidateOverlays(buildDir); err != nil {
-		return nil, fmt.Errorf("invalidating overlays: %w", err)
 	}
 
 	// Mark packaging complete with the content hash

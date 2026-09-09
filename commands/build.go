@@ -13,12 +13,12 @@ var cleanFlag bool
 
 var buildCmd = &cobra.Command{
 	Use:   "build [target]",
-	Short: "Build overlay layers for a target",
-	Long: `Resolve layers for a target and execute build phases using overlayfs caching.
+	Short: "Build and seal a target OS image",
+	Long: `Resolve a target, execute its build phases, and seal a full-disk artifact.
 
-Overlay layers are stored in the .starforge/ build directory. Unchanged phases
-are skipped on subsequent builds. Partition images (.img files) are created on
-demand by 'starforge run' or 'starforge write'.
+With --executor=auto, ordinary users build inside a managed QEMU appliance;
+root on a matching architecture uses the native backend. Build caches and
+artifacts are scoped by target architecture, machine, and distribution.
 
 Use --clean to force a full rebuild, ignoring the cache.`,
 	Args: cobra.ExactArgs(1),

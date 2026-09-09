@@ -80,6 +80,13 @@ func TestProject_BuildDir(t *testing.T) {
 	}
 }
 
+func TestProject_BuildDirOverride(t *testing.T) {
+	p := &Project{Dir: "/project", BuildRoot: "/work/build"}
+	if got := p.BuildDir(); got != "/work/build" {
+		t.Fatalf("BuildDir() = %q, want /work/build", got)
+	}
+}
+
 func TestProject_TargetBuildDir(t *testing.T) {
 	p := &Project{Dir: "/home/user/Edge-OS"}
 	got := p.TargetBuildDir("device")

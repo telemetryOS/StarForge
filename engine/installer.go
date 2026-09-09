@@ -29,7 +29,7 @@ func (b *Builder) BundleInstallerToRootfs(ctx *actions.BuildContext, rootfs stri
 
 	// Copy the starforge binary once if server or client needs it
 	if ctx.InstallServer != nil || ctx.InstallClient != nil {
-		if err := bundleStarforgeBinary(rootfs); err != nil {
+		if err := b.bundleStarforgeBinary(rootfs); err != nil {
 			return err
 		}
 	}
@@ -225,10 +225,14 @@ func firstMissingImage(buildDir string, parts []actions.PartitionDef) string {
 // bundleStarforgeBinary copies the running starforge binary into the rootfs
 // at /usr/bin/starforge. Both the server and client subcommands are embedded
 // in the main binary (busybox-style).
-func bundleStarforgeBinary(rootfs string) error {
-	exe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("locating running starforge binary: %w", err)
+func (b *Builder) bundleStarforgeBinary(rootfs string) error {
+	exe := b.runtimeBinary
+	if exe == "" {
+		var err error
+		exe, err = os.Executable()
+		if err != nil {
+			return fmt.Errorf("locating running starforge binary: %w", err)
+		}
 	}
 
 	destBin := filepath.Join(rootfs, "usr/bin/starforge")

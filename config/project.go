@@ -17,6 +17,8 @@ type Project struct {
 
 	// Dir is the absolute path to the project directory (not serialized).
 	Dir string `yaml:"-"`
+	// BuildRoot overrides the default project-local .starforge directory.
+	BuildRoot string `yaml:"-"`
 }
 
 // Target defines a named build profile with an ordered list of layers.
@@ -124,6 +126,9 @@ func (p *Project) Validate() error {
 
 // BuildDir returns the path to the .starforge build artifacts directory.
 func (p *Project) BuildDir() string {
+	if p.BuildRoot != "" {
+		return p.BuildRoot
+	}
 	return filepath.Join(p.Dir, ".starforge")
 }
 

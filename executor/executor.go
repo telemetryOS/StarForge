@@ -4,10 +4,13 @@ package executor
 import (
 	"context"
 	"fmt"
+	"os"
 
+	"github.com/telemetryos/starforge/appliance"
 	"github.com/telemetryos/starforge/artifact"
 	"github.com/telemetryos/starforge/config"
 	"github.com/telemetryos/starforge/engine"
+	"github.com/telemetryos/starforge/platform"
 )
 
 // Mode identifies where privileged build operations execute.
@@ -65,11 +68,66 @@ type BuildExecutor interface {
 // New returns the executor selected by mode.
 func New(mode Mode) (BuildExecutor, error) {
 	switch mode {
-	case ModeAuto, ModeNative:
+	case ModeAuto:
+		return &Auto{}, nil
+	case ModeNative:
 		return &Native{}, nil
 	case ModeVM:
-		return nil, fmt.Errorf("VM executor plumbing is not available yet")
+		manager, err := appliance.NewManager()
+		if err != nil {
+			return nil, err
+		}
+		return &VM{manager: manager}, nil
 	default:
 		return nil, fmt.Errorf("unsupported executor mode %q", mode)
 	}
+}
+
+// Auto selects native execution only for an already-root same-architecture
+// process. All other builds use the unprivileged VM executor.
+type Auto struct{}
+
+// Mode returns the automatic executor mode.
+func (*Auto) Mode() Mode { return ModeAuto }
+
+// Prepare defers environment selection until the target request is available.
+func (*Auto) Prepare(context.Context) error { return nil }
+
+// Build selects and invokes an executor for the request.
+func (*Auto) Build(ctx context.Context, request BuildRequest) (*BuildResult, error) {
+	selected, err := autoExecutor(request)
+	if err != nil {
+		return nil, err
+	}
+	if err := selected.Prepare(ctx); err != nil {
+		return nil, err
+	}
+	return selected.Build(ctx, request)
+}
+
+// EnsureArtifact selects an executor and creates a sealed disk artifact.
+func (*Auto) EnsureArtifact(ctx context.Context, request BuildRequest) (*ArtifactResult, error) {
+	selected, err := autoExecutor(request)
+	if err != nil {
+		return nil, err
+	}
+	if err := selected.Prepare(ctx); err != nil {
+		return nil, err
+	}
+	return selected.EnsureArtifact(ctx, request)
+}
+
+func autoExecutor(request BuildRequest) (BuildExecutor, error) {
+	host, err := platform.HostArchitecture()
+	if err != nil {
+		return nil, err
+	}
+	if os.Geteuid() == 0 && host == request.Target.ResolvedPlatform().Architecture {
+		return &Native{}, nil
+	}
+	manager, err := appliance.NewManager()
+	if err != nil {
+		return nil, err
+	}
+	return &VM{manager: manager}, nil
 }

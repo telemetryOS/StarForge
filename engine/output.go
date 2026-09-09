@@ -134,7 +134,8 @@ func InitOutput(buildDir, commandName, targetName string) (*Output, error) {
 	}
 
 	o := &Output{
-		interactive: isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd()),
+		interactive: os.Getenv("STARFORGE_NONINTERACTIVE") != "1" &&
+			(isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())),
 	}
 
 	// Open build log

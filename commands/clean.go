@@ -17,9 +17,8 @@ var cleanCmd = &cobra.Command{
 	Long: `Remove build artifacts for a target or vendored dependencies.
 
   starforge clean <target>            Remove all build artifacts for a target
-  starforge clean <target> cache      Remove only the overlay cache
-  starforge clean <target> images     Remove only partition images
-  starforge clean <target> disks      Remove extra QEMU disks
+	starforge clean <target> cache      Remove only the incremental build cache
+	starforge clean <target> artifacts  Remove only sealed disk artifacts
   starforge clean deps                Remove vendored dependencies (~/.local/share/starforge/)
   starforge clean pacman              Remove persistent pacman package cache (~/.local/state/starforge/pacman/)`,
 	Args: cobra.RangeArgs(1, 2),
@@ -61,12 +60,10 @@ func runClean(cmd *cobra.Command, args []string) error {
 		return cleanTarget(buildDir, targetName)
 	case "cache":
 		return cleanCache(buildDir, targetName)
-	case "images":
-		return cleanImages(buildDir, targetName)
-	case "disks":
-		return cleanDisks(buildDir, targetName)
+	case "artifacts":
+		return cleanArtifacts(buildDir, targetName)
 	default:
-		return fmt.Errorf("unknown scope %q — must be 'cache', 'images', or 'disks'", scope)
+		return fmt.Errorf("unknown scope %q — must be 'cache' or 'artifacts'", scope)
 	}
 }
 
@@ -76,17 +73,9 @@ func cleanTarget(buildDir, targetName string) error {
 		return nil
 	}
 
-	// Build cache contains root-owned files; elevate if needed
-	if err := engine.EnsureRootExec(); err != nil {
-		return fmt.Errorf("failed to elevate privileges: %w", err)
-	}
-
-	// Clean up any stale mounts before removing
-	engine.CleanupAll(buildDir)
-
 	fmt.Println(cmdSuccess.Render(fmt.Sprintf("Removing %s", buildDir)))
 	if err := os.RemoveAll(buildDir); err != nil {
-		return fmt.Errorf("removing build directory: %w", err)
+		return cleanPermissionError("build directory", err)
 	}
 	return nil
 }
@@ -98,65 +87,32 @@ func cleanCache(buildDir, targetName string) error {
 		return nil
 	}
 
-	// Build cache contains root-owned files; elevate if needed
-	if err := engine.EnsureRootExec(); err != nil {
-		return fmt.Errorf("failed to elevate privileges: %w", err)
-	}
-
-	// Clean up any stale mounts before removing
-	engine.CleanupAll(buildDir)
-
 	fmt.Println(cmdSuccess.Render(fmt.Sprintf("Removing %s", cacheDir)))
 	if err := os.RemoveAll(cacheDir); err != nil {
-		return fmt.Errorf("removing cache: %w", err)
+		return cleanPermissionError("cache", err)
 	}
 	return nil
 }
 
-func cleanImages(buildDir, targetName string) error {
-	if _, err := os.Stat(buildDir); os.IsNotExist(err) {
-		fmt.Println(cmdDim.Render(fmt.Sprintf("No images to clean for target %q", targetName)))
+func cleanArtifacts(buildDir, targetName string) error {
+	artifactDir := filepath.Join(buildDir, "artifacts")
+	if _, err := os.Stat(artifactDir); os.IsNotExist(err) {
+		fmt.Println(cmdDim.Render(fmt.Sprintf("No sealed artifacts to clean for target %q", targetName)))
 		return nil
 	}
 
-	// Remove *.img files and rootfs/
-	entries, err := os.ReadDir(buildDir)
-	if err != nil {
-		return fmt.Errorf("reading build directory: %w", err)
-	}
-
-	removed := 0
-	for _, entry := range entries {
-		name := entry.Name()
-		path := filepath.Join(buildDir, name)
-
-		if filepath.Ext(name) == ".img" || name == "rootfs" {
-			fmt.Println(cmdSuccess.Render(fmt.Sprintf("Removing %s", path)))
-			if err := os.RemoveAll(path); err != nil {
-				return fmt.Errorf("removing %s: %w", name, err)
-			}
-			removed++
-		}
-	}
-
-	if removed == 0 {
-		fmt.Println(cmdDim.Render(fmt.Sprintf("No images to clean for target %q", targetName)))
+	fmt.Println(cmdSuccess.Render(fmt.Sprintf("Removing %s", artifactDir)))
+	if err := os.RemoveAll(artifactDir); err != nil {
+		return cleanPermissionError("artifacts", err)
 	}
 	return nil
 }
 
-func cleanDisks(buildDir, targetName string) error {
-	diskDir := filepath.Join(buildDir, "disks")
-	if _, err := os.Stat(diskDir); os.IsNotExist(err) {
-		fmt.Println(cmdDim.Render(fmt.Sprintf("No disks to clean for target %q", targetName)))
-		return nil
+func cleanPermissionError(subject string, err error) error {
+	if os.IsPermission(err) {
+		return fmt.Errorf("removing %s: %w (legacy native-executor files may require a one-time sudo cleanup)", subject, err)
 	}
-
-	fmt.Println(cmdSuccess.Render(fmt.Sprintf("Removing %s", diskDir)))
-	if err := os.RemoveAll(diskDir); err != nil {
-		return fmt.Errorf("removing disks: %w", err)
-	}
-	return nil
+	return fmt.Errorf("removing %s: %w", subject, err)
 }
 
 func cleanDeps() error {

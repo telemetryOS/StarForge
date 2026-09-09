@@ -7,8 +7,6 @@ import (
 	"strings"
 
 	"golang.org/x/sys/unix"
-
-	"github.com/telemetryos/starforge/actions"
 )
 
 // OverlayManager manages overlayfs mounts for incremental builds.
@@ -213,69 +211,6 @@ func (om *OverlayManager) MountMerged() (string, error) {
 	return om.mergedDir, nil
 }
 
-// MountMergedWritable mounts all cached layers with a temporary upper directory,
-// providing a writable view of the full filesystem. Changes are discarded on unmount.
-// Used by chroot to allow arch-chroot bind mounts and interactive modifications.
-func (om *OverlayManager) MountMergedWritable() (string, error) {
-	if om.mounted {
-		if err := om.unmountOverlay(); err != nil {
-			return "", fmt.Errorf("unmounting previous overlay: %w", err)
-		}
-	}
-
-	// Collect all existing phase upper dirs (oldest first for lowerdir)
-	var lowers []string
-	for i := len(PhaseNames) - 1; i >= 0; i-- {
-		upper := om.PhaseUpperDir(i)
-		if _, err := os.Stat(upper); err == nil {
-			lowers = append(lowers, upper)
-		}
-	}
-
-	if len(lowers) == 0 {
-		return "", fmt.Errorf("no cached layers found — run build first")
-	}
-
-	// Temporary upper/work dirs for the writable session (discarded on unmount)
-	chrootUpper := filepath.Join(om.cacheDir, "chroot-upper")
-	if err := os.RemoveAll(chrootUpper); err != nil {
-		return "", fmt.Errorf("cleaning chroot upper: %w", err)
-	}
-	if err := os.MkdirAll(chrootUpper, 0o755); err != nil {
-		return "", fmt.Errorf("creating chroot upper: %w", err)
-	}
-
-	if err := os.RemoveAll(om.workDir); err != nil {
-		return "", fmt.Errorf("cleaning work dir: %w", err)
-	}
-	if err := os.MkdirAll(om.workDir, 0o755); err != nil {
-		return "", fmt.Errorf("creating work dir: %w", err)
-	}
-
-	// Recreate merged dir to clear stale kernel metadata
-	if err := os.RemoveAll(om.mergedDir); err != nil {
-		return "", fmt.Errorf("cleaning merged dir: %w", err)
-	}
-	if err := os.MkdirAll(om.mergedDir, 0o755); err != nil {
-		return "", fmt.Errorf("creating merged dir: %w", err)
-	}
-
-	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s,metacopy=off",
-		strings.Join(lowers, ":"), chrootUpper, om.workDir)
-
-	if err := unix.Mount("overlay", om.mergedDir, "overlay", 0, opts); err != nil {
-		return "", fmt.Errorf("mounting writable overlay: %w", err)
-	}
-
-	om.mounted = true
-	return om.mergedDir, nil
-}
-
-// CleanChroot removes the temporary chroot upper directory.
-func (om *OverlayManager) CleanChroot() {
-	os.RemoveAll(filepath.Join(om.cacheDir, "chroot-upper"))
-}
-
 // Unmount unmounts any active overlay.
 func (om *OverlayManager) Unmount() error {
 	if !om.mounted {
@@ -300,62 +235,6 @@ func (om *OverlayManager) unmountOverlay() error {
 	return nil
 }
 
-// EnsureNamedOverlay creates or reuses a named overlay directory with copies
-// of the build cache partition images. Returns the overlay directory path.
-func EnsureNamedOverlay(buildDir, overlayName string, parts []actions.PartitionDef) (string, error) {
-	overlayDir := filepath.Join(buildDir, "overlays", overlayName)
-	if err := os.MkdirAll(overlayDir, 0o755); err != nil {
-		return "", fmt.Errorf("creating overlay directory: %w", err)
-	}
-
-	// Find the latest cache upper directory containing partition images
-	om := NewOverlayManager(buildDir)
-	var sourceDir string
-	for i := len(PhaseNames) - 1; i >= 0; i-- {
-		upper := om.PhaseUpperDir(i)
-		if _, err := os.Stat(upper); err == nil {
-			sourceDir = upper
-			break
-		}
-	}
-	if sourceDir == "" {
-		return "", fmt.Errorf("no cached build layers found — run build first")
-	}
-
-	// Copy partition images that don't already exist in the overlay
-	for _, part := range parts {
-		imgName := fmt.Sprintf("%s.img", part.Name)
-		dest := filepath.Join(overlayDir, imgName)
-		if _, err := os.Stat(dest); err == nil {
-			continue // already exists
-		}
-
-		src := filepath.Join(sourceDir, imgName)
-		if _, err := os.Stat(src); os.IsNotExist(err) {
-			// Try build dir directly
-			src = filepath.Join(buildDir, imgName)
-			if _, err := os.Stat(src); os.IsNotExist(err) {
-				continue
-			}
-		}
-
-		if err := CopyFile(src, dest); err != nil {
-			return "", fmt.Errorf("copying %s to overlay: %w", imgName, err)
-		}
-	}
-
-	return overlayDir, nil
-}
-
-// InvalidateOverlays removes all named overlays for a target.
-func InvalidateOverlays(buildDir string) error {
-	overlaysDir := filepath.Join(buildDir, "overlays")
-	if _, err := os.Stat(overlaysDir); os.IsNotExist(err) {
-		return nil
-	}
-	return os.RemoveAll(overlaysDir)
-}
-
 // CleanCache removes the entire cache directory for a fresh rebuild.
 func (om *OverlayManager) CleanCache() error {
 	if om.mounted {
@@ -372,4 +251,3 @@ func (om *OverlayManager) CleanCache() error {
 	}
 	return nil
 }
-

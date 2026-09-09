@@ -25,6 +25,7 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(inspectCmd)
 	rootCmd.AddCommand(writeCmd)
+	rootCmd.AddCommand(writeArtifactCmd)
 	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(cleanCmd)
 	rootCmd.AddCommand(installServerCmd)

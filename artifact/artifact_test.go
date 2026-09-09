@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/telemetryos/starforge/actions"
 	"github.com/telemetryos/starforge/platform"
 )
 
@@ -17,6 +18,7 @@ func TestStoreLifecycle(t *testing.T) {
 	if receipt.State != StateCreating {
 		t.Fatalf("state = %q, want creating", receipt.State)
 	}
+	receipt.Partitions = []actions.PartitionDef{{Name: "root", Size: 1024, Filesystem: "ext4"}}
 	if err := os.WriteFile(store.CreatingDiskPath(), []byte("disk-content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -33,6 +35,9 @@ func TestStoreLifecycle(t *testing.T) {
 	}
 	if loaded.SourceHash != "source-1" || loaded.Platform.Architecture != platform.ArchitectureAArch64 {
 		t.Fatalf("unexpected loaded receipt: %#v", loaded)
+	}
+	if len(loaded.Partitions) != 1 || loaded.Partitions[0].Name != "root" {
+		t.Fatalf("partition layout was not preserved: %#v", loaded.Partitions)
 	}
 	if err := store.Verify(loaded); err != nil {
 		t.Fatal(err)

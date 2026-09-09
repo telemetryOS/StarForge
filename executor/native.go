@@ -99,6 +99,7 @@ func (*Native) EnsureArtifact(ctx context.Context, request BuildRequest) (*Artif
 	if err != nil {
 		return nil, err
 	}
+	receipt.Partitions = append([]actions.PartitionDef(nil), buildContext.Partitions...)
 	abort := func(buildErr error) error {
 		if receiptErr := store.Abort(receipt, buildErr); receiptErr != nil {
 			return fmt.Errorf("%w (recording artifact failure: %v)", buildErr, receiptErr)

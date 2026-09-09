@@ -127,6 +127,9 @@ func resolveBin(name string) string {
 	if _, err := os.Stat(vendored); err == nil {
 		return vendored
 	}
+	if system, err := exec.LookPath(name); err == nil {
+		return system
+	}
 	return name
 }
 
@@ -353,6 +356,21 @@ func PartitionDevice(parts []actions.PartitionDef, device string) ([]actions.Par
 	run("udevadm", "settle")
 
 	return resolved, nil
+}
+
+func sfdiskTypeAlias(partType string) string {
+	switch partType {
+	case "efi":
+		return "uefi"
+	case "xbootldr", "bios-boot", "swap", "home", "raid", "lvm", "root", "root-verity", "usr", "usr-verity":
+		return partType
+	case "microsoft-basic":
+		return "microsoft-basic-data"
+	case "microsoft-reserved":
+		return "microsoft-reserved"
+	default:
+		return "linux"
+	}
 }
 
 // UnmountDevice unmounts any currently mounted filesystem from device or one

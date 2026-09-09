@@ -137,16 +137,10 @@ func WriteToDiskImage(parts []actions.PartitionDef, buildDir, imagePath string) 
 	out.Blank()
 	out.Phase("Creating disk image")
 
-	// Calculate minimum disk size: sum of partition sizes + GPT overhead
-	var totalSize uint64
-	for _, p := range parts {
-		totalSize += p.Size
+	totalSize, err := DiskImageSize(parts)
+	if err != nil {
+		return "", nil, err
 	}
-	totalSize += 2 * 1024 * 1024 // GPT overhead (1MB front + 1MB back)
-
-	// Round up to nearest MiB for alignment
-	const mib = 1024 * 1024
-	totalSize = ((totalSize + mib - 1) / mib) * mib
 
 	sizeLabel := actions.FormatSize(totalSize)
 	out.Info("%s (%s)", imagePath, sizeLabel)
@@ -787,6 +781,43 @@ func SavePartitions(parts []actions.PartitionDef, buildDir string) error {
 		return fmt.Errorf("marshalling partitions: %w", err)
 	}
 	return os.WriteFile(filepath.Join(buildDir, "partitions.json"), data, 0o644)
+}
+
+// LoadPartitions reads the packaged disk layout from partitions.json.
+func LoadPartitions(buildDir string) ([]actions.PartitionDef, error) {
+	data, err := os.ReadFile(filepath.Join(buildDir, "partitions.json"))
+	if err != nil {
+		return nil, fmt.Errorf("reading partitions.json: %w", err)
+	}
+	var partitions []actions.PartitionDef
+	if err := json.Unmarshal(data, &partitions); err != nil {
+		return nil, fmt.Errorf("parsing partitions.json: %w", err)
+	}
+	return partitions, nil
+}
+
+// DiskImageSize returns the minimum aligned raw disk size for a layout.
+func DiskImageSize(parts []actions.PartitionDef) (uint64, error) {
+	var total uint64
+	for _, part := range parts {
+		if part.Size == 0 {
+			return 0, fmt.Errorf("partition %q has no minimum size", part.Name)
+		}
+		if ^uint64(0)-total < part.Size {
+			return 0, fmt.Errorf("partition layout size overflows uint64")
+		}
+		total += part.Size
+	}
+	const mib = uint64(1024 * 1024)
+	const gptOverhead = 2 * mib
+	if ^uint64(0)-total < gptOverhead {
+		return 0, fmt.Errorf("partition layout size overflows uint64")
+	}
+	total += gptOverhead
+	if ^uint64(0)-total < mib-1 {
+		return 0, fmt.Errorf("partition layout size overflows uint64")
+	}
+	return ((total + mib - 1) / mib) * mib, nil
 }
 
 // BuildResult captures the subset of BuildContext that packaging needs.

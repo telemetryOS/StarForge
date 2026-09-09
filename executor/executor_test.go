@@ -22,14 +22,14 @@ func TestParseMode(t *testing.T) {
 	}
 }
 
-func TestNewNativeAndAuto(t *testing.T) {
-	for _, mode := range []Mode{ModeAuto, ModeNative} {
-		exec, err := New(mode)
+func TestNewModes(t *testing.T) {
+	for _, mode := range []Mode{ModeAuto, ModeNative, ModeVM} {
+		executor, err := New(mode)
 		if err != nil {
 			t.Fatalf("New(%q): %v", mode, err)
 		}
-		if exec.Mode() != ModeNative {
-			t.Errorf("New(%q).Mode() = %q, want native", mode, exec.Mode())
+		if executor.Mode() != mode {
+			t.Errorf("New(%q).Mode() = %q", mode, executor.Mode())
 		}
 	}
 }

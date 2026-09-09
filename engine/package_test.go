@@ -57,6 +57,27 @@ func TestBuildResultRoundTripsPlatform(t *testing.T) {
 	}
 }
 
+func TestDiskImageSize(t *testing.T) {
+	parts := []actions.PartitionDef{
+		{Name: "boot", Size: 512 << 20},
+		{Name: "root", Size: 4 << 30},
+	}
+	got, err := DiskImageSize(parts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := uint64(512<<20) + uint64(4<<30) + uint64(2<<20)
+	if got != want {
+		t.Fatalf("DiskImageSize() = %d, want %d", got, want)
+	}
+	if _, err := DiskImageSize([]actions.PartitionDef{{Name: "root"}}); err == nil {
+		t.Fatal("zero-sized partition unexpectedly passed")
+	}
+	if _, err := DiskImageSize([]actions.PartitionDef{{Name: "root", Size: ^uint64(0)}}); err == nil {
+		t.Fatal("overflowing layout unexpectedly passed")
+	}
+}
+
 // --- buildFstab ---
 
 func TestBuildFstab_GeneratesDeclaredMountsOnly(t *testing.T) {

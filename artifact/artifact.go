@@ -11,10 +11,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/telemetryos/starforge/actions"
 	"github.com/telemetryos/starforge/platform"
 )
 
-const receiptVersion = 1
+const receiptVersion = 2
 
 // State identifies the ownership state of an artifact.
 type State string
@@ -28,17 +29,18 @@ const (
 
 // Receipt records the identity and integrity of a full-disk build artifact.
 type Receipt struct {
-	Version    int           `json:"version"`
-	Target     string        `json:"target"`
-	Platform   platform.Spec `json:"platform"`
-	State      State         `json:"state"`
-	Disk       string        `json:"disk"`
-	SourceHash string        `json:"sourceHash"`
-	SHA256     string        `json:"sha256,omitempty"`
-	Size       int64         `json:"size,omitempty"`
-	CreatedAt  time.Time     `json:"createdAt"`
-	SealedAt   *time.Time    `json:"sealedAt,omitempty"`
-	Error      string        `json:"error,omitempty"`
+	Version    int                    `json:"version"`
+	Target     string                 `json:"target"`
+	Platform   platform.Spec          `json:"platform"`
+	State      State                  `json:"state"`
+	Disk       string                 `json:"disk"`
+	SourceHash string                 `json:"sourceHash"`
+	Partitions []actions.PartitionDef `json:"partitions"`
+	SHA256     string                 `json:"sha256,omitempty"`
+	Size       int64                  `json:"size,omitempty"`
+	CreatedAt  time.Time              `json:"createdAt"`
+	SealedAt   *time.Time             `json:"sealedAt,omitempty"`
+	Error      string                 `json:"error,omitempty"`
 }
 
 // Store manages a target platform's artifact directory.

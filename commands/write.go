@@ -3,121 +3,146 @@ package commands
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/telemetryos/starforge/actions"
-	"github.com/telemetryos/starforge/config"
+	"github.com/telemetryos/starforge/artifact"
 	"github.com/telemetryos/starforge/engine"
+	"github.com/telemetryos/starforge/executor"
 )
 
 var writeCmd = &cobra.Command{
 	Use:   "write <target> <output>",
-	Short: "Write a target to a block device",
-	Long: `Write a target to a block device.
-The target is built automatically if needed.
+	Short: "Write a sealed target artifact to a block device",
+	Long: `Build and verify a sealed full-disk target artifact, then write it to a
+block device. Building is unprivileged when the VM executor is selected. Only
+the final block-device operation is elevated.
 
-For block devices (e.g. /dev/sda), partition images are written directly
-through the Corona writer and growable partitions are expanded to fill
-available space. Use "starforge export" to create disk image files.`,
+The target device is repartitioned from the sealed artifact's recorded layout.
+Growable partitions are expanded to fill available space. Use "starforge
+export" to create regular disk image files.`,
 	Args: cobra.ExactArgs(2),
 	RunE: runWrite,
 }
 
+var writeArtifactCmd = &cobra.Command{
+	Use:    "__write-artifact <target> <device>",
+	Hidden: true,
+	Args:   cobra.ExactArgs(2),
+	RunE:   runWriteArtifact,
+}
+
 func runWrite(cmd *cobra.Command, args []string) error {
 	targetName := args[0]
-	outputPath := args[1]
-
-	proj, err := config.FindProject()
+	device, err := resolveBlockDevice(args[1])
 	if err != nil {
 		return err
 	}
-
-	_, ok := proj.Targets[targetName]
-	if !ok {
-		return fmt.Errorf("unknown target %q", targetName)
+	project, target, err := loadProjectAndTarget(targetName)
+	if err != nil {
+		return err
 	}
-
-	// Detect if output is an existing block device
-	isDevice := false
-	if info, statErr := os.Stat(outputPath); statErr == nil {
-		mode := info.Mode()
-		isDevice = mode&os.ModeDevice != 0 && mode&os.ModeCharDevice == 0
+	buildExecutor, err := selectedBuildExecutor()
+	if err != nil {
+		return err
 	}
-
-	// Paths under /dev/ that aren't block devices are an error
-	if !isDevice && strings.HasPrefix(outputPath, "/dev/") {
-		if _, err := os.Stat(outputPath); err != nil {
-			return fmt.Errorf("device %s not found", outputPath)
-		}
-		return fmt.Errorf("%s is not a block device", outputPath)
+	if err := buildExecutor.Prepare(cmd.Context()); err != nil {
+		return err
 	}
-	if !isDevice {
-		return fmt.Errorf("%s is not a block device; use 'starforge export %s disk %s' to create a disk image", outputPath, targetName, outputPath)
+	buildDir := project.TargetBuildDir(targetName)
+	if err := os.MkdirAll(buildDir, 0o755); err != nil {
+		return err
 	}
-
-	// Elevate to root before fetching sources
-	if err := engine.EnsureRootExec(); err != nil {
-		return fmt.Errorf("failed to elevate privileges: %w", err)
-	}
-
-	// Confirmation for device writes (after elevation so we only ask once)
-	fmt.Printf("WARNING: All data on %s will be destroyed.\n", outputPath)
-	fmt.Print("Continue? [y/N] ")
-	var confirm string
-	fmt.Scanln(&confirm)
-	if strings.ToLower(confirm) != "y" {
-		fmt.Println("Aborted.")
-		return nil
-	}
-
-	buildDir := proj.TargetBuildDir(targetName)
-	os.MkdirAll(buildDir, 0o755)
-
 	output, err := engine.InitOutput(buildDir, "write", targetName)
 	if err != nil {
 		return err
 	}
+	var artifactResult *executor.ArtifactResult
+	if err := output.Run(func() error {
+		var buildErr error
+		artifactResult, buildErr = buildExecutor.EnsureArtifact(cmd.Context(), executor.BuildRequest{
+			Project: project, TargetName: targetName, Target: target,
+		})
+		return buildErr
+	}); err != nil {
+		output.Close()
+		return err
+	}
+	if err := artifact.NewStore(buildDir, targetName, target.ResolvedPlatform()).Verify(artifactResult.Receipt); err != nil {
+		output.Close()
+		return fmt.Errorf("verifying sealed artifact: %w", err)
+	}
+	output.Close()
+
+	fmt.Printf("WARNING: All data on %s will be destroyed.\n", device)
+	fmt.Print("Continue? [y/N] ")
+	var confirm string
+	_, _ = fmt.Scanln(&confirm)
+	if strings.ToLower(confirm) != "y" {
+		fmt.Println("Aborted.")
+		return nil
+	}
+	return engine.RunAsRoot("__write-artifact", targetName, device)
+}
+
+func runWriteArtifact(_ *cobra.Command, args []string) error {
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("private artifact writer requires root")
+	}
+	targetName := args[0]
+	device, err := resolveBlockDevice(args[1])
+	if err != nil {
+		return err
+	}
+	project, target, err := loadProjectAndTarget(targetName)
+	if err != nil {
+		return err
+	}
+	store := artifact.NewStore(project.TargetBuildDir(targetName), targetName, target.ResolvedPlatform())
+	receipt, err := store.Load()
+	if err != nil {
+		return err
+	}
+	if err := store.Verify(receipt); err != nil {
+		return fmt.Errorf("verifying sealed artifact: %w", err)
+	}
+	if len(receipt.Partitions) == 0 {
+		return fmt.Errorf("artifact receipt has no partition layout; rebuild the target")
+	}
+	temporary, err := os.MkdirTemp("", "starforge-write-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(temporary)
+	if _, err := engine.ExtractDiskPartitions(store.DiskPath(), receipt.Partitions, temporary); err != nil {
+		return fmt.Errorf("extracting sealed partitions: %w", err)
+	}
+	output, err := engine.InitOutput("", "write", targetName)
+	if err != nil {
+		return err
+	}
 	defer output.Close()
-
 	return output.Run(func() error {
-		// Ensure partition images exist and are up to date.
-		builder := engine.NewBuilder(proj)
-		ctx, err := builder.EnsureBuiltAndPackaged(targetName)
-		if err != nil {
-			return err
-		}
-		engine.ChownToInvoker(proj.BuildDir())
-
-		return writeToDevice(builder, ctx, buildDir, outputPath)
+		return engine.WriteToDevice(receipt.Partitions, device, temporary)
 	})
 }
 
-// writeToDevice writes partition images directly to a block device.
-// Confirmation is handled by the caller before entering bubbletea.
-func writeToDevice(builder *engine.Builder, ctx *actions.BuildContext, buildDir, device string) error {
-	// Write partition images to device
-	if err := engine.WriteToDevice(ctx.Partitions, device, buildDir); err != nil {
-		return fmt.Errorf("writing to device: %w", err)
-	}
-
-	// Bundle installer components if the target has any installer actions.
-	if engine.HasInstallerActions(ctx) {
-		if err := bundleInstaller(builder, ctx, device); err != nil {
-			return err
+func resolveBlockDevice(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		if strings.HasPrefix(path, "/dev/") {
+			return "", fmt.Errorf("device %s not found", path)
 		}
+		return "", err
 	}
-
-	return nil
-}
-
-// bundleInstaller mounts the partitions on a device (or loop device) and
-// bundles installer components into the rootfs.
-func bundleInstaller(builder *engine.Builder, ctx *actions.BuildContext, device string) error {
-	return builder.BundleInstallerToDevice(ctx, device)
-}
-
-func createInstallerTempDir() (string, error) {
-	return os.MkdirTemp(os.Getenv("STARFORGE_TMPDIR"), "starforge-write-installer-*")
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeDevice == 0 || info.Mode()&os.ModeCharDevice != 0 {
+		return "", fmt.Errorf("%s is not a block device; use 'starforge export' to create a disk image", path)
+	}
+	return resolved, nil
 }
