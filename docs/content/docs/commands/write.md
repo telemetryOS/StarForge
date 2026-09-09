@@ -45,6 +45,7 @@ starforge export device disk ./release/device.img
 - Requires root access (elevates automatically).
 - Disk image files are created with [`starforge export`](../export/), not `starforge write`.
 - If the target has installer actions (`install-payload`, `install-server`, `install-client`), installer components are bundled after writing.
+- Set `STARFORGE_TMPDIR` to place installer-bundling scratch data on a filesystem with sufficient capacity. This does not change temporary directories inside the target root filesystem.
 - Growable partitions (size ending with `+` in `partition-add`) expand to fill remaining device space.
 
 ## See Also
