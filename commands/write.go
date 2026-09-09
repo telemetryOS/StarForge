@@ -115,7 +115,7 @@ func writeToDevice(builder *engine.Builder, ctx *actions.BuildContext, buildDir,
 // bundleInstaller mounts the partitions on a device (or loop device) and
 // bundles installer components into the rootfs.
 func bundleInstaller(builder *engine.Builder, ctx *actions.BuildContext, device string) error {
-	rootfs, err := os.MkdirTemp("", "starforge-write-installer-*")
+	rootfs, err := createInstallerTempDir()
 	if err != nil {
 		return fmt.Errorf("creating temp mount: %w", err)
 	}
@@ -139,4 +139,8 @@ func bundleInstaller(builder *engine.Builder, ctx *actions.BuildContext, device 
 	}
 
 	return nil
+}
+
+func createInstallerTempDir() (string, error) {
+	return os.MkdirTemp(os.Getenv("STARFORGE_TMPDIR"), "starforge-write-installer-*")
 }
