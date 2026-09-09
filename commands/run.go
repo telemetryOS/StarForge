@@ -1,28 +1,23 @@
 package commands
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 
-	"github.com/telemetryos/starforge/actions"
 	"github.com/telemetryos/starforge/engine"
+	"github.com/telemetryos/starforge/executor"
+	"github.com/telemetryos/starforge/machine"
 )
 
 var runSerial bool
-var runOverlay string
-var runBootDisk string
 
 var runCmd = &cobra.Command{
 	Use:   "run <target>",
 	Short: "Boot a target in QEMU",
-	Long: `Assemble partition images into a virtual disk via device mapper and boot
-in QEMU for testing. The target is built automatically if needed (incremental build).
-
-The virtual disk is assembled from individual partition images using
-device mapper, with a GPT partition table written via sfdisk. QEMU boots
-with OVMF UEFI firmware and virtio devices.
+	Long: `Build a sealed full-disk artifact and boot it in a sibling QEMU virtual
+machine for testing. QEMU uses a disposable snapshot, so the build artifact is
+never modified by the running target.
 
 SSH is forwarded on port 2222: ssh -p 2222 localhost`,
 	Args: cobra.ExactArgs(1),
@@ -31,36 +26,25 @@ SSH is forwarded on port 2222: ssh -p 2222 localhost`,
 
 func init() {
 	runCmd.Flags().BoolVar(&runSerial, "serial", false, "attach serial console to terminal")
-	runCmd.Flags().StringVar(&runOverlay, "overlay", "", "named overlay for persistent changes")
-	runCmd.Flags().StringVar(&runBootDisk, "boot-disk", "", "boot from a named QEMU disk instead of the build target")
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
 	targetName := args[0]
-
-	// Elevate early — device mapper, losetup, and potential auto-build all need root
-	if err := engine.EnsureRootExec(); err != nil {
-		return fmt.Errorf("failed to elevate privileges: %w", err)
-	}
 
 	proj, target, err := loadProjectAndTarget(targetName)
 	if err != nil {
 		return err
 	}
 
-	buildDir := proj.TargetBuildDir(targetName)
-
-	if runBootDisk != "" {
-		// Boot directly from a named disk — no build or device mapper needed.
-		// Initialize output for QEMU info messages (runs outside bubbletea).
-		output, err := engine.InitOutput(buildDir, "run", targetName)
-		if err != nil {
-			return err
-		}
-		defer output.Close()
-		return engine.RunQEMU(targetName, buildDir, proj.Dir, nil, runSerial, runOverlay, runBootDisk, target.QEMU)
+	buildExecutor, err := selectedBuildExecutor()
+	if err != nil {
+		return err
+	}
+	if err := buildExecutor.Prepare(cmd.Context()); err != nil {
+		return err
 	}
 
+	buildDir := proj.TargetBuildDir(targetName)
 	os.MkdirAll(buildDir, 0o755)
 
 	output, err := engine.InitOutput(buildDir, "run", targetName)
@@ -69,23 +53,26 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 	defer output.Close()
 
-	// Build and package inside bubbletea; QEMU runs after.
-	var ctx *actions.BuildContext
+	var artifactResult *executor.ArtifactResult
 	err = output.Run(func() error {
-		builder := engine.NewBuilder(proj)
 		var buildErr error
-		ctx, buildErr = builder.EnsureBuiltAndPackaged(targetName)
-		if buildErr != nil {
-			return buildErr
-		}
-		engine.ChownToInvoker(proj.BuildDir())
-		return nil
+		artifactResult, buildErr = buildExecutor.EnsureArtifact(cmd.Context(), executor.BuildRequest{
+			Project:    proj,
+			TargetName: targetName,
+			Target:     target,
+		})
+		return buildErr
 	})
 	if err != nil {
 		return err
 	}
 
-	// Bubbletea is done — QEMU runs with direct terminal access.
-	// out.* methods still work (fall back to fmt.Println).
-	return engine.RunQEMU(targetName, buildDir, proj.Dir, ctx.Partitions, runSerial, runOverlay, runBootDisk, target.QEMU)
+	runner := &machine.QEMU{}
+	return runner.Run(cmd.Context(), machine.RunRequest{
+		Artifact: artifactResult.Receipt,
+		Disk:     artifactResult.Disk,
+		BuildDir: buildDir,
+		Config:   target.QEMU,
+		Serial:   runSerial,
+	})
 }

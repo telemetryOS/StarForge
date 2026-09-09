@@ -1,12 +1,12 @@
 package commands
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/telemetryos/starforge/engine"
+	"github.com/telemetryos/starforge/executor"
 )
 
 var cleanFlag bool
@@ -37,9 +37,12 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Elevate to root early so cleanup, collect, and build all run privileged
-	if err := engine.EnsureRootExec(); err != nil {
-		return fmt.Errorf("failed to elevate privileges: %w", err)
+	buildExecutor, err := selectedBuildExecutor()
+	if err != nil {
+		return err
+	}
+	if err := buildExecutor.Prepare(cmd.Context()); err != nil {
+		return err
 	}
 
 	buildDir := proj.TargetBuildDir(targetName)
@@ -52,12 +55,12 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	defer output.Close()
 
 	return output.Run(func() error {
-		builder := engine.NewBuilder(proj)
-		if err := builder.Build(targetName, target, cleanFlag); err != nil {
-			return err
-		}
-		// Ensure build artifacts are owned by the invoking user, not root
-		engine.ChownToInvoker(proj.BuildDir())
-		return nil
+		_, err := buildExecutor.Build(cmd.Context(), executor.BuildRequest{
+			Project:    proj,
+			TargetName: targetName,
+			Target:     target,
+			Clean:      cleanFlag,
+		})
+		return err
 	})
 }

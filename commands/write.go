@@ -115,30 +115,7 @@ func writeToDevice(builder *engine.Builder, ctx *actions.BuildContext, buildDir,
 // bundleInstaller mounts the partitions on a device (or loop device) and
 // bundles installer components into the rootfs.
 func bundleInstaller(builder *engine.Builder, ctx *actions.BuildContext, device string) error {
-	rootfs, err := createInstallerTempDir()
-	if err != nil {
-		return fmt.Errorf("creating temp mount: %w", err)
-	}
-	defer os.RemoveAll(rootfs)
-
-	mt := engine.NewMountTable(rootfs)
-	var mounts []engine.PartitionMount
-	for i, p := range ctx.Partitions {
-		mounts = append(mounts, engine.PartitionMount{
-			Source:     engine.PartitionPath(device, i+1),
-			MountPoint: p.MountPoint,
-		})
-	}
-	if err := mt.MountAll(mounts); err != nil {
-		return fmt.Errorf("mounting for installer bundling: %w", err)
-	}
-	defer mt.Unmount()
-
-	if err := builder.BundleInstallerToRootfs(ctx, rootfs); err != nil {
-		return fmt.Errorf("installer bundling: %w", err)
-	}
-
-	return nil
+	return builder.BundleInstallerToDevice(ctx, device)
 }
 
 func createInstallerTempDir() (string, error) {

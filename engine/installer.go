@@ -51,6 +51,33 @@ func (b *Builder) BundleInstallerToRootfs(ctx *actions.BuildContext, rootfs stri
 	return nil
 }
 
+// BundleInstallerToDevice mounts a complete target disk and adds installer assets.
+func (b *Builder) BundleInstallerToDevice(ctx *actions.BuildContext, device string) error {
+	rootfs, err := os.MkdirTemp(os.Getenv("STARFORGE_TMPDIR"), "starforge-installer-*")
+	if err != nil {
+		return fmt.Errorf("creating installer mount: %w", err)
+	}
+	defer os.RemoveAll(rootfs)
+
+	mt := NewMountTable(rootfs)
+	mounts := make([]PartitionMount, 0, len(ctx.Partitions))
+	for i, partition := range ctx.Partitions {
+		mounts = append(mounts, PartitionMount{
+			Source:     PartitionPath(device, i+1),
+			MountPoint: partition.MountPoint,
+		})
+	}
+	if err := mt.MountAll(mounts); err != nil {
+		return fmt.Errorf("mounting for installer bundling: %w", err)
+	}
+	defer mt.Unmount()
+
+	if err := b.BundleInstallerToRootfs(ctx, rootfs); err != nil {
+		return fmt.Errorf("installer bundling: %w", err)
+	}
+	return nil
+}
+
 // bundlePayloads compresses each payload target's partition images (filtered
 // by the payload's optional Partitions list) and copies them into rootfs at
 // the configured path along with a manifest.json.
