@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/telemetryos/starforge/installer"
+	"github.com/telemetryos/starforge/platform"
 )
 
 func TestValidateManifest_HappyPath(t *testing.T) {
@@ -149,5 +150,17 @@ func TestValidateManifest_RejectsEFILabelControlChars(t *testing.T) {
 func TestValidateManifest_RejectsEmptyPartitions(t *testing.T) {
 	if err := validateManifest(&installer.PayloadManifest{}); err == nil {
 		t.Error("manifest with no partitions should be rejected")
+	}
+}
+
+func TestValidateManifest_RejectsInvalidPlatform(t *testing.T) {
+	m := &installer.PayloadManifest{
+		Platform: platform.Spec{Architecture: platform.ArchitectureAArch64, Distribution: platform.DistributionArchLinux},
+		Partitions: []installer.PayloadPartition{
+			{Name: "root", Filesystem: "ext4", Type: "linux", MountPoint: "/", Corona: "root.img.corona"},
+		},
+	}
+	if err := validateManifest(m); err == nil {
+		t.Fatal("incompatible manifest platform should be rejected")
 	}
 }

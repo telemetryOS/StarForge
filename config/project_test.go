@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/telemetryos/starforge/platform"
 )
 
 func TestProject_Validate_Valid(t *testing.T) {
@@ -48,6 +50,24 @@ func TestProject_Validate_EmptyLayers(t *testing.T) {
 	err := p.Validate()
 	if err == nil {
 		t.Fatal("expected error for target with no layers")
+	}
+}
+
+func TestProject_Validate_InvalidPlatform(t *testing.T) {
+	p := &Project{
+		Name: "test",
+		Targets: map[string]Target{
+			"device": {
+				Layers: []string{"layers/base"},
+				Platform: platform.Spec{
+					Architecture: platform.ArchitectureAArch64,
+					Distribution: platform.DistributionArchLinux,
+				},
+			},
+		},
+	}
+	if err := p.Validate(); err == nil {
+		t.Fatal("expected incompatible platform to fail validation")
 	}
 }
 
@@ -250,6 +270,44 @@ targets:
 	}
 	if len(q.Args) != 1 || q.Args[0] != "-enable-kvm" {
 		t.Errorf("Args = %v", q.Args)
+	}
+}
+
+func TestLoadProject_WithAArch64Platform(t *testing.T) {
+	dir := t.TempDir()
+	content := `name: test
+targets:
+  device:
+    platform:
+      architecture: aarch64
+      machine: generic-uefi
+      distribution: archlinux-ports
+    layers:
+      - base
+`
+	if err := os.WriteFile(filepath.Join(dir, "starforge.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	proj, err := LoadProject(dir)
+	if err != nil {
+		t.Fatalf("LoadProject error: %v", err)
+	}
+	got := proj.Targets["device"].ResolvedPlatform()
+	want := platform.Spec{
+		Architecture: platform.ArchitectureAArch64,
+		Machine:      platform.MachineGenericUEFI,
+		Distribution: platform.DistributionArchLinuxPorts,
+	}
+	if got != want {
+		t.Fatalf("platform = %#v, want %#v", got, want)
+	}
+}
+
+func TestTarget_ResolvedPlatform_DefaultsToX8664(t *testing.T) {
+	got := (Target{}).ResolvedPlatform()
+	if got.Architecture != platform.ArchitectureX86_64 || got.Distribution != platform.DistributionArchLinux {
+		t.Fatalf("ResolvedPlatform() = %#v", got)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/telemetryos/starforge/actions"
 	"github.com/telemetryos/starforge/config"
+	"github.com/telemetryos/starforge/platform"
 )
 
 // --- LoadManifest / Save tests ---
@@ -256,6 +257,25 @@ func TestHashPhase_Preinstall(t *testing.T) {
 	}
 	if h1 == h3 {
 		t.Error("different keymap should produce different hash")
+	}
+}
+
+func TestHashPhase_ChangesAcrossTargetArchitectures(t *testing.T) {
+	x86 := actions.NewBuildContext()
+	x86.Platform = platform.Spec{Architecture: platform.ArchitectureX86_64}.Resolve()
+	arm := actions.NewBuildContext()
+	arm.Platform = platform.Spec{Architecture: platform.ArchitectureAArch64}.Resolve()
+
+	x86Hash, err := HashPhase(0, x86)
+	if err != nil {
+		t.Fatal(err)
+	}
+	armHash, err := HashPhase(0, arm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x86Hash == armHash {
+		t.Fatal("different target architectures produced the same phase hash")
 	}
 }
 
@@ -611,6 +631,18 @@ func TestHashPackaging_ChangesOnPartitionDef(t *testing.T) {
 	h2 := HashPackaging(manifest, ctx2, nil)
 	if h1 == h2 {
 		t.Error("different partition size should produce different packaging hash")
+	}
+}
+
+func TestHashPackaging_ChangesAcrossTargetArchitectures(t *testing.T) {
+	manifest := &Manifest{Phases: map[string]PhaseEntry{}}
+	x86 := actions.NewBuildContext()
+	x86.Platform = platform.Spec{Architecture: platform.ArchitectureX86_64}.Resolve()
+	arm := actions.NewBuildContext()
+	arm.Platform = platform.Spec{Architecture: platform.ArchitectureAArch64}.Resolve()
+
+	if HashPackaging(manifest, x86, nil) == HashPackaging(manifest, arm, nil) {
+		t.Fatal("different target architectures produced the same packaging hash")
 	}
 }
 

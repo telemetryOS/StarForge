@@ -76,7 +76,7 @@ func (b *Builder) bundlePayloads(ctx *actions.BuildContext, rootfs string) error
 			if perr != nil {
 				return fmt.Errorf("payload target %q: %w", payload.Target, perr)
 			}
-			payloadResult = &BuildResult{Partitions: ctxOut.Partitions}
+			payloadResult = &BuildResult{Platform: ctxOut.Platform, Partitions: ctxOut.Partitions}
 		} else if b.packaging[payload.Target] {
 			out.Warning(fmt.Sprintf("payload %q: target is already being packaged on this stack — using in-progress images", payload.Target))
 		} else {
@@ -84,7 +84,7 @@ func (b *Builder) bundlePayloads(ctx *actions.BuildContext, rootfs string) error
 			if perr != nil {
 				return fmt.Errorf("packaging payload target %q: %w", payload.Target, perr)
 			}
-			payloadResult = &BuildResult{Partitions: ctxOut.Partitions}
+			payloadResult = &BuildResult{Platform: ctxOut.Platform, Partitions: ctxOut.Partitions}
 		}
 
 		// Apply the partitions filter, if any. Empty list means "all".
@@ -123,6 +123,7 @@ func (b *Builder) bundlePayloads(ctx *actions.BuildContext, rootfs string) error
 			Name:        payload.Target,
 			Description: payload.Label,
 			EFILabel:    efiLabel,
+			Platform:    payloadResult.Platform.Resolve(),
 		}
 
 		for _, part := range parts {

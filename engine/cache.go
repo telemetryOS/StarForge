@@ -31,7 +31,7 @@ var PhaseNames = []string{
 
 // CacheVersion is incremented when the overlay mount options or cache
 // format changes. Caches with a different version are automatically cleaned.
-const CacheVersion = 2
+const CacheVersion = 3
 
 // PackagingHashVersion is mixed into HashPackaging output. Bump it whenever
 // packaging-time logic changes in a way that wouldn't otherwise be reflected
@@ -41,7 +41,7 @@ const CacheVersion = 2
 // captures all declarative inputs; this version covers engine behavior. A
 // bump invalidates packaging only (NOT phase caches), so users don't pay for
 // a full rebuild.
-const PackagingHashVersion = 3
+const PackagingHashVersion = 4
 
 // Manifest tracks the input hash and completion status of each cached phase.
 type Manifest struct {
@@ -101,6 +101,7 @@ func (m *Manifest) Save(cacheDir string) error {
 func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 	h := sha256.New()
 	memo := make(map[string]string) // path → hash
+	fmt.Fprintf(h, "platform=%s\n", ctx.Platform.Identity())
 
 	memoHashPath := func(path string) (string, error) {
 		if cached, ok := memo[path]; ok {
@@ -448,6 +449,7 @@ func HashPackaging(manifest *Manifest, ctx *actions.BuildContext, project *confi
 // constructors so a missing field surfaces immediately.
 func contextToBuildResult(ctx *actions.BuildContext) BuildResult {
 	return BuildResult{
+		Platform:        ctx.Platform.Resolve(),
 		Partitions:      ctx.Partitions,
 		Ownerships:      ctx.FileOwnerships,
 		Permissions:     ctx.FilePermissions,

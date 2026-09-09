@@ -3,12 +3,15 @@ package installer
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/telemetryos/starforge/platform"
 )
 
 func TestPayloadManifestUsesCamelCaseJSON(t *testing.T) {
 	raw, err := json.Marshal(PayloadManifest{
 		Name:     "edge-os",
 		EFILabel: "TelemetryOS",
+		Platform: platform.Spec{Architecture: platform.ArchitectureAArch64}.Resolve(),
 		Partitions: []PayloadPartition{{
 			Name:       "root",
 			MountPoint: "/",
@@ -24,6 +27,10 @@ func TestPayloadManifestUsesCamelCaseJSON(t *testing.T) {
 	}
 	if body["efiLabel"] != "TelemetryOS" {
 		t.Fatalf("efiLabel = %#v, want TelemetryOS", body["efiLabel"])
+	}
+	platformBody := body["platform"].(map[string]any)
+	if platformBody["architecture"] != "aarch64" {
+		t.Fatalf("platform.architecture = %#v, want aarch64", platformBody["architecture"])
 	}
 	if _, ok := body["efi_label"]; ok {
 		t.Fatalf("retired efi_label leaked into %#v", body)

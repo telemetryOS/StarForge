@@ -1,10 +1,16 @@
 package actions
 
-import "github.com/telemetryos/starforge/config"
+import (
+	"github.com/telemetryos/starforge/config"
+	"github.com/telemetryos/starforge/platform"
+)
 
 // BuildContext accumulates all declarative state from the Collect phase.
 // Each action appends or replaces fields here; the Execute phase reads them.
 type BuildContext struct {
+	// Platform is the immutable target platform being assembled.
+	Platform platform.Spec
+
 	// System configuration (replace semantics — later layer wins)
 	Hostname string
 	Locale   string
@@ -25,14 +31,14 @@ type BuildContext struct {
 	Groups []GroupDef
 
 	// File operations (accumulate)
-	FileMkdirs      []FileMkdirOp
-	LayerCopies     []LayerCopyOp
-	FileCreates     []FileCreateOp
-	FileEdits       []FileEditOp
-	FileCopies      []FileCopyOp
-	FileMoves       []FileMoveOp
-	FileLinks       []FileLinkOp
-	FileDeletes     []FileDeleteOp
+	FileMkdirs  []FileMkdirOp
+	LayerCopies []LayerCopyOp
+	FileCreates []FileCreateOp
+	FileEdits   []FileEditOp
+	FileCopies  []FileCopyOp
+	FileMoves   []FileMoveOp
+	FileLinks   []FileLinkOp
+	FileDeletes []FileDeleteOp
 
 	// Permissions (accumulate)
 	FileOwnerships  []FileOwnershipOp
@@ -103,14 +109,14 @@ func NewBuildContext() *BuildContext {
 		Groups: []GroupDef{},
 
 		// File operations
-		FileMkdirs:      []FileMkdirOp{},
-		LayerCopies:     []LayerCopyOp{},
-		FileCreates:     []FileCreateOp{},
-		FileEdits:       []FileEditOp{},
-		FileCopies:      []FileCopyOp{},
-		FileMoves:       []FileMoveOp{},
-		FileLinks:       []FileLinkOp{},
-		FileDeletes:     []FileDeleteOp{},
+		FileMkdirs:  []FileMkdirOp{},
+		LayerCopies: []LayerCopyOp{},
+		FileCreates: []FileCreateOp{},
+		FileEdits:   []FileEditOp{},
+		FileCopies:  []FileCopyOp{},
+		FileMoves:   []FileMoveOp{},
+		FileLinks:   []FileLinkOp{},
+		FileDeletes: []FileDeleteOp{},
 
 		// Permissions
 		FileOwnerships:  []FileOwnershipOp{},

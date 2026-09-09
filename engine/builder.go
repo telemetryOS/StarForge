@@ -85,6 +85,9 @@ func (b *Builder) buildRecursive(targetName string, target config.Target, clean 
 		if !ok {
 			return fmt.Errorf("install-embed: target %q not found in project", embedName)
 		}
+		if err := validateEmbeddedPlatform(targetName, target, embedName, embedTarget); err != nil {
+			return err
+		}
 		if err := b.buildRecursive(embedName, embedTarget, clean, visited, nextPath); err != nil {
 			return err
 		}
@@ -143,6 +146,21 @@ func (b *Builder) buildRecursive(targetName string, target config.Target, clean 
 	}
 
 	visited[targetName] = true
+	return nil
+}
+
+func validateEmbeddedPlatform(hostName string, host config.Target, embeddedName string, embedded config.Target) error {
+	hostPlatform := host.ResolvedPlatform()
+	embeddedPlatform := embedded.ResolvedPlatform()
+	if hostPlatform != embeddedPlatform {
+		return fmt.Errorf(
+			"install-embed: target %q platform %s is incompatible with target %q platform %s",
+			embeddedName,
+			embeddedPlatform.Identity(),
+			hostName,
+			hostPlatform.Identity(),
+		)
+	}
 	return nil
 }
 
@@ -300,6 +318,7 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 
 	ctx := actions.NewBuildContext()
 	ctx.DryRun = b.DryRun
+	ctx.Platform = target.ResolvedPlatform()
 
 	cacheDir := filepath.Join(b.project.BuildDir(), "cache")
 	ctx.DownloadCacheDir = cacheDir
@@ -365,7 +384,13 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 // initVars builds the initial variable map from target args, expanding any
 // $NAME / ${NAME} references from the host environment.
 func (b *Builder) initVars(target config.Target) (map[string]string, error) {
-	vars := make(map[string]string)
+	platformSpec := target.ResolvedPlatform()
+	vars := map[string]string{
+		"target_architecture": string(platformSpec.Architecture),
+		"target_distribution": string(platformSpec.Distribution),
+		"target_goarch":       platformSpec.GoArch(),
+		"target_machine":      string(platformSpec.Machine),
+	}
 	envLookup := func(key string) string {
 		if val, ok := os.LookupEnv(key); ok {
 			return val
@@ -373,6 +398,9 @@ func (b *Builder) initVars(target config.Target) (map[string]string, error) {
 		return target.DefaultEnv[key]
 	}
 	for k, v := range target.Args {
+		if _, reserved := vars[k]; reserved {
+			return nil, fmt.Errorf("target arg %q is reserved by StarForge", k)
+		}
 		vars[k] = os.Expand(v, envLookup)
 	}
 	return vars, nil

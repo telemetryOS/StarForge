@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/telemetryos/starforge/platform"
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,7 +25,13 @@ type Target struct {
 	DefaultEnv map[string]string `yaml:"default_env,omitempty"`
 	Env        map[string]string `yaml:"env,omitempty"`
 	Layers     []string          `yaml:"layers"`
+	Platform   platform.Spec     `yaml:"platform,omitempty"`
 	QEMU       *QEMUConfig       `yaml:"qemu,omitempty"`
+}
+
+// ResolvedPlatform returns the target platform with defaults applied.
+func (t Target) ResolvedPlatform() platform.Spec {
+	return t.Platform.Resolve()
 }
 
 // QEMUConfig holds QEMU virtual machine configuration for a target.
@@ -107,6 +114,9 @@ func (p *Project) Validate() error {
 	for name, target := range p.Targets {
 		if len(target.Layers) == 0 {
 			return fmt.Errorf("target %q has no layers", name)
+		}
+		if err := target.Platform.Validate(); err != nil {
+			return fmt.Errorf("target %q platform: %w", name, err)
 		}
 	}
 	return nil

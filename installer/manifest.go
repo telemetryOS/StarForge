@@ -1,10 +1,13 @@
 package installer
 
+import "github.com/telemetryos/starforge/platform"
+
 // PayloadManifest describes a bundled target's partition images.
 type PayloadManifest struct {
 	Name        string             `json:"name"`
 	Description string             `json:"description,omitempty"`
 	EFILabel    string             `json:"efiLabel,omitempty"`
+	Platform    platform.Spec      `json:"platform"`
 	Partitions  []PayloadPartition `json:"partitions"`
 }
 

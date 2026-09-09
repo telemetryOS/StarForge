@@ -9,10 +9,12 @@ import (
 	"testing"
 
 	"github.com/telemetryos/starforge/actions"
+	"github.com/telemetryos/starforge/platform"
 )
 
 func TestBuildResultUsesCamelCaseJSON(t *testing.T) {
 	raw, err := json.Marshal(BuildResult{
+		Platform:        platform.Spec{Architecture: platform.ArchitectureAArch64}.Resolve(),
 		InstallPayloads: []actions.InstallPayloadDef{{}},
 		InstallServer:   &actions.InstallServerDef{},
 		InstallClient:   &actions.InstallClientDef{},
@@ -26,7 +28,7 @@ func TestBuildResultUsesCamelCaseJSON(t *testing.T) {
 	if err := json.Unmarshal(raw, &body); err != nil {
 		t.Fatalf("decode build result: %v", err)
 	}
-	for _, key := range []string{"installPayloads", "installServer", "installClient", "installEmbeds"} {
+	for _, key := range []string{"platform", "installPayloads", "installServer", "installClient", "installEmbeds"} {
 		if _, ok := body[key]; !ok {
 			t.Errorf("%s missing from %#v", key, body)
 		}
@@ -35,6 +37,23 @@ func TestBuildResultUsesCamelCaseJSON(t *testing.T) {
 		if _, ok := body[key]; ok {
 			t.Errorf("retired %s leaked into %#v", key, body)
 		}
+	}
+}
+
+func TestBuildResultRoundTripsPlatform(t *testing.T) {
+	dir := t.TempDir()
+	ctx := actions.NewBuildContext()
+	ctx.Platform = platform.Spec{Architecture: platform.ArchitectureAArch64}.Resolve()
+	if err := SaveBuildResult(ctx, dir); err != nil {
+		t.Fatal(err)
+	}
+	result, err := LoadBuildResult(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := buildResultToContext(result).Platform
+	if got != ctx.Platform {
+		t.Fatalf("platform = %#v, want %#v", got, ctx.Platform)
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 	"github.com/telemetryos/starforge/installer"
 	"github.com/telemetryos/starforge/installer/diskutil"
 	"github.com/telemetryos/starforge/installer/server/routes/payloads"
+	"github.com/telemetryos/starforge/platform"
 )
 
 // Installation tracks the state of an in-progress or completed installation.
@@ -654,7 +655,7 @@ func (m *Manager) runInstallation(inst *Installation, disk *diskutil.Disk) {
 	// Set the installed OS as the EFI boot target so the device boots
 	// into the installed OS on next reboot rather than back into the
 	// installer USB.
-	if err := setEFIBootTarget(inst, disk.Path, parts, manifest.EFILabel); err != nil {
+	if err := setEFIBootTarget(inst, disk.Path, parts, manifest.EFILabel, manifest.Platform); err != nil {
 		inst.addLog(fmt.Sprintf("Warning: could not set EFI boot target: %v", err))
 	}
 
@@ -738,7 +739,7 @@ func expandFilesystem(partDev, filesystem string) error {
 // is mounted at a temp directory. The firmware can't reliably resolve VenHw
 // entries, so we create a proper entry using efibootmgr --create with the
 // actual disk device and partition number.
-func setEFIBootTarget(inst *Installation, diskPath string, parts []partDef, label string) error {
+func setEFIBootTarget(inst *Installation, diskPath string, parts []partDef, label string, targetPlatform platform.Spec) error {
 	// Check if EFI variables are accessible
 	if _, err := os.Stat("/sys/firmware/efi/efivars"); err != nil {
 		return nil // not an EFI system or no access
@@ -766,7 +767,7 @@ func setEFIBootTarget(inst *Installation, diskPath string, parts []partDef, labe
 		"--create",
 		"--disk", diskPath,
 		"--part", strconv.Itoa(efiPartNum),
-		"--loader", `\EFI\systemd\systemd-bootx64.efi`,
+		"--loader", targetPlatform.SystemdBootEFILoader(),
 		"--label", label,
 	).CombinedOutput()
 	if err != nil {

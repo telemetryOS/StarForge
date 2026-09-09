@@ -17,6 +17,9 @@ import (
 // subprocess argv or filesystem path is checked here, in one place,
 // before the runInstallation pipeline runs.
 func validateManifest(m *installer.PayloadManifest) error {
+	if err := m.Platform.Validate(); err != nil {
+		return fmt.Errorf("platform: %w", err)
+	}
 	if len(m.Partitions) == 0 {
 		return fmt.Errorf("manifest has no partitions")
 	}

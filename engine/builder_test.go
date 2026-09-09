@@ -6,7 +6,46 @@ import (
 
 	"github.com/telemetryos/starforge/actions"
 	"github.com/telemetryos/starforge/config"
+	"github.com/telemetryos/starforge/platform"
 )
+
+func TestInitVarsIncludesResolvedPlatform(t *testing.T) {
+	b := NewBuilder(&config.Project{})
+	vars, err := b.initVars(config.Target{Platform: platform.Spec{Architecture: platform.ArchitectureAArch64}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"target_architecture": "aarch64",
+		"target_distribution": "archlinuxarm",
+		"target_goarch":       "arm64",
+		"target_machine":      "generic-uefi",
+	}
+	for key, value := range want {
+		if vars[key] != value {
+			t.Errorf("%s = %q, want %q", key, vars[key], value)
+		}
+	}
+}
+
+func TestInitVarsRejectsReservedPlatformVariable(t *testing.T) {
+	b := NewBuilder(&config.Project{})
+	_, err := b.initVars(config.Target{Args: map[string]string{"target_architecture": "other"}})
+	if err == nil {
+		t.Fatal("expected reserved platform variable to be rejected")
+	}
+}
+
+func TestValidateEmbeddedPlatformRequiresExactMatch(t *testing.T) {
+	host := config.Target{}
+	embedded := config.Target{Platform: platform.Spec{Architecture: platform.ArchitectureAArch64}}
+	if err := validateEmbeddedPlatform("device", host, "recovery", embedded); err == nil {
+		t.Fatal("expected cross-platform embed to fail")
+	}
+	if err := validateEmbeddedPlatform("device", host, "recovery", config.Target{}); err != nil {
+		t.Fatalf("matching default platforms failed: %v", err)
+	}
+}
 
 // --- validateTargetHasRoot tests ---
 

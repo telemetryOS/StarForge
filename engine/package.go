@@ -16,6 +16,7 @@ import (
 	"github.com/telemetryos/starforge/actions"
 	"github.com/telemetryos/starforge/config"
 	"github.com/telemetryos/starforge/corona"
+	"github.com/telemetryos/starforge/platform"
 )
 
 // PackageOps holds file ownership and permission operations to apply on
@@ -791,6 +792,7 @@ func SavePartitions(parts []actions.PartitionDef, buildDir string) error {
 // BuildResult captures the subset of BuildContext that packaging needs.
 // Saved by Build so EnsurePackaged can avoid re-running Collect.
 type BuildResult struct {
+	Platform        platform.Spec               `json:"platform"`
 	Partitions      []actions.PartitionDef      `json:"partitions"`
 	Ownerships      []actions.FileOwnershipOp   `json:"ownerships,omitempty"`
 	Permissions     []actions.FilePermissionOp  `json:"permissions,omitempty"`
@@ -819,6 +821,7 @@ func SaveBuildResult(ctx *actions.BuildContext, buildDir string) error {
 // with all fields populated (partitions, installer defs, ownership ops).
 func buildResultToContext(r *BuildResult) *actions.BuildContext {
 	return &actions.BuildContext{
+		Platform:        r.Platform.Resolve(),
 		Partitions:      r.Partitions,
 		FileOwnerships:  r.Ownerships,
 		FilePermissions: r.Permissions,
