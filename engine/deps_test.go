@@ -12,7 +12,20 @@ import (
 	"testing"
 
 	"github.com/telemetryos/starforge/actions"
+	"github.com/telemetryos/starforge/platform"
 )
+
+func TestPacmanCacheDirForScopesArchitectureAndDistribution(t *testing.T) {
+	x86 := PacmanCacheDirFor(platform.Spec{})
+	arm := PacmanCacheDirFor(platform.Spec{Architecture: platform.ArchitectureAArch64})
+	ports := PacmanCacheDirFor(platform.Spec{
+		Architecture: platform.ArchitectureAArch64,
+		Distribution: platform.DistributionArchLinuxPorts,
+	})
+	if x86 == arm || arm == ports || x86 == ports {
+		t.Fatalf("package caches are not platform scoped: %q %q %q", x86, arm, ports)
+	}
+}
 
 // --- downloadFile tests ---
 

@@ -12,27 +12,41 @@ import (
 	"strings"
 
 	"github.com/telemetryos/starforge/actions"
+	"github.com/telemetryos/starforge/distribution"
+	"github.com/telemetryos/starforge/platform"
 )
-
-const archiveURL = "https://archive.archlinux.org/packages"
 
 func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error {
 	if len(ctx.Packages) == 0 {
 		return nil
 	}
+	backend, err := distribution.ForPlatform(ctx.Platform)
+	if err != nil {
+		return fmt.Errorf("package distribution: %w", err)
+	}
 
 	// Split into unpinned (latest from repos) and pinned (specific version from archive)
 	var unpinned, pinned []actions.Package
+	seenPackages := make(map[string]bool, len(ctx.Packages))
 	for _, pkg := range ctx.Packages {
+		seenPackages[pkg.Name] = true
 		if pkg.Version != "" {
 			pinned = append(pinned, pkg)
 		} else {
 			unpinned = append(unpinned, pkg)
 		}
 	}
+	for _, name := range backend.RequiredPackages() {
+		if !seenPackages[name] {
+			unpinned = append(unpinned, actions.Package{Name: name})
+		}
+	}
+	if len(pinned) > 0 && backend.Archive() == nil {
+		return fmt.Errorf("distribution %q does not define a package archive; pinned packages are unsupported", backend.Distribution())
+	}
 
 	// Use a persistent pacman cache so clean builds don't re-download packages.
-	cacheDir := PacmanCacheDir()
+	cacheDir := PacmanCacheDirFor(ctx.Platform)
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return fmt.Errorf("creating pacman cache dir: %w", err)
 	}
@@ -46,17 +60,17 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 	}
 	defer os.RemoveAll(gpgDir)
 
-	confFile, err := pacmanConf(cacheDir, gpgDir)
+	confFile, err := pacmanConf(cacheDir, gpgDir, ctx.Platform, backend)
 	if err != nil {
 		return fmt.Errorf("creating pacman.conf: %w", err)
 	}
 	defer os.Remove(confFile)
 
 	out.Styled(
-		fmt.Sprintf("    pacman-key %s", dimStyle.Render("--init, --populate archlinux")),
-		"    pacman-key --init, --populate archlinux",
+		fmt.Sprintf("    pacman-key %s", dimStyle.Render("--init, distribution trust")),
+		"    pacman-key --init, distribution trust",
 	)
-	if err := initKeyring(gpgDir, confFile); err != nil {
+	if err := initKeyring(gpgDir, confFile, backend); err != nil {
 		return err
 	}
 
@@ -91,11 +105,13 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 		}
 	}
 
-	// pacstrap -M skips copying the host mirrorlist and the stock
-	// pacman-mirrorlist package ships with all servers commented out.
-	// Write a working mirrorlist so the installed system can use pacman.
+	// Write the exact distribution config used by the build into the target.
+	installedConf := renderPacmanConf("/var/cache/pacman/pkg", "/etc/pacman.d/gnupg", ctx.Platform, backend)
+	if err := os.WriteFile(filepath.Join(rootfs, "etc", "pacman.conf"), []byte(installedConf), 0o644); err != nil {
+		return fmt.Errorf("writing installed pacman.conf: %w", err)
+	}
 	mirrorlist := filepath.Join(rootfs, "etc", "pacman.d", "mirrorlist")
-	mirrorContent := fmt.Sprintf("Server = %s/$repo/os/$arch\n", archMirror)
+	mirrorContent := renderMirrorlist(backend)
 	if err := os.WriteFile(mirrorlist, []byte(mirrorContent), 0o644); err != nil {
 		return fmt.Errorf("writing mirrorlist: %w", err)
 	}
@@ -106,8 +122,13 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 	if err := ChrootRun(rootfs, "pacman-key", "--init"); err != nil {
 		return fmt.Errorf("system pacman-key --init: %w", err)
 	}
-	if err := ChrootRun(rootfs, "pacman-key", "--populate", "archlinux"); err != nil {
-		return fmt.Errorf("system pacman-key --populate: %w", err)
+	for _, keyring := range backend.PopulateKeyrings() {
+		if err := ChrootRun(rootfs, "pacman-key", "--populate", keyring); err != nil {
+			return fmt.Errorf("system pacman-key --populate %s: %w", keyring, err)
+		}
+	}
+	if err := trustPublicKeysInRootfs(rootfs, backend.PublicKeys()); err != nil {
+		return err
 	}
 
 	// pacman-key --populate forks gpg-agent as a background daemon inside
@@ -128,7 +149,7 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 			fmt.Sprintf("    archive %s", dimStyle.Render(pkg.String())),
 			fmt.Sprintf("    archive %s", pkg.String()),
 		)
-		if err := installFromArchive(rootfs, pkg); err != nil {
+		if err := installFromArchive(rootfs, pkg, backend.Archive()); err != nil {
 			return err
 		}
 	}
@@ -140,12 +161,15 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 // Archive. If the version doesn't include a pkgrel (no "-"), the latest
 // pkgrel is resolved automatically from the archive listing.
 // Tries x86_64 first, then falls back to any architecture.
-func installFromArchive(rootfs string, pkg actions.Package) error {
+func installFromArchive(rootfs string, pkg actions.Package, archive *distribution.Archive) error {
+	if archive == nil {
+		return fmt.Errorf("no package archive configured")
+	}
 	version := pkg.Version
 
 	// Auto-resolve pkgrel if not explicitly provided
 	if !strings.Contains(version, "-") {
-		resolved, err := resolveLatestPkgrel(pkg.Name, version)
+		resolved, err := resolveLatestPkgrel(pkg.Name, version, archive)
 		if err != nil {
 			return err
 		}
@@ -153,21 +177,21 @@ func installFromArchive(rootfs string, pkg actions.Package) error {
 		version = resolved
 	}
 
-	for _, arch := range []string{"x86_64", "any"} {
+	for _, arch := range archive.Architectures {
 		url := fmt.Sprintf("%s/%s/%s/%s-%s-%s.pkg.tar.zst",
-			archiveURL, string(pkg.Name[0]), pkg.Name, pkg.Name, version, arch)
+			archive.BaseURL, string(pkg.Name[0]), pkg.Name, pkg.Name, version, arch)
 		if err := ChrootRun(rootfs, "pacman", "-U", url, "--noconfirm"); err == nil {
 			return nil
 		}
 	}
-	return fmt.Errorf("package %s=%s not found in archive (tried x86_64 and any)", pkg.Name, version)
+	return fmt.Errorf("package %s=%s not found in archive (tried %s)", pkg.Name, version, strings.Join(archive.Architectures, ", "))
 }
 
 // resolveLatestPkgrel fetches the archive directory listing for a package
 // and finds the highest pkgrel for the given version.
 // e.g. version "5.85" with entries 5.85-1, 5.85-2 → returns "5.85-2".
-func resolveLatestPkgrel(name, version string) (string, error) {
-	dirURL := fmt.Sprintf("%s/%s/%s/", archiveURL, string(name[0]), name)
+func resolveLatestPkgrel(name, version string, archive *distribution.Archive) (string, error) {
+	dirURL := fmt.Sprintf("%s/%s/%s/", archive.BaseURL, string(name[0]), name)
 	resp, err := http.Get(dirURL)
 	if err != nil {
 		return "", fmt.Errorf("fetching archive listing for %s: %w", name, err)
@@ -185,9 +209,7 @@ func resolveLatestPkgrel(name, version string) (string, error) {
 
 	// Match filenames like: name-version-pkgrel-arch.pkg.tar.zst
 	// in the HTML directory listing href attributes.
-	pattern := regexp.MustCompile(
-		regexp.QuoteMeta(name+"-"+version) + `\-(\d+)\-(?:x86_64|any)\.pkg\.tar\.zst"`,
-	)
+	pattern := regexp.MustCompile(regexp.QuoteMeta(name+"-"+version) + `\-(\d+)\-(?:` + strings.Join(archive.Architectures, "|") + `)\.pkg\.tar\.zst"`)
 
 	matches := pattern.FindAllStringSubmatch(string(body), -1)
 	if len(matches) == 0 {
@@ -214,20 +236,8 @@ func resolveLatestPkgrel(name, version string) (string, error) {
 
 // pacmanConf creates a temporary pacman.conf with the given cache and GPG
 // directories. Generated from scratch so it works on any host.
-func pacmanConf(cacheDir, gpgDir string) (string, error) {
-	conf := fmt.Sprintf(`[options]
-HoldPkg = pacman glibc
-Architecture = auto
-SigLevel = Required DatabaseOptional
-CacheDir = %s
-GPGDir = %s
-
-[core]
-Server = %s/$repo/os/$arch
-
-[extra]
-Server = %s/$repo/os/$arch
-`, cacheDir, gpgDir, archMirror, archMirror)
+func pacmanConf(cacheDir, gpgDir string, targetPlatform platform.Spec, backend distribution.Backend) (string, error) {
+	conf := renderPacmanConf(cacheDir, gpgDir, targetPlatform, backend)
 
 	f, err := os.CreateTemp("", "starforge-pacman-*.conf")
 	if err != nil {
@@ -242,21 +252,46 @@ Server = %s/$repo/os/$arch
 	return f.Name(), nil
 }
 
-// initKeyring initializes a pacman keyring at gpgDir using vendored tools.
-// Writes a gpg.conf that directs GnuPG to our vendored gpg-agent (the
-// compiled-in path won't exist on non-Arch hosts), then runs pacman-key
-// --init (generates master signing key) and --populate (imports + lsigns
-// the Arch Linux developer keys from the vendored archlinux-keyring).
-func initKeyring(gpgDir, confFile string) error {
+func renderPacmanConf(cacheDir, gpgDir string, targetPlatform platform.Spec, backend distribution.Backend) string {
+	var conf strings.Builder
+	fmt.Fprintf(&conf, `[options]
+HoldPkg = pacman glibc
+Architecture = %s
+SigLevel = Required DatabaseOptional
+CacheDir = %s
+GPGDir = %s
+
+`, targetPlatform.Resolve().Architecture, cacheDir, gpgDir)
+	for _, repository := range backend.Repositories() {
+		fmt.Fprintf(&conf, "[%s]\nServer = %s\n\n", repository.Name, repository.Server)
+	}
+	return conf.String()
+}
+
+func renderMirrorlist(backend distribution.Backend) string {
+	var content strings.Builder
+	seen := map[string]bool{}
+	for _, repository := range backend.Repositories() {
+		if seen[repository.Server] {
+			continue
+		}
+		seen[repository.Server] = true
+		fmt.Fprintf(&content, "Server = %s\n", repository.Server)
+	}
+	return content.String()
+}
+
+// initKeyring initializes distribution trust using vendored or appliance tools.
+func initKeyring(gpgDir, confFile string, backend distribution.Backend) error {
 	// Override GnuPG's compiled-in gpg-agent path so it finds our vendored one.
 	gpgConf := filepath.Join(gpgDir, "gpg.conf")
-	agentPath := filepath.Join(VendorBinDir(), "gpg-agent")
+	agentPath := resolveBin("gpg-agent")
 	if err := os.WriteFile(gpgConf, []byte("agent-program "+agentPath+"\n"), 0o600); err != nil {
 		return fmt.Errorf("writing gpg.conf: %w", err)
 	}
 
 	pacmanKey := resolveBin("pacman-key")
-	keyringsDir := filepath.Join(VendorDir(), "usr", "share", "pacman", "keyrings")
+	keyringsDir := keyringsDirectory()
 
 	// pacman-key --init: create the master signing key (needs gpg-agent)
 	cmd := exec.Command(pacmanKey, "--gpgdir", gpgDir, "--config", confFile, "--init")
@@ -275,9 +310,81 @@ func initKeyring(gpgDir, confFile string) error {
 	// pacman-key --populate: import keys from vendored archlinux-keyring
 	// and locally sign the trusted ones. --populate-from overrides the
 	// default /usr/share/pacman/keyrings/ which won't exist on non-Arch.
-	cmd = exec.Command(pacmanKey, "--gpgdir", gpgDir, "--config", confFile,
-		"--populate-from", keyringsDir, "--populate", "archlinux")
-	cmd.Env = vendorEnv()
+	for _, keyring := range backend.PopulateKeyrings() {
+		cmd = exec.Command(pacmanKey, "--gpgdir", gpgDir, "--config", confFile,
+			"--populate-from", keyringsDir, "--populate", keyring)
+		cmd.Env = vendorEnv()
+		setCommandOutput(cmd)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("pacman-key --populate %s: %w", keyring, err)
+		}
+	}
+	for _, publicKey := range backend.PublicKeys() {
+		if err := trustPublicKey(pacmanKey, gpgDir, confFile, publicKey); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func keyringsDirectory() string {
+	vendored := filepath.Join(VendorDir(), "usr", "share", "pacman", "keyrings")
+	if _, err := os.Stat(vendored); err == nil {
+		return vendored
+	}
+	return "/usr/share/pacman/keyrings"
+}
+
+func trustPublicKey(pacmanKey, gpgDir, confFile string, publicKey distribution.PublicKey) error {
+	keyFile, err := os.CreateTemp("", "starforge-repository-key-*")
+	if err != nil {
+		return err
+	}
+	keyPath := keyFile.Name()
+	keyFile.Close()
+	defer os.Remove(keyPath)
+	if err := downloadFile(publicKey.URL, keyPath); err != nil {
+		return fmt.Errorf("downloading repository key: %w", err)
+	}
+	for _, args := range [][]string{
+		{"--gpgdir", gpgDir, "--config", confFile, "--add", keyPath},
+		{"--gpgdir", gpgDir, "--config", confFile, "--lsign-key", publicKey.Fingerprint},
+	} {
+		cmd := exec.Command(pacmanKey, args...)
+		cmd.Env = vendorEnv()
+		setCommandOutput(cmd)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("trusting repository key %s: %w", publicKey.Fingerprint, err)
+		}
+	}
+	return nil
+}
+
+func trustPublicKeysInRootfs(rootfs string, publicKeys []distribution.PublicKey) error {
+	for i, publicKey := range publicKeys {
+		relativePath := fmt.Sprintf("/var/tmp/starforge-repository-key-%d.asc", i)
+		hostPath := filepath.Join(rootfs, strings.TrimPrefix(relativePath, "/"))
+		if err := os.MkdirAll(filepath.Dir(hostPath), 0o755); err != nil {
+			return err
+		}
+		if err := downloadFile(publicKey.URL, hostPath); err != nil {
+			return fmt.Errorf("downloading target repository key: %w", err)
+		}
+		if err := ChrootRun(rootfs, "pacman-key", "--add", relativePath); err != nil {
+			os.Remove(hostPath)
+			return fmt.Errorf("adding target repository key: %w", err)
+		}
+		if err := ChrootRun(rootfs, "pacman-key", "--lsign-key", publicKey.Fingerprint); err != nil {
+			os.Remove(hostPath)
+			return fmt.Errorf("trusting target repository key %s: %w", publicKey.Fingerprint, err)
+		}
+		os.Remove(hostPath)
+	}
+	return nil
+}
+
+func setCommandOutput(cmd *exec.Cmd) {
 	if out != nil {
 		cmd.Stdout = out.LogWriter()
 		cmd.Stderr = out.LogWriter()
@@ -285,9 +392,4 @@ func initKeyring(gpgDir, confFile string) error {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	}
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("pacman-key --populate: %w", err)
-	}
-
-	return nil
 }

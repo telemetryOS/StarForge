@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/klauspost/compress/zstd"
+	"github.com/telemetryos/starforge/platform"
 )
 
 // vendorPkg describes an Arch Linux package to vendor.
@@ -133,6 +134,12 @@ func PacmanCacheDir() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".local", "state", "starforge", "pacman")
+}
+
+// PacmanCacheDirFor returns the distribution and architecture-scoped package cache.
+func PacmanCacheDirFor(targetPlatform platform.Spec) string {
+	resolved := targetPlatform.Resolve()
+	return filepath.Join(PacmanCacheDir(), string(resolved.Architecture), string(resolved.Distribution))
 }
 
 // VendorBinDir returns the path to vendored binaries.

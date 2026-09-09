@@ -1,7 +1,10 @@
 // Package platform defines the immutable target platform built by StarForge.
 package platform
 
-import "fmt"
+import (
+	"fmt"
+	"runtime"
+)
 
 // Architecture identifies the target CPU instruction set.
 type Architecture string
@@ -96,6 +99,18 @@ func (s Spec) GoArch() string {
 		return "arm64"
 	default:
 		return "amd64"
+	}
+}
+
+// HostArchitecture returns the StarForge architecture of the running binary.
+func HostArchitecture() (Architecture, error) {
+	switch runtime.GOARCH {
+	case "amd64":
+		return ArchitectureX86_64, nil
+	case "arm64":
+		return ArchitectureAArch64, nil
+	default:
+		return "", fmt.Errorf("unsupported host architecture %q", runtime.GOARCH)
 	}
 }
 

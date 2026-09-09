@@ -9,12 +9,14 @@ import (
 
 	"github.com/telemetryos/starforge/actions"
 	"github.com/telemetryos/starforge/config"
+	"github.com/telemetryos/starforge/distribution"
 )
 
 // Builder orchestrates the build process for a project.
 type Builder struct {
-	project *config.Project
-	DryRun  bool // skip layer-run and file I/O (for inspect)
+	project   *config.Project
+	hostTools HostToolProvider
+	DryRun    bool // skip layer-run and file I/O (for inspect)
 
 	// packaging tracks targets whose EnsurePackaged is currently on the
 	// stack. Used by bundlePayloads (in installer.go) to short-circuit
@@ -26,8 +28,14 @@ type Builder struct {
 
 // NewBuilder creates a new builder for the given project.
 func NewBuilder(project *config.Project) *Builder {
+	return NewBuilderWithHostTools(project, VendoredHostTools{})
+}
+
+// NewBuilderWithHostTools creates a builder with an explicit host tool provider.
+func NewBuilderWithHostTools(project *config.Project, hostTools HostToolProvider) *Builder {
 	return &Builder{
 		project:   project,
+		hostTools: hostTools,
 		packaging: map[string]bool{},
 	}
 }
@@ -262,7 +270,7 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 		cleanupLoops(buildDir)
 	}()
 
-	if err := EnsureDeps("build"); err != nil {
+	if err := b.hostTools.Ensure("build"); err != nil {
 		return nil, fmt.Errorf("dependencies: %w", err)
 	}
 
@@ -605,11 +613,19 @@ func (b *Builder) resolvePkgRels(ctx *actions.BuildContext, verbose bool) error 
 	if b.DryRun {
 		return nil
 	}
+	backend, err := distribution.ForPlatform(ctx.Platform)
+	if err != nil {
+		return err
+	}
 	for i, pkg := range ctx.Packages {
 		if pkg.Version == "" || strings.Contains(pkg.Version, "-") {
 			continue
 		}
-		resolved, err := resolveLatestPkgrel(pkg.Name, pkg.Version)
+		archive := backend.Archive()
+		if archive == nil {
+			return fmt.Errorf("distribution %q does not define a package archive; cannot resolve %s=%s", backend.Distribution(), pkg.Name, pkg.Version)
+		}
+		resolved, err := resolveLatestPkgrel(pkg.Name, pkg.Version, archive)
 		if err != nil {
 			return fmt.Errorf("resolving pkgrel for %s=%s: %w", pkg.Name, pkg.Version, err)
 		}
@@ -713,7 +729,7 @@ func (b *Builder) execute(ctx *actions.BuildContext, buildDir string, overlay *O
 	}()
 
 	// Ensure vendored dependencies are available
-	if err := EnsureDeps("build"); err != nil {
+	if err := b.hostTools.Ensure("build"); err != nil {
 		return fmt.Errorf("dependencies: %w", err)
 	}
 

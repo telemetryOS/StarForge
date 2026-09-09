@@ -8,6 +8,7 @@ import (
 	"github.com/telemetryos/starforge/actions"
 	"github.com/telemetryos/starforge/artifact"
 	"github.com/telemetryos/starforge/engine"
+	"github.com/telemetryos/starforge/platform"
 )
 
 // Native executes the existing privileged StarForge engine on the host.
@@ -31,6 +32,9 @@ func (*Native) Build(ctx context.Context, request BuildRequest) (*BuildResult, e
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if err := validateNativeArchitecture(request); err != nil {
+		return nil, err
+	}
 	builder := engine.NewBuilder(request.Project)
 	if err := builder.Build(request.TargetName, request.Target, request.Clean); err != nil {
 		return nil, err
@@ -50,6 +54,9 @@ func (*Native) Build(ctx context.Context, request BuildRequest) (*BuildResult, e
 // EnsureArtifact builds, packages, and seals a complete raw disk image.
 func (*Native) EnsureArtifact(ctx context.Context, request BuildRequest) (*ArtifactResult, error) {
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := validateNativeArchitecture(request); err != nil {
 		return nil, err
 	}
 
@@ -120,4 +127,16 @@ func (*Native) EnsureArtifact(ctx context.Context, request BuildRequest) (*Artif
 	}
 	engine.ChownToInvoker(request.Project.BuildDir())
 	return &ArtifactResult{Build: result, Receipt: receipt, Disk: store.DiskPath()}, nil
+}
+
+func validateNativeArchitecture(request BuildRequest) error {
+	hostArchitecture, err := platform.HostArchitecture()
+	if err != nil {
+		return err
+	}
+	targetArchitecture := request.Target.ResolvedPlatform().Architecture
+	if targetArchitecture != hostArchitecture {
+		return fmt.Errorf("native executor cannot build %s on %s; use --executor=vm", targetArchitecture, hostArchitecture)
+	}
+	return nil
 }
