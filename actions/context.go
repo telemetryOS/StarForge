@@ -304,14 +304,15 @@ type BootConfig struct {
 
 // UserDef defines a user to create.
 type UserDef struct {
-	Name       string
-	Groups     []string
-	Shell      string
-	Password   string
-	NoPassword bool
-	System     bool
-	UID        int
-	Layer      string
+	Name         string
+	PrimaryGroup string
+	Groups       []string
+	Shell        string
+	Password     string
+	NoPassword   bool
+	System       bool
+	UID          int
+	Layer        string
 }
 
 // GroupDef defines a group to create.

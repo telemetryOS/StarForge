@@ -10,9 +10,14 @@ StarForge creates user accounts and groups during **phase 3** of the build. Grou
 The `system-user` action defines a user account. The only required field is `name`:
 
 ```yaml
+- action: system-group
+  name: admin
+  gid: 1001
+
 - action: system-user
   name: admin
   uid: 1000
+  primary_group: admin
   groups: [wheel, video, audio]
   shell: /bin/bash
   password: changeme
@@ -23,6 +28,7 @@ The `system-user` action defines a user account. The only required field is `nam
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `name` | string | Yes | -- | Username. |
+| `primary_group` | string | No | system default | Existing group to use as the user's primary group. |
 | `groups` | list | No | -- | Group memberships. Supports merge tags. |
 | `shell` | string | No | `/bin/bash` | Login shell. |
 | `password` | string | No | -- | Plaintext password, hashed during build. |

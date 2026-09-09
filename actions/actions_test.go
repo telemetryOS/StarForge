@@ -354,9 +354,10 @@ func TestSystemUser_New(t *testing.T) {
 	execAction(t, config.Step{
 		Action: "system-user",
 		SystemUser: &config.SystemUserStep{
-			Name:   "player",
-			Groups: config.Mergeable[[]string]{Value: []string{"wheel", "video", "render", "seat", "audio", "input", "data", "docker", "lp", "network"}},
-			Shell:  "/bin/bash",
+			Name:         "player",
+			PrimaryGroup: "player",
+			Groups:       config.Mergeable[[]string]{Value: []string{"wheel", "video", "render", "seat", "audio", "input", "data", "docker", "lp", "network"}},
+			Shell:        "/bin/bash",
 		},
 	}, ctx)
 	if len(ctx.Users) != 1 {
@@ -365,8 +366,36 @@ func TestSystemUser_New(t *testing.T) {
 	if ctx.Users[0].Name != "player" {
 		t.Errorf("Name = %q", ctx.Users[0].Name)
 	}
+	if ctx.Users[0].PrimaryGroup != "player" {
+		t.Errorf("PrimaryGroup = %q", ctx.Users[0].PrimaryGroup)
+	}
 	if len(ctx.Users[0].Groups) != 10 {
 		t.Errorf("Groups = %v", ctx.Users[0].Groups)
+	}
+}
+
+func TestSystemUser_MergePrimaryGroup(t *testing.T) {
+	ctx := NewBuildContext()
+	ctx.CurrentLayer = "base"
+	execAction(t, config.Step{
+		Action: "system-user",
+		SystemUser: &config.SystemUserStep{
+			Name:         "player",
+			PrimaryGroup: "users",
+		},
+	}, ctx)
+
+	ctx.CurrentLayer = "override"
+	execAction(t, config.Step{
+		Action: "system-user",
+		SystemUser: &config.SystemUserStep{
+			Name:         "player",
+			PrimaryGroup: "player",
+		},
+	}, ctx)
+
+	if ctx.Users[0].PrimaryGroup != "player" {
+		t.Errorf("PrimaryGroup = %q, want player", ctx.Users[0].PrimaryGroup)
 	}
 }
 

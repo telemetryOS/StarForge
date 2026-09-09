@@ -293,7 +293,7 @@ func TestHashPhase_Sysconfig(t *testing.T) {
 func TestHashPhase_Users(t *testing.T) {
 	ctx := actions.NewBuildContext()
 	ctx.Users = []actions.UserDef{
-		{Name: "player", Groups: []string{"video", "render"}, Shell: "/bin/bash"},
+		{Name: "player", PrimaryGroup: "player", Groups: []string{"video", "render"}, Shell: "/bin/bash"},
 	}
 	ctx.Groups = []actions.GroupDef{
 		{Name: "player", System: false},
@@ -305,6 +305,25 @@ func TestHashPhase_Users(t *testing.T) {
 	}
 	if h == "" {
 		t.Error("hash should not be empty")
+	}
+}
+
+func TestHashPhase_UsersIncludesPrimaryGroup(t *testing.T) {
+	ctx1 := actions.NewBuildContext()
+	ctx1.Users = []actions.UserDef{{Name: "player", PrimaryGroup: "users"}}
+	ctx2 := actions.NewBuildContext()
+	ctx2.Users = []actions.UserDef{{Name: "player", PrimaryGroup: "player"}}
+
+	h1, err := HashPhase(3, ctx1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h2, err := HashPhase(3, ctx2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h1 == h2 {
+		t.Fatal("primary group must affect the users phase hash")
 	}
 }
 

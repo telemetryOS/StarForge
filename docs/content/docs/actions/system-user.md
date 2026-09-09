@@ -11,6 +11,7 @@ Create or modify a user account in the target system.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | Yes | User name. |
+| `primary_group` | string | No | Existing group to use as the user's primary group. |
 | `groups` | list of strings | No | Supplementary groups. Supports `!add` and `!remove` tags for merge control. |
 | `shell` | string | No | Login shell (e.g., `/bin/bash`, `/usr/bin/zsh`). |
 | `password` | string | No | Plaintext password. Set via `chpasswd` at build time. |
@@ -23,8 +24,14 @@ Create or modify a user account in the target system.
 ### Basic user
 
 ```yaml
+- action: system-group
+  name: player
+  gid: 1001
+
 - action: system-user
   name: player
+  primary_group: player
+  uid: 1000
   groups: [wheel, video, audio, render]
   shell: /bin/bash
 ```
@@ -76,7 +83,7 @@ Create or modify a user account in the target system.
 - **`groups: !add [...]`**: Appends to the existing group list.
 - **`groups: !remove [...]`**: Removes specified groups from the existing list.
 
-Other fields (shell, password, uid, system) are replaced if specified in a later layer.
+Other fields (primary group, shell, password, uid, system) are replaced if specified in a later layer.
 
 ## Build Phase
 
@@ -86,6 +93,6 @@ Phase 3 (`users`). Users are created after groups. Home directories are created 
 
 - The `password` field is a plaintext password passed to `chpasswd`. For passwordless login (e.g. kiosk accounts), use `no_password: true` instead.
 - Users with `system: true` are created with `useradd -r` (no home directory, no login shell by default).
-- A user's primary group is created automatically with the same name.
+- When `primary_group` is omitted, `useradd` applies the target system's default primary-group behavior. When set, the named group must already exist.
 - Supplementary groups must exist (created by `system-group` or provided by packages like `wheel`, `video`, etc.).
 - The `!add` / `!remove` tags on `groups` are part of StarForge's `Mergeable` type system. See the [YAML Reference](../yaml-reference/) for details.
