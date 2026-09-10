@@ -16,9 +16,9 @@ var buildCmd = &cobra.Command{
 	Short: "Build and seal a target OS image",
 	Long: `Resolve a target, execute its build phases, and seal a full-disk artifact.
 
-With --executor=auto, ordinary users build inside a managed QEMU appliance;
-root on a matching architecture uses the native backend. Build caches and
-artifacts are scoped by target architecture, machine, and distribution.
+Builds use a managed QEMU appliance by default, regardless of host privileges.
+Use --executor=native explicitly to build on the host. Build caches and artifacts
+are scoped by target architecture, machine, and distribution.
 
 Use --clean to force a full rebuild, ignoring the cache.`,
 	Args: cobra.ExactArgs(1),

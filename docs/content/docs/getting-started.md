@@ -157,16 +157,19 @@ starforge build distribution
 
 The first build downloads and signature-verifies the target-architecture bootstrap, generates and caches the builder appliance, and runs all 9 build phases. This takes several minutes depending on emulation, network speed, and the package list. Subsequent builds reuse the appliance, package cache, and phase cache.
 
-`--executor=auto` is the default. A non-root process uses the VM executor; an already-root process on the target architecture uses the native executor. You can select a mode explicitly:
+The VM executor is always the default, including when StarForge is launched by
+root. This keeps host privileges and installed build tools out of the normal
+workflow. Select native execution explicitly when it is genuinely needed:
 
 ```bash
-starforge --executor=vm build distribution
 starforge --executor=native build distribution
+starforge --executor=auto build distribution
 ```
 
 Native x86-64 execution uses StarForge's vendored tool bundle. Native ARM64
-execution validates and uses the Arch build tools installed on the host. The VM
-executor remains the portable, rootless default for both architectures.
+execution validates and uses the Arch build tools installed on the host.
+`--executor=auto` is retained for compatibility and may choose native execution
+only when StarForge is already root on the target architecture.
 
 Use `--clean` to force a full rebuild:
 

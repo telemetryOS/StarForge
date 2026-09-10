@@ -9,7 +9,7 @@ Build and seal an OS image for a target.
 ## Synopsis
 
 ```
-starforge [--executor=auto|vm|native] build <target> [--clean]
+starforge [--executor=vm|native|auto] build <target> [--clean]
 ```
 
 ## Description
@@ -24,7 +24,12 @@ The build process follows three stages:
 
 Phases are cached using overlayfs -- unchanged phases are skipped on subsequent builds. Use `--clean` to force a full rebuild.
 
-With the default `--executor=auto`, a non-root process uses a managed QEMU builder appliance. This supports same-architecture and cross-architecture builds without host mounts, loop devices, or root access. An already-root process on the target architecture uses the native executor.
+The default `--executor=vm` always uses a managed QEMU builder appliance,
+regardless of host privileges. This supports same-architecture and
+cross-architecture builds without host mounts, loop devices, or root access.
+Use `--executor=native` explicitly to build on the host. The compatibility mode
+`--executor=auto` may choose native execution only when StarForge is already
+root on the target architecture.
 
 ## Arguments
 
@@ -36,6 +41,7 @@ With the default `--executor=auto`, a non-root process uses a managed QEMU build
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
+| `--executor` | string | `vm` | Build in the managed VM; `native` and compatibility mode `auto` are explicit alternatives. |
 | `--clean` | bool | `false` | Force a full rebuild, ignoring the overlay cache. |
 
 ## Build Phases

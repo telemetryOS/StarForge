@@ -17,7 +17,7 @@ import (
 type Mode string
 
 const (
-	// ModeAuto selects an execution environment based on host capabilities.
+	// ModeAuto selects an execution environment based on host capabilities when requested explicitly.
 	ModeAuto Mode = "auto"
 	// ModeNative executes build operations directly on the host.
 	ModeNative Mode = "native"

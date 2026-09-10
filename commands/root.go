@@ -17,7 +17,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&executorFlag, "executor", string(executor.ModeAuto), "build executor: auto, native, or vm")
+	rootCmd.PersistentFlags().StringVar(&executorFlag, "executor", string(executor.ModeVM), "build executor: vm, native, or auto")
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(buildCmd)
 	rootCmd.AddCommand(runCmd)

@@ -44,6 +44,6 @@ starforge write distribution /dev/sdX
 ## Global Behavior
 
 - **Project discovery.** StarForge looks for `starforge.yaml` by walking up from the current directory. All commands that operate on a project use this mechanism, so you can run them from any subdirectory.
-- **Executor selection.** `--executor=auto` uses the native executor only when StarForge already runs as root on the target architecture. Otherwise it uses a managed QEMU builder VM. Use `--executor=vm` or `--executor=native` to select one explicitly.
+- **Executor selection.** StarForge always defaults to the managed QEMU builder VM, regardless of host privileges. Use `--executor=native` to opt into host execution. Compatibility mode `--executor=auto` may choose native execution only when StarForge is already root on the target architecture.
 - **Root access.** VM builds, inspection, export, run, status, list, and clean are unprivileged. `write` elevates only its final block-device operation.
 - **Target isolation.** Architecture, machine, and distribution are target properties in `starforge.yaml`; they are independent of the executor and host architecture.
