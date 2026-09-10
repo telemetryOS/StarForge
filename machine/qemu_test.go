@@ -51,8 +51,8 @@ func TestBuildLaunchSpecUsesTCGWhenKVMUnavailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(spec.Args, " ")
-	if !strings.Contains(joined, "-accel tcg") || strings.Contains(joined, "-enable-kvm") {
-		t.Fatalf("cross-architecture args do not force TCG: %s", joined)
+	if !strings.Contains(joined, "-accel tcg,thread=multi") || strings.Contains(joined, "-enable-kvm") {
+		t.Fatalf("cross-architecture args do not force multi-threaded TCG: %s", joined)
 	}
 }
 

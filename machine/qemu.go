@@ -136,7 +136,7 @@ func buildLaunchSpec(request RunRequest, host qemuHost) (*LaunchSpec, error) {
 	if kvm {
 		args = append(args, "-enable-kvm")
 	} else {
-		args = append(args, "-accel", "tcg")
+		args = append(args, "-accel", "tcg,thread=multi")
 	}
 
 	firmware, err := host.findFirmware(targetPlatform)
