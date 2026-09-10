@@ -56,6 +56,38 @@ func TestBuildLaunchSpecUsesTCGWhenKVMUnavailable(t *testing.T) {
 	}
 }
 
+func TestBuildLaunchSpecConfiguresArchitectureSpecificGraphicalInput(t *testing.T) {
+	disk := createTestDisk(t)
+	tests := []struct {
+		name         string
+		architecture platform.Architecture
+		want         string
+		reject       string
+	}{
+		{name: "x86_64", architecture: platform.ArchitectureX86_64, want: "-usb -device usb-tablet", reject: "qemu-xhci"},
+		{name: "aarch64", architecture: platform.ArchitectureAArch64, want: "-device qemu-xhci,id=xhci -device usb-tablet,bus=xhci.0", reject: "-usb -device usb-tablet"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			receipt := &artifact.Receipt{
+				State:    artifact.StateSealed,
+				Platform: platform.Spec{Architecture: test.architecture}.Resolve(),
+			}
+			spec, err := buildLaunchSpec(RunRequest{Artifact: receipt, Disk: disk}, testQEMUHost(false))
+			if err != nil {
+				t.Fatal(err)
+			}
+			joined := strings.Join(spec.Args, " ")
+			if !strings.Contains(joined, test.want) {
+				t.Fatalf("graphical args do not contain %q: %s", test.want, joined)
+			}
+			if strings.Contains(joined, test.reject) {
+				t.Fatalf("graphical args unexpectedly contain %q: %s", test.reject, joined)
+			}
+		})
+	}
+}
+
 func testQEMUHost(kvm bool) qemuHost {
 	return qemuHost{
 		lookPath: func(binary string) (string, error) {

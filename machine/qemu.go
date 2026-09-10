@@ -160,7 +160,12 @@ func buildLaunchSpec(request RunRequest, host qemuHost) (*LaunchSpec, error) {
 		if targetPlatform.Architecture == platform.ArchitectureAArch64 {
 			gpu = "virtio-gpu-pci"
 		}
-		args = append(args, "-device", gpu, "-display", display, "-usb", "-device", "usb-tablet")
+		args = append(args, "-device", gpu, "-display", display)
+		if targetPlatform.Architecture == platform.ArchitectureAArch64 {
+			args = append(args, "-device", "qemu-xhci,id=xhci", "-device", "usb-tablet,bus=xhci.0")
+		} else {
+			args = append(args, "-usb", "-device", "usb-tablet")
+		}
 	}
 
 	args = append(args,
