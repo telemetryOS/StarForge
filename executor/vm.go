@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/telemetryos/starforge/actions"
 	"github.com/telemetryos/starforge/appliance"
 	"github.com/telemetryos/starforge/artifact"
 	"github.com/telemetryos/starforge/engine"
@@ -25,15 +26,30 @@ func (*VM) Prepare(context.Context) error { return nil }
 
 // Build creates the target's sealed full-disk artifact in the builder VM.
 func (v *VM) Build(ctx context.Context, request BuildRequest) (*BuildResult, error) {
-	result, err := v.EnsureArtifact(ctx, request)
+	result, err := v.buildArtifact(ctx, request)
 	if err != nil {
 		return nil, err
 	}
 	return result.Build, nil
 }
 
-// EnsureArtifact builds and seals a full-disk image without host privileges.
+// EnsureArtifact returns the current sealed artifact or builds one when absent.
 func (v *VM) EnsureArtifact(ctx context.Context, request BuildRequest) (*ArtifactResult, error) {
+	if request.Project == nil {
+		return nil, fmt.Errorf("project is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if !request.Clean {
+		if result, ok := sealedArtifact(request); ok {
+			return result, nil
+		}
+	}
+	return v.buildArtifact(ctx, request)
+}
+
+func (v *VM) buildArtifact(ctx context.Context, request BuildRequest) (*ArtifactResult, error) {
 	if request.Project == nil {
 		return nil, fmt.Errorf("project is required")
 	}
@@ -111,4 +127,25 @@ func (v *VM) EnsureArtifact(ctx context.Context, request BuildRequest) (*Artifac
 		Receipt: receipt,
 		Disk:    store.DiskPath(),
 	}, nil
+}
+
+func sealedArtifact(request BuildRequest) (*ArtifactResult, bool) {
+	targetPlatform := request.Target.ResolvedPlatform()
+	buildDir := request.Project.TargetBuildDir(request.TargetName)
+	store := artifact.NewStore(buildDir, request.TargetName, targetPlatform)
+	receipt, err := store.Load()
+	if err != nil || receipt.State != artifact.StateSealed {
+		return nil, false
+	}
+	return &ArtifactResult{
+		Build: &BuildResult{
+			BuildDir: filepath.Clean(buildDir),
+			Result: &engine.BuildResult{
+				Platform:   receipt.Platform.Resolve(),
+				Partitions: append([]actions.PartitionDef(nil), receipt.Partitions...),
+			},
+		},
+		Receipt: receipt,
+		Disk:    store.DiskPath(),
+	}, true
 }

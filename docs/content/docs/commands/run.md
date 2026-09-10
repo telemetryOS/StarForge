@@ -4,7 +4,7 @@ weight: 3
 ---
 
 
-Boot a target in QEMU for testing.
+Boot the current sealed target artifact in QEMU for testing.
 
 ## Usage
 
@@ -26,9 +26,9 @@ starforge run [flags] <target>
 
 ## Description
 
-Verifies the target's sealed full-disk artifact and boots it in a QEMU VM with architecture-specific UEFI firmware and virtio devices. The target VM is a sibling of the builder VM, never a nested guest. QEMU writes to a disposable snapshot, so the sealed artifact is not modified.
+Loads the target's sealed full-disk artifact and boots it in a QEMU VM with architecture-specific UEFI firmware and virtio devices. The target VM is a sibling of the builder VM, never a nested guest. QEMU writes to a disposable snapshot, so the sealed artifact is not modified.
 
-The target is built automatically if needed (incremental). Use `starforge build --clean` first to force a full rebuild.
+The target is built automatically when no sealed artifact exists. Run `starforge build <target>` after changing project inputs, or add `--clean` to that build to force all phases to run again.
 
 SSH is forwarded on port 2222:
 

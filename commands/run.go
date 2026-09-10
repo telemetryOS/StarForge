@@ -15,9 +15,10 @@ var runSerial bool
 var runCmd = &cobra.Command{
 	Use:   "run <target>",
 	Short: "Boot a target in QEMU",
-	Long: `Build a sealed full-disk artifact and boot it in a sibling QEMU virtual
-machine for testing. QEMU uses a disposable snapshot, so the build artifact is
-never modified by the running target.
+	Long: `Boot the current sealed full-disk artifact in a sibling QEMU virtual
+machine for testing, building an artifact first when none exists. Run
+"starforge build" after changing project inputs. QEMU uses a disposable
+snapshot, so the build artifact is never modified by the running target.
 
 SSH is forwarded on port 2222: ssh -p 2222 localhost`,
 	Args: cobra.ExactArgs(1),
