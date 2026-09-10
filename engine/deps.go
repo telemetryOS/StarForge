@@ -66,6 +66,7 @@ var vendorPackages = []vendorPkg{
 	{"e2fsprogs", "core", "x86_64", []string{"build"}},
 	{"dosfstools", "core", "x86_64", []string{"build"}},
 	{"zstd", "core", "x86_64", []string{"build"}},
+	{"unzip", "extra", "x86_64", []string{"build"}},
 	// Partitioning
 	{"gptfdisk", "extra", "x86_64", []string{"build"}},
 	{"parted", "extra", "x86_64", []string{"build", "run"}},
@@ -104,6 +105,7 @@ var vendorChecks = []vendorCheck{
 	{"usr/bin/mkfs.vfat", []string{"build"}},
 	{"usr/bin/e2fsck", []string{"build"}},
 	{"usr/bin/zstd", []string{"build"}},
+	{"usr/bin/unzip", []string{"build"}},
 	// Partitioning and block device tools (from util-linux)
 	{"usr/bin/sfdisk", []string{"build"}},
 	{"usr/bin/mount", []string{"build"}},

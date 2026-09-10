@@ -72,7 +72,7 @@ func mergeScriptEnv(targetEnv, stepEnv map[string]string) map[string]string {
 func chrootRunWithEnv(rootfs string, env map[string]string, args ...string) error {
 	cmdArgs := append([]string{rootfs}, args...)
 	cmd := exec.Command(resolveBin("arch-chroot"), cmdArgs...)
-	cmd.Env = vendorEnv()
+	cmd.Env = targetEnv()
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

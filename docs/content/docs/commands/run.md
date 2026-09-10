@@ -23,12 +23,10 @@ starforge run [flags] <target>
 | Flag | Description |
 |------|-------------|
 | `--serial` | Attach the serial console to the terminal (instead of opening a QEMU window). |
-| `--overlay <name>` | Use a named overlay for persistent changes across sessions. |
-| `--boot-disk <name>` | Boot from a named QEMU disk instead of the build target. |
 
 ## Description
 
-Assembles partition images into a virtual disk via device mapper and boots in QEMU with OVMF UEFI firmware and virtio devices.
+Verifies the target's sealed full-disk artifact and boots it in a QEMU VM with architecture-specific UEFI firmware and virtio devices. The target VM is a sibling of the builder VM, never a nested guest. QEMU writes to a disposable snapshot, so the sealed artifact is not modified.
 
 The target is built automatically if needed (incremental). Use `starforge build --clean` first to force a full rebuild.
 
@@ -47,8 +45,6 @@ starforge run device
 # Boot with serial console in terminal
 starforge run --serial device
 
-# Boot with persistent overlay
-starforge run --overlay testing device
 ```
 
 ## QEMU Configuration
@@ -64,21 +60,19 @@ Default resource allocation:
 These can be overridden in the target's `qemu` configuration in `starforge.yaml`.
 
 Features:
-- UEFI boot via OVMF firmware
+- x86-64 or ARM64 UEFI boot
 - Virtio disk, network, and GPU
-- KVM acceleration (if available)
+- KVM acceleration for same-architecture targets when available; TCG otherwise
 - SSH port forwarding: host 2222 -> guest 22
+- Disposable disk snapshot for every run
 
 ## Notes
 
-- Requires QEMU (`qemu-system-x86_64`) to be installed on the host. This is the only tool that must be manually installed.
-- Requires root access for device mapper and loop device setup.
-- Stale device mapper and loop devices from previous crashed runs are cleaned up automatically.
-- The virtual disk is assembled from individual partition images, not a single disk image.
-- OVMF firmware, dmsetup, and other run dependencies are vendored automatically.
+- Requires the QEMU system binary and UEFI firmware for the target architecture.
+- Does not require root access, device mapper, loop devices, or host filesystem mounts.
+- Runtime changes are discarded when QEMU exits. Rebuild declaratively to preserve changes.
 
 ## See Also
 
 - [build](build/) -- Build disk images for a target
-- [chroot](chroot/) -- Enter the filesystem without booting
 - [write](write/) -- Write to physical hardware

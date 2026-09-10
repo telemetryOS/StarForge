@@ -2,6 +2,7 @@ package engine
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -141,6 +142,20 @@ func makeKernelAt(t *testing.T, dir, stagePath, kernel string) {
 	}
 	if err := os.WriteFile(stageDir+"/initramfs-"+kernel+".img", []byte("initrd"), 0o644); err != nil {
 		t.Fatalf("write initrd: %v", err)
+	}
+}
+
+func makeBootFilesAt(t *testing.T, dir, stagePath, kernelFile, initrdFile string) {
+	t.Helper()
+	stageDir := dir + stagePath
+	for _, file := range []string{kernelFile, initrdFile} {
+		path := filepath.Join(stageDir, file)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte(file), 0o644); err != nil {
+			t.Fatalf("write %s: %v", file, err)
+		}
 	}
 }
 
@@ -349,6 +364,53 @@ func TestPhaseBoot_KernelPresentAtCanonicalDestSucceeds(t *testing.T) {
 	// Entry .conf should still be written.
 	if _, err := os.Stat(dir + "/boot/loader/entries/shared.conf"); err != nil {
 		t.Errorf("entry should be written: %v", err)
+	}
+}
+
+func TestPhaseBoot_ExplicitKernelAndInitrdFiles(t *testing.T) {
+	dir := t.TempDir()
+	o, _ := InitOutput(dir, "test", "target")
+	defer o.Close()
+	makeBootFilesAt(t, dir, "/boot", "Image", "initramfs-linux.img")
+
+	ctx := &actions.BuildContext{
+		Partitions: []actions.PartitionDef{
+			{Name: "boot", Type: "efi", MountPoint: "/boot"},
+		},
+		Boot: &actions.BootConfig{
+			Entries: []config.BootEntry{{
+				Name:       "arch-arm64",
+				Title:      "Arch Linux ARM",
+				Kernel:     "linux-aarch64",
+				KernelFile: "Image",
+				InitrdFile: "initramfs-linux.img",
+				Options:    "rw console=ttyAMA0",
+			}},
+		},
+	}
+
+	b := &Builder{project: nil}
+	if err := b.phaseBoot(ctx, dir); err != nil {
+		t.Fatalf("phaseBoot returned error: %v", err)
+	}
+	data, err := os.ReadFile(dir + "/boot/loader/entries/arch-arm64.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "linux   /Image\n") || !strings.Contains(content, "initrd  /initramfs-linux.img\n") {
+		t.Fatalf("entry did not use explicit ARM boot files:\n%s", content)
+	}
+}
+
+func TestBootFileNameRejectsEscape(t *testing.T) {
+	for _, path := range []string{"/Image", "../Image", "images/../../Image", "."} {
+		if _, err := bootFileName(path, "fallback", "kernel_file"); err == nil {
+			t.Errorf("bootFileName(%q) should reject path", path)
+		}
+	}
+	if got, err := bootFileName("kernels/Image", "fallback", "kernel_file"); err != nil || got != "kernels/Image" {
+		t.Fatalf("bootFileName nested path = %q, %v", got, err)
 	}
 }
 

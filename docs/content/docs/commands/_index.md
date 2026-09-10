@@ -16,7 +16,6 @@ StarForge provides commands for creating, building, testing, and deploying OS im
 | [write](write/) | Write a target to a block device |
 | [export](export/) | Export build artifacts as disk or partition images |
 | [inspect](inspect/) | Inspect the resolved build context |
-| [chroot](chroot/) | Enter the target filesystem interactively |
 | [list](list/) | List targets defined in the project |
 | [status](status/) | Show project and build status |
 | [clean](clean/) | Remove build artifacts |
@@ -45,5 +44,6 @@ starforge write distribution /dev/sdX
 ## Global Behavior
 
 - **Project discovery.** StarForge looks for `starforge.yaml` by walking up from the current directory. All commands that operate on a project use this mechanism, so you can run them from any subdirectory.
-- **Root access.** Most commands require root privileges. Operations like overlayfs mounts, arch-chroot, and writing to block devices cannot run unprivileged. StarForge will re-exec itself under `sudo` when needed.
-- **Build tool vendoring.** Build tools (pacstrap, arch-chroot, etc.) are vendored automatically on first use and cached in `~/.local/share/starforge/`.
+- **Executor selection.** `--executor=auto` uses the native executor only when StarForge already runs as root on the target architecture. Otherwise it uses a managed QEMU builder VM. Use `--executor=vm` or `--executor=native` to select one explicitly.
+- **Root access.** VM builds, inspection, export, run, status, list, and clean are unprivileged. `write` elevates only its final block-device operation.
+- **Target isolation.** Architecture, machine, and distribution are target properties in `starforge.yaml`; they are independent of the executor and host architecture.

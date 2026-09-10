@@ -145,7 +145,7 @@ func CopyFile(src, dest string) error {
 func ChrootRun(rootfs string, args ...string) error {
 	cmdArgs := append([]string{rootfs}, args...)
 	cmd := exec.Command(resolveBin("arch-chroot"), cmdArgs...)
-	cmd.Env = vendorEnv()
+	cmd.Env = targetEnv()
 	if out != nil {
 		w := out.LogWriter()
 		cmd.Stdout = w

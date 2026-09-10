@@ -29,11 +29,17 @@ const (
 	outputDevice = "/dev/vdd"
 )
 
+// ProtocolVersion identifies the coordinator/worker job contract. Packaged
+// workers must match the coordinator that launches them.
+const ProtocolVersion = 1
+
 // Job is the immutable build request embedded in the worker initramfs.
 type Job struct {
-	Target   string        `json:"target"`
-	Platform platform.Spec `json:"platform"`
-	Clean    bool          `json:"clean,omitempty"`
+	Protocol    int               `json:"protocol"`
+	Target      string            `json:"target"`
+	Platform    platform.Spec     `json:"platform"`
+	Clean       bool              `json:"clean,omitempty"`
+	Environment map[string]string `json:"environment,omitempty"`
 }
 
 // Result is the structured completion record emitted over the serial console.
@@ -80,6 +86,11 @@ func run() (*Result, error) {
 	}
 	if err := ensureBuildTools(); err != nil {
 		return nil, err
+	}
+	for name, value := range job.Environment {
+		if err := os.Setenv(name, value); err != nil {
+			return nil, fmt.Errorf("setting build environment %q: %w", name, err)
+		}
 	}
 
 	project, err := config.LoadProject(projectDir)
@@ -173,6 +184,9 @@ func loadJob(path string) (*Job, error) {
 	}
 	if job.Target == "" {
 		return nil, fmt.Errorf("worker target is required")
+	}
+	if job.Protocol != ProtocolVersion {
+		return nil, fmt.Errorf("worker protocol %d does not match supported protocol %d", job.Protocol, ProtocolVersion)
 	}
 	if err := job.Platform.Validate(); err != nil {
 		return nil, fmt.Errorf("worker platform: %w", err)
@@ -355,7 +369,7 @@ func ensureBuildTools() error {
 	}
 	packages := []string{
 		"arch-install-scripts", "dosfstools", "e2fsprogs", "gnupg", "gptfdisk",
-		"parted", "tar", "util-linux", "zstd",
+		"parted", "tar", "unzip", "util-linux", "zstd",
 	}
 	cacheDir := "/work/appliance-pacman"
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {

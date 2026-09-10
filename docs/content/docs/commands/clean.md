@@ -19,7 +19,7 @@ starforge clean pacman
 | Argument | Description |
 |----------|-------------|
 | `target` | Name of the target to clean, or `deps`/`pacman` for global cleanup. |
-| `scope` | Optional scope: `cache`, `images`, or `disks`. Without a scope, removes everything. |
+| `scope` | Optional scope: `cache` or `artifacts`. Without a scope, removes everything for the target. |
 
 ## Scopes
 
@@ -27,8 +27,7 @@ starforge clean pacman
 |-------|-------------|
 | *(none)* | Remove all build artifacts for the target (`.starforge/<target>/`). |
 | `cache` | Remove only the overlay cache (`.starforge/<target>/cache/`). |
-| `images` | Remove only partition images (`*.img` files) and rootfs. |
-| `disks` | Remove extra QEMU disks (`.starforge/<target>/disks/`). |
+| `artifacts` | Remove only sealed architecture-scoped disk artifacts and receipts. |
 | `deps` | Remove vendored dependencies (`~/.local/share/starforge/`). |
 | `pacman` | Remove persistent pacman package cache (`~/.local/state/starforge/pacman/`). |
 
@@ -41,11 +40,8 @@ starforge clean device
 # Remove only the cache (forces rebuild on next build)
 starforge clean device cache
 
-# Remove only partition images
-starforge clean device images
-
-# Remove extra QEMU disks
-starforge clean device disks
+# Remove only sealed artifacts
+starforge clean device artifacts
 
 # Remove vendored tools (re-downloaded on next build)
 starforge clean deps
@@ -56,8 +52,8 @@ starforge clean pacman
 
 ## Notes
 
-- Cleaning the cache or all artifacts requires root access (cache directories contain root-owned files).
-- Stale overlay mounts are cleaned up automatically before removal.
+- VM-executor build state is user-owned, so cleaning it does not require root.
+- A build directory created previously by the legacy native path may require one one-time privileged cleanup.
 - `starforge clean deps` removes the `~/.local/share/starforge/` directory. Vendored tools will be re-downloaded on the next build.
 
 ## See Also

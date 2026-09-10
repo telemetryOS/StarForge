@@ -35,11 +35,11 @@ Add packages to the target system using pacman. Packages are installed via `pacs
 
 ## Build Phase
 
-Phase 1 (`packages`). All packages from all layers are installed together in one `pacstrap` invocation. After installation, `pacman-key --init` and `pacman-key --populate archlinux` are run to initialize the package signing keyring.
+Phase 1 (`packages`). All packages from all layers are installed together in one `pacstrap` invocation. StarForge initializes and populates the target distribution's signing keyring before `pacstrap`, then creates an independent installed-system keyring inside the target.
 
 ## Notes
 
-- Package names must match the names in the Arch Linux repositories exactly.
+- Package names must match the names in the target platform's configured repositories exactly.
 - If a package has been removed from the repos, the build will fail during phase 1. Remove it from your layer and rebuild.
 - Use [`pacman-remove`](pacman-remove/) in a later layer to remove packages added by earlier layers.
 - The `base` package is not included automatically. You must add it explicitly.

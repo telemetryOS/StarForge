@@ -20,10 +20,10 @@ func (VendoredHostTools) Ensure(groups ...string) error {
 	return EnsureDeps(groups...)
 }
 
-// SystemHostTools uses tools already installed in an isolated build appliance.
+// SystemHostTools uses tools already installed in the execution environment.
 type SystemHostTools struct{}
 
-// Ensure checks that the build appliance contains the requested tools.
+// Ensure checks that the execution environment contains the requested tools.
 func (SystemHostTools) Ensure(groups ...string) error {
 	required := map[string]bool{}
 	for _, group := range groups {
@@ -33,7 +33,7 @@ func (SystemHostTools) Ensure(groups ...string) error {
 				"arch-chroot", "bash", "blkid", "blockdev", "e2fsck", "findmnt",
 				"gpg", "gpg-agent", "gpgconf", "losetup", "lsblk", "mkfs.ext4",
 				"mkfs.vfat", "mount", "pacman", "pacman-key", "pacstrap", "partprobe",
-				"resize2fs", "sfdisk", "tar", "udevadm", "umount", "zstd",
+				"resize2fs", "sfdisk", "tar", "udevadm", "umount", "unzip", "zstd",
 			} {
 				required[name] = true
 			}
@@ -51,7 +51,7 @@ func (SystemHostTools) Ensure(groups ...string) error {
 	}
 	if len(missing) > 0 {
 		sort.Strings(missing)
-		return fmt.Errorf("build appliance is missing system tools: %s", strings.Join(missing, ", "))
+		return fmt.Errorf("execution environment is missing system tools: %s", strings.Join(missing, ", "))
 	}
 	return nil
 }

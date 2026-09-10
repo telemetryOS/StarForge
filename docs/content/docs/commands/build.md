@@ -4,27 +4,27 @@ weight: 1
 ---
 
 
-Build overlay layers for a target.
+Build and seal an OS image for a target.
 
 ## Synopsis
 
 ```
-starforge build <target> [--clean]
+starforge [--executor=auto|vm|native] build <target> [--clean]
 ```
 
 ## Description
 
-Resolve layers for a target and execute build phases using overlayfs caching. Overlay layers are stored in the `.starforge/` build directory. Partition images (`.img` files) are created when a target is packaged for `starforge run`, `starforge write`, or `starforge export`.
+Resolve layers for a target, execute the build phases, and seal one full-disk raw artifact. Artifacts are scoped by target, architecture, machine, and distribution under `.starforge/`.
 
 The build process follows three stages:
 
 1. **Collect** -- Process all layers and validate the configuration.
 2. **Execute** -- Run 9 build phases via overlayfs with per-phase caching.
-3. **Package** -- Copy the merged filesystem into partition images.
+3. **Package** -- Create the GPT disk, populate its partitions, and seal the full-disk artifact with a receipt and SHA-256 digest.
 
 Phases are cached using overlayfs -- unchanged phases are skipped on subsequent builds. Use `--clean` to force a full rebuild.
 
-The command automatically elevates to root (via sudo) for the execute phase, then restores ownership of build artifacts to the invoking user.
+With the default `--executor=auto`, a non-root process uses a managed QEMU builder appliance. This supports same-architecture and cross-architecture builds without host mounts, loop devices, or root access. An already-root process on the target architecture uses the native executor.
 
 ## Arguments
 
@@ -78,8 +78,10 @@ starforge build device --clean
 
 ## Requirements
 
-- Root privileges (elevated automatically via sudo)
-- All build tools (pacstrap, pacman, mkfs, sgdisk, etc.) are vendored automatically on first run
+- The VM executor requires `qemu-img`, `mkfs.ext4`, GnuPG, and the target QEMU system binary (`qemu-system-x86_64` or `qemu-system-aarch64`).
+- KVM is optional. Same-architecture builds use it when `/dev/kvm` is accessible; cross-architecture builds use QEMU TCG emulation.
+- Builder appliances are downloaded, signature-verified, generated, and cached automatically on first use.
+- Source checkouts build the architecture-specific worker from the current source. Binary installations must include the matching `starforge-worker-linux-amd64` and `starforge-worker-linux-arm64` companion workers.
 
 ## See Also
 

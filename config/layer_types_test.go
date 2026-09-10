@@ -585,3 +585,25 @@ path: /images/device`
 		t.Errorf("Path = %q", step.InstallPayload.Path)
 	}
 }
+
+func TestStep_SystemdBootInstallExplicitFiles(t *testing.T) {
+	input := `action: systemd-boot-install
+entries:
+  - name: arch-arm64
+    title: Arch Linux ARM
+    kernel: linux-aarch64
+    kernel_file: Image
+    initrd_file: initramfs-linux.img
+    options: rw console=ttyAMA0`
+	var step Step
+	if err := yaml.Unmarshal([]byte(input), &step); err != nil {
+		t.Fatal(err)
+	}
+	if step.SystemdBootInstall == nil || len(step.SystemdBootInstall.Entries) != 1 {
+		t.Fatal("SystemdBootInstall entry is missing")
+	}
+	entry := step.SystemdBootInstall.Entries[0]
+	if entry.KernelFile != "Image" || entry.InitrdFile != "initramfs-linux.img" {
+		t.Fatalf("boot files = (%q, %q)", entry.KernelFile, entry.InitrdFile)
+	}
+}

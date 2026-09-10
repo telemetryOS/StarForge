@@ -15,7 +15,7 @@ starforge write distribution /dev/sdb
 
 You will be prompted to confirm before any data is written. The confirmation shows the target device and its current partition table to help prevent accidental data loss.
 
-The write operation targets the **whole device** (e.g., `/dev/sdb`), not an individual partition. StarForge creates a GPT partition table and writes each partition image to its corresponding device partition.
+The write operation targets the **whole device** (e.g., `/dev/sdb`), not an individual partition. StarForge verifies the sealed artifact before elevating only the final operation that creates the GPT partition table and writes each recorded partition.
 
 ### Growable Partition Expansion
 
@@ -87,7 +87,7 @@ The [`starforge clean`](../../commands/clean/) command removes build artifacts. 
 
 ### Clean All Artifacts for a Target
 
-Remove everything -- cache, partition images, and overlays:
+Remove the target's phase cache, sealed artifacts, and target-local working state:
 
 ```bash
 starforge clean distribution
@@ -95,22 +95,16 @@ starforge clean distribution
 
 ### Clean Specific Scopes
 
-Remove only the overlay cache (forces all phases to rebuild on next build):
+Remove only the phase cache (forces all phases to rebuild on next build):
 
 ```bash
 starforge clean distribution cache
 ```
 
-Remove only the partition images:
+Remove only the architecture-scoped sealed artifacts and receipts:
 
 ```bash
-starforge clean distribution images
-```
-
-Remove only the exported disk images:
-
-```bash
-starforge clean distribution disks
+starforge clean distribution artifacts
 ```
 
 ### Clean Vendored Dependencies

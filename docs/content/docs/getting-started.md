@@ -8,18 +8,19 @@ This tutorial walks you from zero to a running virtual machine with StarForge. B
 
 ## Prerequisites
 
-StarForge runs on **any Linux distribution**. Build tools like pacstrap, pacman, mkfs, and sgdisk are vendored automatically on first use --- you do not need an Arch Linux host.
+StarForge runs on **any Linux distribution**. It builds inside a managed, architecture-specific QEMU appliance by default, so you do not need an Arch Linux host or root access.
 
-- **Linux** with overlayfs support (standard on all modern kernels)
-- **Root access** for build operations
-- **Internet access** on first run to download vendored dependencies
-- **QEMU** for testing --- the only host-installed dependency
+- **Linux**
+- **Internet access** on first run to download and verify the builder appliance
+- **QEMU**, `qemu-img`, `mkfs.ext4`, and GnuPG
+- **UEFI firmware** for each target architecture you want to boot with `starforge run`
 
 ```bash
-sudo pacman -S qemu-full            # Arch Linux
-sudo apt install qemu-system-x86    # Ubuntu/Debian
-sudo dnf install qemu-system-x86    # Fedora
+sudo pacman -S qemu-full edk2-ovmf edk2-aarch64  # Arch Linux
+sudo apt install qemu-system-x86 qemu-system-arm qemu-utils ovmf qemu-efi-aarch64 e2fsprogs gnupg  # Ubuntu/Debian
 ```
+
+KVM is optional. StarForge uses KVM for a same-architecture target when the user can open `/dev/kvm`; otherwise it uses QEMU TCG. Cross-architecture builds always use TCG.
 
 ## Install StarForge
 
@@ -59,6 +60,10 @@ The generated `starforge.yaml` defines a single target that references the base 
 name: "my-os"
 targets:
   distribution:
+    platform:
+      architecture: x86_64
+      machine: generic-uefi
+      distribution: archlinux
     layers:
       - ./layers/base
 ```
@@ -150,7 +155,18 @@ Build the `distribution` target:
 starforge build distribution
 ```
 
-The first build downloads vendored tools (pacstrap, pacman, mkfs, and others) and runs all 9 build phases. This takes several minutes depending on your internet connection and the number of packages. Subsequent builds use the overlay cache --- only phases whose inputs changed are re-executed.
+The first build downloads and signature-verifies the target-architecture bootstrap, generates and caches the builder appliance, and runs all 9 build phases. This takes several minutes depending on emulation, network speed, and the package list. Subsequent builds reuse the appliance, package cache, and phase cache.
+
+`--executor=auto` is the default. A non-root process uses the VM executor; an already-root process on the target architecture uses the native executor. You can select a mode explicitly:
+
+```bash
+starforge --executor=vm build distribution
+starforge --executor=native build distribution
+```
+
+Native x86-64 execution uses StarForge's vendored tool bundle. Native ARM64
+execution validates and uses the Arch build tools installed on the host. The VM
+executor remains the portable, rootless default for both architectures.
 
 Use `--clean` to force a full rebuild:
 
@@ -189,14 +205,50 @@ This launches QEMU with your built image, forwarding port 2222 on the host to po
 ssh -p 2222 admin@localhost
 ```
 
-Use `--serial` to attach a serial console for kernel boot messages, or `--overlay` to persist VM changes across reboots:
+Use `--serial` to attach a serial console for kernel boot messages:
 
 ```bash
 starforge run distribution --serial
-starforge run distribution --overlay testing
 ```
 
-Named overlays are stored in `.starforge/distribution/overlays/` and can also be accessed with `starforge chroot distribution --overlay testing` for shell debugging.
+The target VM is a host-side sibling of the builder VM. It boots the sealed full-disk artifact through a disposable QEMU snapshot, so testing cannot mutate the artifact and all runtime changes are discarded when QEMU exits.
+
+## Add an ARM64 Target
+
+The executor and target platform are independent. An x86-64 host can build an ARM64 target by declaring it in `starforge.yaml`:
+
+```yaml
+targets:
+  distribution-arm64:
+    platform:
+      architecture: aarch64
+      machine: generic-uefi
+      distribution: archlinuxarm
+    layers:
+      - ./layers/base-arm64
+```
+
+ARM layers must select ARM packages and use the filenames installed by their kernel package. For example, Arch Linux ARM's `linux-aarch64` package uses `Image` and `initramfs-linux.img`:
+
+```yaml
+- action: systemd-boot-install
+  entries:
+    - name: arch-arm64.conf
+      title: My ARM64 OS
+      kernel: linux-aarch64
+      kernel_file: Image
+      initrd_file: initramfs-linux.img
+      options: rw console=ttyAMA0,115200
+```
+
+Arch Linux Ports is also available by setting `distribution: archlinux-ports`. Its AArch64 repository follows the standard Arch kernel layout, so use `kernel: linux` with the default `vmlinuz-linux` and `initramfs-linux.img` filenames. Repository signing is verified with the Arch Linux keyring and the pinned Ports repository key.
+
+Build it from any supported Linux host with:
+
+```bash
+starforge --executor=vm build distribution-arm64
+starforge run --serial distribution-arm64
+```
 
 ## Deploy
 

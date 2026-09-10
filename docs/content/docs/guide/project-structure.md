@@ -60,7 +60,35 @@ Each target is a named build profile with an ordered list of layers and optional
 | `args` | map | No | Variables that seed the initial scope for variable substitution. Values support `$NAME` / `${NAME}` env var expansion. |
 | `default_env` | map | No | Default values for environment variables referenced in `args`. Used when the env var is not set. |
 | `env` | map | No | Environment variables passed to `run` and `layer-run` scripts. Values support `${{ var }}` substitution against target `args`. |
+| `platform` | object | No | Target architecture, machine, and distribution. Defaults to `x86_64`, `generic-uefi`, and `archlinux`. |
 | `qemu` | object | No | QEMU configuration for `starforge run` (additional disks, memory, etc.). |
+
+Platform selection is part of the target, not the build host:
+
+```yaml
+targets:
+  device:
+    platform:
+      architecture: x86_64
+      machine: generic-uefi
+      distribution: archlinux
+    layers:
+      - ./layers/base
+      - ./layers/platform/x86_64
+
+  device-arm64:
+    platform:
+      architecture: aarch64
+      machine: generic-uefi
+      distribution: archlinuxarm
+    layers:
+      - ./layers/base
+      - ./layers/platform/aarch64
+```
+
+Build artifacts and caches are isolated by architecture, machine, and distribution, so targets with the same layer graph cannot reuse incompatible package or filesystem state.
+
+Supported distributions are `archlinux` for x86-64 and `archlinuxarm` or `archlinux-ports` for AArch64. The ARM distributions use different repositories, package names, kernel layouts, and trust roots; select one explicitly and keep architecture-specific package choices in platform layers.
 
 Target `args` provide initial variable values that layers can reference via `${{ var_name }}` substitution and declare as required with `imports`. Arg values can be hardcoded strings or reference host environment variables:
 
@@ -193,15 +221,20 @@ When you build a target, StarForge creates a `.starforge/` directory at the proj
 │   │   ├── phase-0/            # Overlay snapshot after phase 0
 │   │   ├── phase-1/
 │   │   └── ...
-│   ├── root/                   # Final merged filesystem
-│   └── images/                 # Partition images (after export)
+│   └── artifacts/
+│       └── <arch>/<machine>/<distribution>/
+│           ├── disk.raw        # Sealed full-disk artifact
+│           └── artifact.json   # Platform, source hash, size, and digest
+├── vm/
+│   └── <arch>/<distribution>/
+│       └── work.raw            # Persistent builder package and phase cache
 ├── cache/
 │   ├── sources/                # Cached git repos and archives
 │   ├── remote/                 # Cached remote HTTP layers
 │   └── downloads/              # Cached individual file downloads
 ```
 
-Vendored build tools (pacstrap, mkfs, etc.) are stored separately in `~/.local/share/starforge/`, not inside the project directory.
+Downloaded builder-appliance inputs and generated immutable roots are stored in the user's StarForge cache, outside the project directory. Native-executor tools, when used, remain in StarForge's user data directory.
 
 Build artifacts are separated by target, so building `device` and `device-dev` produces independent caches. Shared source caches (git repos, archives) are stored once and reused across targets.
 

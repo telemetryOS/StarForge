@@ -100,12 +100,12 @@ func (archLinuxPorts) Repositories() []Repository {
 		{Name: "forge", Server: "https://arch-linux-repo.drzee.net/arch/$repo/os/$arch"},
 	}
 }
-func (archLinuxPorts) PopulateKeyrings() []string { return nil }
+func (archLinuxPorts) PopulateKeyrings() []string { return []string{"archlinux"} }
 func (archLinuxPorts) PublicKeys() []PublicKey {
 	return []PublicKey{{
 		URL:         "https://arch-linux-repo.drzee.net/arch/extra/os/aarch64/public.key",
 		Fingerprint: "9B2C213B21883BB65CE2FB900CF25682E6BA0751",
 	}}
 }
-func (archLinuxPorts) RequiredPackages() []string { return nil }
+func (archLinuxPorts) RequiredPackages() []string { return []string{"archlinux-keyring"} }
 func (archLinuxPorts) Archive() *Archive          { return nil }

@@ -87,6 +87,30 @@ func TestProject_BuildDirOverride(t *testing.T) {
 	}
 }
 
+func TestProject_ReferencedHostEnvironment(t *testing.T) {
+	t.Setenv("EDGE_RELEASE_CHANNEL", "beta")
+	t.Setenv("UNREFERENCED_SECRET", "do-not-forward")
+	project := &Project{Targets: map[string]Target{
+		"device": {
+			Args: map[string]string{
+				"channel": "$EDGE_RELEASE_CHANNEL",
+				"missing": "$NOT_DEFINED",
+			},
+		},
+	}}
+
+	got := project.ReferencedHostEnvironment()
+	if got["EDGE_RELEASE_CHANNEL"] != "beta" {
+		t.Fatalf("referenced environment = %#v", got)
+	}
+	if _, ok := got["UNREFERENCED_SECRET"]; ok {
+		t.Fatalf("unreferenced environment was forwarded: %#v", got)
+	}
+	if _, ok := got["NOT_DEFINED"]; ok {
+		t.Fatalf("undefined environment was forwarded: %#v", got)
+	}
+}
+
 func TestProject_TargetBuildDir(t *testing.T) {
 	p := &Project{Dir: "/home/user/Edge-OS"}
 	got := p.TargetBuildDir("device")

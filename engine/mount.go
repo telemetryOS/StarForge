@@ -149,6 +149,22 @@ func run(name string, args ...string) error {
 	return cmd.Run()
 }
 
+// runTarget executes a host tool that enters the target filesystem, such as
+// pacstrap or arch-chroot. Its environment uses target-local temporary paths
+// so appliance paths like /work/tmp do not leak into package hooks.
+func runTarget(name string, args ...string) error {
+	cmd := exec.Command(resolveBin(name), args...)
+	cmd.Env = targetEnv()
+	if out != nil {
+		cmd.Stdout = out.ProcessWriter()
+		cmd.Stderr = out.ProcessWriter()
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+	return cmd.Run()
+}
+
 // runSilent executes a command with output suppressed from the terminal.
 // Output goes to the log file only. Used for noisy subprocesses like mkfs,
 // tar, zstd, and go build.
@@ -249,6 +265,23 @@ func vendorEnv() []string {
 	}
 
 	return env
+}
+
+// targetEnv returns the vendored command environment with temporary paths
+// valid inside the target root. STARFORGE_TMPDIR is host-only and is omitted.
+func targetEnv() []string {
+	env := vendorEnv()
+	filtered := make([]string, 0, len(env)+3)
+	for _, entry := range env {
+		name, _, _ := strings.Cut(entry, "=")
+		switch name {
+		case "STARFORGE_TMPDIR", "TMPDIR", "TMP", "TEMP":
+			continue
+		default:
+			filtered = append(filtered, entry)
+		}
+	}
+	return append(filtered, "TMPDIR=/tmp", "TMP=/tmp", "TEMP=/tmp")
 }
 
 // SetupImagePartitions creates sparse image files, formats them, and returns

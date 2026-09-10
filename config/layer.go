@@ -730,8 +730,9 @@ type BootLoader struct {
 
 // BootEntry represents a systemd-boot entry.
 //
-// Kernel names a kernel package (mkinitcpio convention, e.g. "linux"). The
-// engine derives filenames as vmlinuz-<kernel> and initramfs-<kernel>.img.
+// Kernel names a kernel package (mkinitcpio convention, e.g. "linux"). Unless
+// KernelFile or InitrdFile is set, the engine derives filenames as
+// vmlinuz-<kernel> and initramfs-<kernel>.img.
 //
 // Extended controls which boot partition the entry lives on. When unset
 // (nil), the engine defaults to the XBOOTLDR partition if one is declared
@@ -747,13 +748,15 @@ type BootLoader struct {
 // destination if they aren't already there, copying from the canonical
 // pacman locations (/boot/vmlinuz-<kernel>, /boot/initramfs-<kernel>.img).
 type BootEntry struct {
-	Name     string `yaml:"name" json:"name"`
-	Title    string `yaml:"title" json:"title"`
-	SortKey  string `yaml:"sortKey,omitempty" json:"sortKey,omitempty"`
-	Kernel   string `yaml:"kernel" json:"kernel"`
-	Path     string `yaml:"path,omitempty" json:"path,omitempty"`
-	Options  string `yaml:"options" json:"options"`
-	Extended *bool  `yaml:"extended,omitempty" json:"extended,omitempty"`
+	Name       string `yaml:"name" json:"name"`
+	Title      string `yaml:"title" json:"title"`
+	SortKey    string `yaml:"sortKey,omitempty" json:"sortKey,omitempty"`
+	Kernel     string `yaml:"kernel" json:"kernel"`
+	KernelFile string `yaml:"kernel_file,omitempty" json:"kernelFile,omitempty"`
+	InitrdFile string `yaml:"initrd_file,omitempty" json:"initrdFile,omitempty"`
+	Path       string `yaml:"path,omitempty" json:"path,omitempty"`
+	Options    string `yaml:"options" json:"options"`
+	Extended   *bool  `yaml:"extended,omitempty" json:"extended,omitempty"`
 }
 
 const LayerFile = "layer.yaml"

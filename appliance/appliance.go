@@ -107,7 +107,13 @@ func (m *Manager) Run(ctx context.Context, request Request) (*worker.Result, err
 		return nil, err
 	}
 	defer cleanupWorker()
-	job := worker.Job{Target: request.TargetName, Platform: targetPlatform, Clean: request.Clean}
+	job := worker.Job{
+		Protocol:    worker.ProtocolVersion,
+		Target:      request.TargetName,
+		Platform:    targetPlatform,
+		Clean:       request.Clean,
+		Environment: request.Project.ReferencedHostEnvironment(),
+	}
 	initramfs := filepath.Join(stateDir, "worker-initramfs.gz.creating")
 	if err := createInitramfs(initramfs, workerPath, job); err != nil {
 		return nil, err

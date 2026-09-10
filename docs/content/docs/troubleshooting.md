@@ -8,26 +8,6 @@ Common issues and solutions when working with StarForge.
 
 ## Build Issues
 
-### "overlay: upperdir is in-use as lowerdir" or stale mount errors
-
-StarForge uses overlayfs extensively. If a previous build was interrupted (e.g., by Ctrl+C or a crash), stale mounts may remain.
-
-**Solution**: StarForge automatically cleans up stale mounts at the start of each command. If mounts persist, run:
-
-```bash
-starforge clean <target>
-```
-
-This removes the cache and images, forcing a fresh build. If `clean` itself fails due to mounts, manually unmount:
-
-```bash
-# List StarForge-related mounts
-mount | grep .starforge
-
-# Unmount in reverse order (deepest first)
-sudo umount /path/to/.starforge/<target>/merged
-```
-
 ### Build fails during the packages phase (phase 1)
 
 Pacstrap failures typically mean a package name is wrong or the network is unreachable.
@@ -44,7 +24,7 @@ Pacstrap failures typically mean a package name is wrong or the network is unrea
 Script errors are the most common build failure. The error output includes the script's stderr.
 
 **Debug tips**:
-- Use `starforge chroot <target>` to enter the filesystem and test commands interactively
+- Boot with `starforge run --serial <target>` and test the command in the running OS
 - Add `set -ex` at the top of scripts for verbose output
 - Check that commands are available — packages are installed in phase 1, so all binaries should be present by phase 8
 - If a script needs network access, note that chroot environments have network access during build
@@ -114,9 +94,9 @@ The `layer_script` and `layer_script_path` fields on steps require `layer_source
 
 ## QEMU / `starforge run` Issues
 
-### "qemu-system-x86_64: not found"
+### A QEMU system binary is not found
 
-QEMU must be installed on the host system. It is the only dependency not vendored by StarForge.
+Install the QEMU system binary for the target: `qemu-system-x86_64` for x86-64 or `qemu-system-aarch64` for ARM64.
 
 ```bash
 # Arch Linux
@@ -128,6 +108,14 @@ sudo apt install qemu-system-x86
 # Fedora
 sudo dnf install qemu-system-x86
 ```
+
+### "no aarch64 appliance worker is installed"
+
+A source checkout builds the worker from the current source automatically. A packaged installation must place the matched `starforge-worker-linux-amd64` and `starforge-worker-linux-arm64` binaries beside `starforge`, below a `starforge-workers/` sibling directory, or in the installation's `lib/starforge/` directory. Workers must be statically linked. `STARFORGE_WORKER_AMD64` and `STARFORGE_WORKER_ARM64` can select explicit paths.
+
+### Build works but is slow
+
+StarForge uses KVM only when the target architecture matches the host and the current user can open `/dev/kvm`. Otherwise QEMU uses TCG emulation. Add the user to the host's KVM access group for same-architecture acceleration; cross-architecture builds remain emulated.
 
 ### VM boots to a shell but no network
 
@@ -174,31 +162,6 @@ starforge write distribution /dev/sdb1
 
 # CORRECT — whole device
 starforge write distribution /dev/sdb
-```
-
-## Named Overlay Issues
-
-### Overlay recreated unexpectedly
-
-Named overlays are tied to the build hash. When you run `starforge build`, if any phase changes, existing overlays are invalidated and recreated on next use.
-
-This is intentional — overlays must stay consistent with the current build. If you need to preserve overlay state, avoid rebuilding until you're done testing.
-
-### Overlay names rejected
-
-Overlay names must match `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`:
-- Start with a letter or digit
-- Contain only letters, digits, hyphens, and underscores
-- No spaces or special characters
-
-```bash
-# VALID
-starforge chroot distribution --overlay testing
-starforge chroot distribution --overlay my-test-1
-
-# INVALID
-starforge chroot distribution --overlay "my test"
-starforge chroot distribution --overlay .hidden
 ```
 
 ## Remote Layer Issues

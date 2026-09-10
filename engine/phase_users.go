@@ -69,7 +69,7 @@ func (b *Builder) phaseUsers(ctx *actions.BuildContext, rootfs string) error {
 			}
 		} else if user.Password != "" {
 			cmd := exec.Command(resolveBin("arch-chroot"), rootfs, "chpasswd")
-			cmd.Env = vendorEnv()
+			cmd.Env = targetEnv()
 			cmd.Stdin = strings.NewReader(fmt.Sprintf("%s:%s\n", user.Name, user.Password))
 			if out != nil {
 				w := out.LogWriter()

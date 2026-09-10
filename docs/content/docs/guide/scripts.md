@@ -98,10 +98,10 @@ Add `set -ex` at the top of your scripts during development. The `-e` flag cause
     useradd -m testuser
 ```
 
-If a script exits with a non-zero status, the build fails immediately. You can also use `starforge chroot <target>` to enter the built filesystem interactively and test commands before scripting them:
+If a script exits with a non-zero status, the build fails immediately. For interactive debugging, boot the target with a serial console and test the command in the running OS:
 
 ```bash
-starforge chroot distribution
+starforge run --serial distribution
 ```
 
 ## The `layer-run` Action (Host-Side Scripts)
@@ -195,4 +195,4 @@ Both `run` and `layer-run` use accumulate semantics. Scripts from all layers are
 - [run reference](../../actions/run/) -- Complete field reference for chroot scripts.
 - [layer-run reference](../../actions/layer-run/) -- Complete field reference for host-side scripts.
 - [Variables](../variables/) -- Full variable system documentation, including scope chain and `exports`.
-- [Building & Testing](../building-and-testing/) -- Using `starforge chroot` for interactive debugging.
+- [Building & Testing](../building-and-testing/) -- Building and booting sealed artifacts.

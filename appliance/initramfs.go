@@ -25,23 +25,43 @@ func buildWorker(ctx context.Context, targetPlatform platform.Spec) (string, fun
 		return "", func() {}, err
 	}
 	sourceDirectory, err := sourceRoot()
-	if err != nil {
-		if hostArchitecture != targetPlatform.Architecture {
-			return "", func() {}, err
+	if err == nil {
+		return buildWorkerFromSource(ctx, sourceDirectory, targetPlatform)
+	}
+	if os.Getenv("STARFORGE_SOURCE") != "" {
+		return "", func() {}, err
+	}
+
+	executable, executableErr := os.Executable()
+	if executableErr != nil {
+		return "", func() {}, executableErr
+	}
+	for _, candidate := range installedWorkerCandidates(executable, targetPlatform) {
+		if _, statErr := os.Stat(candidate); statErr != nil {
+			if os.IsNotExist(statErr) {
+				continue
+			}
+			return "", func() {}, fmt.Errorf("inspecting packaged worker %s: %w", candidate, statErr)
 		}
-		executable, executableErr := os.Executable()
-		if executableErr != nil {
-			return "", func() {}, executableErr
+		if validationErr := validateWorker(candidate, targetPlatform); validationErr != nil {
+			return "", func() {}, validationErr
 		}
-		static, staticErr := isStaticELF(executable)
-		if staticErr != nil {
-			return "", func() {}, staticErr
-		}
-		if !static {
-			return "", func() {}, fmt.Errorf("installed StarForge executable is dynamically linked and cannot run as appliance init: %w", err)
+		return candidate, func() {}, nil
+	}
+	if hostArchitecture == targetPlatform.Architecture {
+		if validationErr := validateWorker(executable, targetPlatform); validationErr != nil {
+			return "", func() {}, validationErr
 		}
 		return executable, func() {}, nil
 	}
+	return "", func() {}, fmt.Errorf(
+		"no %s appliance worker is installed: install starforge-worker-linux-%s beside the StarForge executable or set STARFORGE_SOURCE to the matching source checkout",
+		targetPlatform.Architecture,
+		targetPlatform.GoArch(),
+	)
+}
+
+func buildWorkerFromSource(ctx context.Context, sourceDirectory string, targetPlatform platform.Spec) (string, func(), error) {
 	temporaryDir, err := os.MkdirTemp("", "starforge-worker-*")
 	if err != nil {
 		return "", func() {}, err
@@ -62,17 +82,40 @@ func buildWorker(ctx context.Context, targetPlatform platform.Spec) (string, fun
 	return destination, cleanup, nil
 }
 
-func isStaticELF(path string) (bool, error) {
+func installedWorkerCandidates(executable string, targetPlatform platform.Spec) []string {
+	name := "starforge-worker-linux-" + targetPlatform.GoArch()
+	if override := os.Getenv("STARFORGE_WORKER_" + strings.ToUpper(targetPlatform.GoArch())); override != "" {
+		return []string{override}
+	}
+	directory := filepath.Dir(executable)
+	return []string{
+		filepath.Join(directory, name),
+		filepath.Join(directory, "starforge-workers", name),
+		filepath.Join(filepath.Dir(directory), "lib", "starforge", name),
+	}
+}
+
+func validateWorker(path string, targetPlatform platform.Spec) error {
 	file, err := elf.Open(path)
 	if err != nil {
-		return false, fmt.Errorf("inspecting worker executable: %w", err)
+		return fmt.Errorf("inspecting appliance worker %s: %w", path, err)
 	}
 	defer file.Close()
+	wantMachine := elf.EM_X86_64
+	if targetPlatform.Resolve().Architecture == platform.ArchitectureAArch64 {
+		wantMachine = elf.EM_AARCH64
+	}
+	if file.Machine != wantMachine {
+		return fmt.Errorf("appliance worker %s is for %s, not %s", path, file.Machine, targetPlatform.Architecture)
+	}
 	libraries, err := file.ImportedLibraries()
 	if err != nil {
-		return false, fmt.Errorf("inspecting worker linkage: %w", err)
+		return fmt.Errorf("inspecting appliance worker linkage: %w", err)
 	}
-	return len(libraries) == 0, nil
+	if len(libraries) != 0 {
+		return fmt.Errorf("appliance worker %s is dynamically linked; workers must be built with CGO_ENABLED=0", path)
+	}
+	return nil
 }
 
 func sourceRoot() (string, error) {

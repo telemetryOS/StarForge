@@ -744,6 +744,12 @@ func renderBoot(w *strings.Builder, ctx *actions.BuildContext) {
 		fmt.Fprintf(w, "  entry:  %s\n", e.Name)
 		fmt.Fprintf(w, "    title:   %s\n", e.Title)
 		fmt.Fprintf(w, "    kernel:  %s\n", e.Kernel)
+		if e.KernelFile != "" {
+			fmt.Fprintf(w, "    kernel file: %s\n", e.KernelFile)
+		}
+		if e.InitrdFile != "" {
+			fmt.Fprintf(w, "    initrd file: %s\n", e.InitrdFile)
+		}
 		if e.Path != "" {
 			fmt.Fprintf(w, "    path:    %s\n", e.Path)
 		}

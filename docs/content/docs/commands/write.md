@@ -21,7 +21,7 @@ starforge write <target> <device>
 
 ## Description
 
-Writes partition images to a block device. StarForge creates a GPT partition table and writes each partition image through the Corona writer, which skips known-unallocated filesystem ranges while explicitly zeroing allocated zero ranges on dirty targets. Growable partitions are expanded to fill available space on the device.
+Builds and verifies a sealed full-disk artifact, extracts its recorded partitions, then creates a GPT partition table and writes each partition through the Corona writer. Growable partitions are expanded to fill available space on the device.
 
 The target is built automatically if needed.
 
@@ -42,10 +42,9 @@ starforge export device disk ./release/device.img
 
 - **All data on the target device will be destroyed.** A confirmation prompt is shown before writing.
 - The device path must start with `/dev/` and must be a block device.
-- Requires root access (elevates automatically).
+- Building and verification are unprivileged with the VM executor. StarForge elevates only the final block-device write.
 - Disk image files are created with [`starforge export`](../export/), not `starforge write`.
-- If the target has installer actions (`install-payload`, `install-server`, `install-client`), installer components are bundled after writing.
-- Set `STARFORGE_TMPDIR` to place installer-bundling scratch data on a filesystem with sufficient capacity. This does not change temporary directories inside the target root filesystem.
+- Installer components are already present in the sealed artifact before the physical write starts.
 - Growable partitions (size ending with `+` in `partition-add`) expand to fill remaining device space.
 
 ## See Also

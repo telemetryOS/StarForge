@@ -70,8 +70,8 @@ starforge export device partitions ./release/ --format corona
 ## Notes
 
 - The target is built automatically if needed.
-- Requires root access (elevates automatically).
-- Without an output argument, disk images are written to `.starforge/<target>/disk.img` or `.starforge/<target>/disk.corona`, and partition images stay in `.starforge/<target>/`.
+- Export is unprivileged and verifies the sealed artifact before copying or extracting it.
+- Without an output argument, exported files are written below the target's architecture-scoped artifact directory.
 - The default `disk` image format is suitable for flashing with `dd` or disk imaging tools.
 - The `partitions` type is useful for OTA update systems or custom deployment pipelines.
 

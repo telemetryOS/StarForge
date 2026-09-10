@@ -90,7 +90,7 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 		// -G: skip copying host pacman keyring (we initialized our own above)
 		// -M: skip copying host mirrorlist (our config uses direct Server entries)
 		args := append([]string{"-C", confFile, "-c", "-G", "-M", rootfs}, names...)
-		if err := run("pacstrap", args...); err != nil {
+		if err := runTarget("pacstrap", args...); err != nil {
 			return err
 		}
 	} else {
@@ -100,7 +100,7 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 			fmt.Sprintf("    pacstrap %s", dimStyle.Render("(base only)")),
 			"    pacstrap (base only)",
 		)
-		if err := run("pacstrap", "-C", confFile, "-c", "-G", "-M", rootfs); err != nil {
+		if err := runTarget("pacstrap", "-C", confFile, "-c", "-G", "-M", rootfs); err != nil {
 			return err
 		}
 	}
@@ -148,7 +148,7 @@ func (b *Builder) phasePackages(ctx *actions.BuildContext, rootfs string) error 
 		fmt.Sprintf("    gpgconf %s", dimStyle.Render("--kill gpg-agent")),
 		"    gpgconf --kill gpg-agent",
 	)
-	run("arch-chroot", rootfs, "gpgconf", "--homedir", "/etc/pacman.d/gnupg", "--kill", "gpg-agent")
+	runTarget("arch-chroot", rootfs, "gpgconf", "--homedir", "/etc/pacman.d/gnupg", "--kill", "gpg-agent")
 
 	// Install pinned packages from the Arch Linux Archive
 	for _, pkg := range pinned {

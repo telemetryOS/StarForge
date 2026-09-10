@@ -1,18 +1,34 @@
 package appliance
 
 import (
+	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/telemetryos/starforge/platform"
 	"github.com/telemetryos/starforge/worker"
 )
+
+type temporarilyUnavailableWriter struct {
+	remainingFailures int
+	buffer            bytes.Buffer
+}
+
+func (w *temporarilyUnavailableWriter) Write(data []byte) (int, error) {
+	if w.remainingFailures > 0 {
+		w.remainingFailures--
+		return 0, syscall.EAGAIN
+	}
+	return w.buffer.Write(data)
+}
 
 func TestNormalizedArchivePath(t *testing.T) {
 	tests := []struct {
@@ -46,12 +62,14 @@ func TestCreateInitramfsContainsExactWorkerAndJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	job := worker.Job{
-		Target: "device-arm64",
+		Protocol: worker.ProtocolVersion,
+		Target:   "device-arm64",
 		Platform: platform.Spec{
 			Architecture: platform.ArchitectureAArch64,
 			Machine:      platform.MachineGenericUEFI,
 			Distribution: platform.DistributionArchLinuxARM,
 		},
+		Environment: map[string]string{"EDGE_RELEASE_CHANNEL": "beta"},
 	}
 	path := filepath.Join(directory, "initramfs.gz")
 	if err := createInitramfs(path, workerPath, job); err != nil {
@@ -67,6 +85,43 @@ func TestCreateInitramfsContainsExactWorkerAndJob(t *testing.T) {
 	}
 	if actual.Target != job.Target || actual.Platform.Resolve() != job.Platform.Resolve() {
 		t.Fatalf("job = %#v, want %#v", actual, job)
+	}
+	if actual.Environment["EDGE_RELEASE_CHANNEL"] != "beta" {
+		t.Fatalf("environment = %#v", actual.Environment)
+	}
+}
+
+func TestInstalledWorkerCandidates(t *testing.T) {
+	t.Setenv("STARFORGE_WORKER_ARM64", "")
+	executable := filepath.Join(string(filepath.Separator), "opt", "starforge", "bin", "starforge")
+	candidates := installedWorkerCandidates(executable, platform.Spec{Architecture: platform.ArchitectureAArch64})
+	want := []string{
+		filepath.Join(string(filepath.Separator), "opt", "starforge", "bin", "starforge-worker-linux-arm64"),
+		filepath.Join(string(filepath.Separator), "opt", "starforge", "bin", "starforge-workers", "starforge-worker-linux-arm64"),
+		filepath.Join(string(filepath.Separator), "opt", "starforge", "lib", "starforge", "starforge-worker-linux-arm64"),
+	}
+	if fmt.Sprint(candidates) != fmt.Sprint(want) {
+		t.Fatalf("candidates = %v, want %v", candidates, want)
+	}
+}
+
+func TestInstalledWorkerOverride(t *testing.T) {
+	t.Setenv("STARFORGE_WORKER_AMD64", "/workers/starforge-amd64")
+	candidates := installedWorkerCandidates("/usr/bin/starforge", platform.Spec{Architecture: platform.ArchitectureX86_64})
+	if len(candidates) != 1 || candidates[0] != "/workers/starforge-amd64" {
+		t.Fatalf("candidates = %v", candidates)
+	}
+}
+
+func TestRetryingWriterHandlesTemporarilyUnavailableOutput(t *testing.T) {
+	destination := &temporarilyUnavailableWriter{remainingFailures: 2}
+	writer := retryingWriter{ctx: context.Background(), writer: destination}
+
+	if _, err := writer.Write([]byte("worker output")); err != nil {
+		t.Fatal(err)
+	}
+	if destination.buffer.String() != "worker output" {
+		t.Fatalf("output = %q", destination.buffer.String())
 	}
 }
 

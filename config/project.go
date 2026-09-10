@@ -124,6 +124,25 @@ func (p *Project) Validate() error {
 	return nil
 }
 
+// ReferencedHostEnvironment returns host environment overrides explicitly
+// referenced by project target args. VM builds forward only these named values
+// to the worker, including values used by recursively built dependencies,
+// rather than exposing the coordinator's entire environment.
+func (p *Project) ReferencedHostEnvironment() map[string]string {
+	values := map[string]string{}
+	for _, target := range p.Targets {
+		for _, value := range target.Args {
+			_ = os.Expand(value, func(name string) string {
+				if resolved, ok := os.LookupEnv(name); ok {
+					values[name] = resolved
+				}
+				return ""
+			})
+		}
+	}
+	return values
+}
+
 // BuildDir returns the path to the .starforge build artifacts directory.
 func (p *Project) BuildDir() string {
 	if p.BuildRoot != "" {

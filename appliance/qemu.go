@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
 
 	"github.com/telemetryos/starforge/platform"
 	"github.com/telemetryos/starforge/worker"
@@ -34,7 +37,7 @@ func runQEMU(ctx context.Context, request launchRequest) (*worker.Result, error)
 	command := exec.CommandContext(ctx, binary, args...)
 	capture := &resultCapture{}
 	command.Stdin = os.Stdin
-	command.Stdout = io.MultiWriter(os.Stdout, capture)
+	command.Stdout = io.MultiWriter(retryingWriter{ctx: ctx, writer: os.Stdout}, capture)
 	command.Stderr = os.Stderr
 	if err := command.Run(); err != nil {
 		if ctx.Err() != nil {
@@ -56,6 +59,34 @@ func runQEMU(ctx context.Context, request launchRequest) (*worker.Result, error)
 		return nil, fmt.Errorf("builder VM returned no build result")
 	}
 	return result, nil
+}
+
+type retryingWriter struct {
+	ctx    context.Context
+	writer io.Writer
+}
+
+func (w retryingWriter) Write(data []byte) (int, error) {
+	written := 0
+	for written < len(data) {
+		n, err := w.writer.Write(data[written:])
+		written += n
+		if err == nil {
+			if n == 0 {
+				return written, io.ErrNoProgress
+			}
+			continue
+		}
+		if !errors.Is(err, syscall.EAGAIN) && !errors.Is(err, syscall.EWOULDBLOCK) {
+			return written, err
+		}
+		select {
+		case <-w.ctx.Done():
+			return written, w.ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	return written, nil
 }
 
 func buildLaunchCommand(request launchRequest) (string, []string, error) {

@@ -75,7 +75,7 @@ starforge inspect device boot --layers
 
 ## Notes
 
-- Requires root access (re-execs under `sudo` if needed).
+- Runs entirely from project configuration and does not require root access.
 - Does not require a prior build.
 
 ## See Also

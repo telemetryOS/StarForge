@@ -3,7 +3,7 @@ title: "Building & Testing"
 weight: 15
 ---
 
-This page covers the full build-test-debug cycle: building targets, understanding the build pipeline and caching, inspecting resolved configuration, testing in QEMU, and interactive debugging with chroot.
+This page covers the full build-test-debug cycle: building targets, understanding the build pipeline and caching, inspecting resolved configuration, and testing sealed artifacts in QEMU.
 
 ## Building
 
@@ -13,7 +13,7 @@ Build a target with the [`starforge build`](../../commands/build/) command:
 starforge build distribution
 ```
 
-**First build:** All 9 phases run in sequence. Vendored dependencies (pacstrap, mkfs, etc.) are downloaded on first use and cached in `~/.local/share/starforge/`. Packages are installed via pacstrap, and all configuration phases execute in order.
+**First build:** StarForge downloads and verifies an architecture-specific bootstrap, generates the managed builder appliance, and runs all 9 phases. Packages are installed via pacstrap, and all configuration phases execute in order.
 
 **Subsequent builds:** StarForge uses overlayfs caching to skip phases whose inputs have not changed. Only modified phases and those that follow them are re-executed. A build where only a late phase (such as services or scripts) changed will skip the earlier phases entirely.
 
@@ -31,7 +31,9 @@ StarForge builds in three stages:
 
 2. **Execute** -- Run the 9 sequential build phases. Each phase reads from the collected `BuildContext` and applies changes to the target rootfs using overlayfs layers. Phases are cached individually so unchanged phases are skipped.
 
-3. **Package** -- Mount all overlayfs layers as a read-only merged view and copy the filesystem into partition images (e.g., `boot.img`, `root.img`). This stage always runs after Execute completes.
+3. **Package** -- Populate the declared GPT partitions in a full-disk image, then seal that artifact with its platform, layout, source hash, size, and SHA-256 digest. This stage always runs after Execute completes.
+
+With the VM executor, privileged filesystem operations, mounts, and target chroots occur only inside the disposable builder VM. The host provides a read-only project disk, a persistent work disk, and a separate output disk. The appliance root itself is an ephemeral QCOW2 overlay.
 
 ## Build Phases
 
@@ -158,60 +160,26 @@ Use `--serial` to attach a serial console for kernel boot messages and direct te
 starforge run distribution --serial
 ```
 
-### Persistent Changes with Overlays
+### Disposable Runtime State
 
-Use `--overlay` to persist changes made inside the VM across reboots:
-
-```bash
-starforge run distribution --overlay testing
-```
-
-The overlay creates a copy of the partition images in `.starforge/<target>/overlays/testing/`. Changes made inside the VM are written to these copies, preserving the original build output.
-
-## Interactive Debugging with Chroot
-
-The [`starforge chroot`](../../commands/chroot/) command enters the built filesystem in an arch-chroot environment for interactive debugging:
+Every run uses QEMU's disposable snapshot mode:
 
 ```bash
-starforge chroot distribution
+starforge run distribution
 ```
 
-This mounts the overlayfs layers and drops you into a root shell inside the target filesystem. You can inspect files, run commands, and test configuration.
+The VM never modifies the sealed artifact. Changes made during the session are discarded when QEMU exits. Put a desired change into a layer and rebuild it so the result remains reproducible.
 
-### Chroot with Overlay
+## Interactive Debugging
 
-Use `--overlay` to make persistent changes that survive across chroot sessions:
+Use the target VM's serial console, graphical console, or SSH service to debug the actual booted system:
 
 ```bash
-starforge chroot distribution --overlay debug
+starforge run --serial distribution
+ssh -p 2222 localhost
 ```
 
-Without `--overlay`, changes are discarded when the chroot exits.
-
-### Running Specific Commands
-
-Pass a command to execute it directly instead of entering an interactive shell:
-
-```bash
-starforge chroot distribution -- pacman -Q
-starforge chroot distribution -- systemctl list-unit-files
-```
-
-## Named Overlays
-
-Named overlays provide persistent writable copies of the build output. They are used by both `starforge run --overlay` and `starforge chroot --overlay`.
-
-Overlays are stored in `.starforge/<target>/overlays/<name>/` as copies of the partition images. Multiple named overlays can coexist for different testing scenarios:
-
-```bash
-# Create separate overlays for different test scenarios
-starforge run distribution --overlay baseline
-starforge run distribution --overlay with-updates
-```
-
-**Invalidation:** When the underlying build changes (a new `starforge build` runs), named overlays are automatically invalidated and recreated from the fresh partition images on next use.
-
-**Naming rules:** Overlay names must match `^[a-zA-Z0-9][a-zA-Z0-9_-]*$` (alphanumeric, hyphens, and underscores; must start with an alphanumeric character).
+This tests the complete firmware, bootloader, kernel, initramfs, service, and runtime path. The public mount, unmount, and chroot workflow has been removed.
 
 ## Build Directory Structure
 
@@ -225,18 +193,21 @@ All build artifacts are stored in `.starforge/` within the project root. This di
 │   │   ├── 0-preinstall/upper/  # Phase 0 filesystem delta
 │   │   ├── 1-packages/upper/    # Phase 1 filesystem delta
 │   │   └── ...
-│   ├── overlays/                # Named overlays (from --overlay flag)
-│   │   └── <name>/             # Copies of partition images with persistent changes
-│   ├── boot.img                 # Partition images (build output)
-│   ├── root.img
-│   └── ...
+│   ├── artifacts/
+│   │   └── <arch>/<machine>/<distribution>/
+│   │       ├── disk.raw         # Sealed full-disk artifact
+│   │       └── artifact.json    # Platform, source hash, size, and digest
+│   └── ...                       # Native executor working state, when used
+├── vm/
+│   └── <arch>/<distribution>/
+│       └── work.raw              # Persistent builder package and phase cache
 ├── cache/
 │   ├── sources/                 # Cached git repos and archives
 │   ├── remote/                  # Cached remote HTTP layers
 │   └── downloads/               # Cached individual file downloads
 ```
 
-Vendored build tools (pacstrap, mkfs, etc.) are stored separately in `~/.local/share/starforge/`, not inside the project directory.
+Downloaded builder-appliance inputs and generated immutable roots are stored in the user's StarForge cache, outside the project directory. Native-executor tools, when used, remain in StarForge's user data directory.
 
 ## See Also
 
@@ -246,4 +217,3 @@ Vendored build tools (pacstrap, mkfs, etc.) are stored separately in `~/.local/s
 - [`starforge build`](../../commands/build/) -- Build command reference.
 - [`starforge inspect`](../../commands/inspect/) -- Inspect command reference.
 - [`starforge run`](../../commands/run/) -- Run command reference.
-- [`starforge chroot`](../../commands/chroot/) -- Chroot command reference.

@@ -39,4 +39,10 @@ func TestArchLinuxPortsTrustIsPinned(t *testing.T) {
 	if len(keys) != 1 || len(keys[0].Fingerprint) != 40 || keys[0].URL == "" {
 		t.Fatalf("unexpected ports trust definition: %#v", keys)
 	}
+	if keyrings := backend.PopulateKeyrings(); len(keyrings) != 1 || keyrings[0] != "archlinux" {
+		t.Fatalf("unexpected ports distribution keyrings: %#v", keyrings)
+	}
+	if packages := backend.RequiredPackages(); len(packages) != 1 || packages[0] != "archlinux-keyring" {
+		t.Fatalf("unexpected ports trust packages: %#v", packages)
+	}
 }

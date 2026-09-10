@@ -29,9 +29,10 @@ var PhaseNames = []string{
 	"8-scripts",
 }
 
-// CacheVersion is incremented when the overlay mount options or cache
-// format changes. Caches with a different version are automatically cleaned.
-const CacheVersion = 3
+// CacheVersion is incremented when the overlay format or phase behavior
+// changes in a way that existing phase hashes cannot represent. Caches with a
+// different version are automatically cleaned.
+const CacheVersion = 4
 
 // PackagingHashVersion is mixed into HashPackaging output. Bump it whenever
 // packaging-time logic changes in a way that wouldn't otherwise be reflected

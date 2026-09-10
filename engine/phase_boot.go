@@ -88,8 +88,14 @@ func (b *Builder) writeBootEntry(ctx *actions.BuildContext, rootfs string, entry
 	// engine does NOT auto-stage from /boot to a different stageDir; layers
 	// that need a frozen copy on a different partition should mount that
 	// partition at /boot, or copy the files explicitly via file-copy.
-	kernelFile := "vmlinuz-" + entry.Kernel
-	initrdFile := "initramfs-" + entry.Kernel + ".img"
+	kernelFile, err := bootFileName(entry.KernelFile, "vmlinuz-"+entry.Kernel, "kernel_file")
+	if err != nil {
+		return err
+	}
+	initrdFile, err := bootFileName(entry.InitrdFile, "initramfs-"+entry.Kernel+".img", "initrd_file")
+	if err != nil {
+		return err
+	}
 
 	if err := requireBootFile(rootfs, stageDir, kernelFile, entry.Kernel); err != nil {
 		return err
@@ -130,6 +136,23 @@ func (b *Builder) writeBootEntry(ctx *actions.BuildContext, rootfs string, entry
 		name += ".conf"
 	}
 	return writeFile(filepath.Join(entryDir, name), content.String())
+}
+
+// bootFileName resolves an optional boot-entry filename override. Paths are
+// relative to the entry's stage directory and may include subdirectories, but
+// cannot escape onto another part of the target filesystem.
+func bootFileName(override, fallback, field string) (string, error) {
+	if override == "" {
+		return fallback, nil
+	}
+	if filepath.IsAbs(override) {
+		return "", fmt.Errorf("%s %q must be relative to the boot entry path", field, override)
+	}
+	clean := filepath.Clean(override)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%s %q must name a file within the boot entry path", field, override)
+	}
+	return clean, nil
 }
 
 // resolveExtended returns the effective extended flag for an entry. If the

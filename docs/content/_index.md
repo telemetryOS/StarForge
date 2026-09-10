@@ -45,11 +45,11 @@ layout: hextra-home
   >}}
   {{< hextra/feature-card
     title="Test Instantly in QEMU"
-    subtitle="Boot your image in a VM with one command. SSH in on port 2222, attach a serial console, or persist changes with named overlays."
+    subtitle="Boot a sealed image in a sibling VM with one command. SSH in on port 2222 or attach a serial console; every run uses a disposable snapshot."
   >}}
   {{< hextra/feature-card
     title="Runs on Any Linux"
-    subtitle="Build tools are vendored automatically --- pacstrap, pacman, mkfs, and more. No Arch installation needed on your build machine."
+    subtitle="Build x86-64 or ARM64 targets inside managed QEMU appliances. No Arch installation or root access is needed on your build machine."
   >}}
   {{< hextra/feature-card
     title="Share Layers Across Projects"

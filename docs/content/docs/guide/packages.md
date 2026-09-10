@@ -3,7 +3,7 @@ title: "Packages"
 weight: 4
 ---
 
-StarForge installs packages using `pacstrap`, the standard Arch Linux tool for bootstrapping a root filesystem. Packages are declared across layers using the `pacman-add` action and optionally pruned with `pacman-remove`.
+StarForge installs packages using `pacstrap`, the standard Arch Linux tool for bootstrapping a root filesystem. Packages are resolved through the target platform's distribution backend, which supplies repositories and signing trust. Packages are declared across layers using the `pacman-add` action and optionally pruned with `pacman-remove`.
 
 ## Adding Packages with `pacman-add`
 

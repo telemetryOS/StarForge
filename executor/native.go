@@ -35,7 +35,10 @@ func (*Native) Build(ctx context.Context, request BuildRequest) (*BuildResult, e
 	if err := validateNativeArchitecture(request); err != nil {
 		return nil, err
 	}
-	builder := engine.NewBuilder(request.Project)
+	builder, err := newNativeBuilder(request)
+	if err != nil {
+		return nil, err
+	}
 	if err := builder.Build(request.TargetName, request.Target, request.Clean); err != nil {
 		return nil, err
 	}
@@ -60,7 +63,10 @@ func (*Native) EnsureArtifact(ctx context.Context, request BuildRequest) (*Artif
 		return nil, err
 	}
 
-	builder := engine.NewBuilder(request.Project)
+	builder, err := newNativeBuilder(request)
+	if err != nil {
+		return nil, err
+	}
 	var buildContextErr error
 	var buildContext *actions.BuildContext
 	if request.Clean {
@@ -140,4 +146,15 @@ func validateNativeArchitecture(request BuildRequest) error {
 		return fmt.Errorf("native executor cannot build %s on %s; use --executor=vm", targetArchitecture, hostArchitecture)
 	}
 	return nil
+}
+
+func newNativeBuilder(request BuildRequest) (*engine.Builder, error) {
+	hostArchitecture, err := platform.HostArchitecture()
+	if err != nil {
+		return nil, err
+	}
+	if hostArchitecture == platform.ArchitectureAArch64 {
+		return engine.NewBuilderWithHostTools(request.Project, engine.SystemHostTools{}), nil
+	}
+	return engine.NewBuilder(request.Project), nil
 }
