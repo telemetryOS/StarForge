@@ -3,7 +3,7 @@
 Bump this program to Go 1.27.1 and clear govulncheck / lint / test failures found during the fleet bump.
 
 **Status:** In Review
-**PR:** TBD
+**PR:** https://github.com/telemetryOS/StarForge/pull/2
 **Lane:** full (`lite-lane.sh classify --repos 39` → full; toolchain/dependency bump)
 
 ## Next Agent Prompt
