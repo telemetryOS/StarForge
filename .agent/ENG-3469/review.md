@@ -207,3 +207,9 @@ the CI condition is vacuous.
 
 Closure status above still governs merging: a person accepts the
 post-`bc0833c` adversary fixes or reviews the current head themselves.
+
+Human acceptance: Mucahit Kacmaz accepted the post-bc0833c fixes at 762b2b6
+and e9171cf as review-closed on 2026-09-23 (explicitly selected the acceptance
+option in the agent session, closing the three-iteration review gap).
+
+With this acceptance recorded, the closure hold above is lifted.
