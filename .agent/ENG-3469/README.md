@@ -11,7 +11,7 @@ generated pacman.conf with `Architecture = aarch64`.
 live-exercised on a real aarch64 build; review closure of the post-iteration-3
 fixes is with the PR reviewer (see `review.md` → Closure status). Do not merge
 without that closure.
-**PR:** <pending — filled on open>
+**PR:** https://github.com/telemetryOS/StarForge/pull/3
 
 | Doc | What |
 | --- | --- |
