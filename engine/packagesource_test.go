@@ -100,6 +100,12 @@ Server = http://mirror.archlinuxarm.org/$arch/$repo
 
 [extra]
 Server = http://mirror.archlinuxarm.org/$arch/$repo
+
+[alarm]
+Server = http://mirror.archlinuxarm.org/$arch/$repo
+
+[aur]
+Server = http://mirror.archlinuxarm.org/$arch/$repo
 `
 	assertConfFile(t, path, want)
 }
@@ -492,5 +498,82 @@ func TestRequireBinfmt(t *testing.T) {
 	}
 	if err := RequireBinfmt("armv7h"); err == nil {
 		t.Fatal("unknown arch must error")
+	}
+}
+
+// --- binfmt registration parsing ---
+
+func writeBinfmtEntry(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBinfmtHandlerRegisteredIn_RequiresEnabledAndFixBinary(t *testing.T) {
+	cases := []struct {
+		name    string
+		entry   string
+		content string
+		want    bool
+	}{
+		{
+			name:    "enabled qemu handler with F flag",
+			entry:   "qemu-aarch64",
+			content: "enabled\ninterpreter /usr/bin/qemu-aarch64\nflags: POCF\n",
+			want:    true,
+		},
+		{
+			name:    "host-specific name recognized",
+			entry:   "aarch64",
+			content: "enabled\ninterpreter /usr/bin/qemu-aarch64\nflags: POCF\n",
+			want:    true,
+		},
+		{
+			name:    "disabled registration rejected",
+			entry:   "qemu-aarch64",
+			content: "disabled\ninterpreter /usr/bin/qemu-aarch64\nflags: POCF\n",
+			want:    false,
+		},
+		{
+			name:    "missing fix_binary flag rejected",
+			entry:   "qemu-aarch64",
+			content: "enabled\ninterpreter /usr/bin/qemu-aarch64\nflags: OC\n",
+			want:    false,
+		},
+		{
+			name:    "unrelated arch rejected",
+			entry:   "qemu-riscv64",
+			content: "enabled\ninterpreter /usr/bin/qemu-riscv64\nflags: POCF\n",
+			want:    false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeBinfmtEntry(t, dir, c.entry, c.content)
+			if got := binfmtHandlerRegisteredIn(dir, "aarch64"); got != c.want {
+				t.Fatalf("binfmtHandlerRegisteredIn = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestBinfmtHandlerRegisteredIn_MissingDirectory(t *testing.T) {
+	if binfmtHandlerRegisteredIn(filepath.Join(t.TempDir(), "absent"), "aarch64") {
+		t.Fatal("missing binfmt directory must report not registered")
+	}
+}
+
+func TestRequireHostToolchain(t *testing.T) {
+	err := RequireHostToolchain()
+	if runtime.GOARCH == "amd64" {
+		if err != nil {
+			t.Fatalf("amd64 hosts run the vendored toolchain: %v", err)
+		}
+		return
+	}
+	if err == nil {
+		t.Fatalf("non-amd64 host (%s) must fail loudly", runtime.GOARCH)
 	}
 }

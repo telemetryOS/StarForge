@@ -65,7 +65,7 @@ Each target is a named build profile with an ordered list of layers and optional
 
 Note that pinned packages (`pacman-add` entries with a `name=version` value) require a versioned package archive; Arch Linux ARM has none, so a target with `arch: aarch64` must use unpinned packages only.
 
-Building a target whose `arch` differs from the build host requires binfmt emulation (qemu-user, e.g. `qemu-user-static` with binfmt registration), because build phases chroot into the target rootfs. The build fails with an explicit error when emulation is missing.
+Building a target whose `arch` differs from the build host requires binfmt emulation (qemu-user, e.g. `qemu-user-static` with binfmt registration), because build phases chroot into the target rootfs. The build fails with an explicit error when emulation is missing. The build host itself must be x86_64: StarForge's vendored build toolchain (bash, pacman, pacstrap) is x86_64 Arch Linux.
 
 Target `args` provide initial variable values that layers can reference via `${{ var_name }}` substitution and declare as required with `imports`. Arg values can be hardcoded strings or reference host environment variables:
 

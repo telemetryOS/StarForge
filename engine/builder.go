@@ -718,7 +718,11 @@ func (b *Builder) execute(ctx *actions.BuildContext, buildDir string, overlay *O
 	}
 
 	// Build phases chroot into the target rootfs; fail loudly before any
-	// filesystem work when cross-arch emulation is missing.
+	// filesystem work when the build host cannot run the vendored x86_64
+	// toolchain or lacks emulation for the target arch.
+	if err := RequireHostToolchain(); err != nil {
+		return err
+	}
 	if err := RequireBinfmt(ctx.Arch); err != nil {
 		return err
 	}

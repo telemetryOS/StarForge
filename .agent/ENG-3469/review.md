@@ -90,4 +90,32 @@ CLI smoke re-run unchanged for x86_64/aarch64 inspect paths.
 
 ## Adversary pass — iteration 2
 
-<pending>
+Reviewed head: `0154cb7` (branch `mucahit/eng-3469`, integration base
+`origin/master` @ 1b60fca). Lane: Codex (`--lane codex`; the auto ladder's
+Cursor lane was rejected by team policy: "Your team restricts model selection
+to Auto"), read-only, `SWEEP=clean`, ELAPSED=383s.
+
+Verdict: `changes_requested` — 2 high, 1 medium.
+
+- **F2-1 (high) — accepted, fixed.** `alarmSource.Repos()` omitted ALARM's
+  `alarm` (ARM enablement/board packages) and `aur` repositories. Verified
+  live: `aarch64/alarm/alarm.db` and `aarch64/aur/aur.db` both return HTTP 200.
+  `Repos()` now returns `core, extra, alarm, aur`, matching the stock Arch
+  Linux ARM pacman.conf; `TestPacmanConf_ArchARM` asserts all four sections.
+- **F2-2 (high) — accepted, fixed.** The preflight assumed a same-arch host
+  needs no emulation, but all vendored host tooling is x86_64 Arch Linux, so
+  an arm64 host cannot run it. Added `RequireHostToolchain()` (called in
+  `Builder.execute` before `RequireBinfmt`) which fails loudly on non-amd64
+  hosts, and corrected the binfmt error text, which previously suggested
+  building on an aarch64 host. Test: `TestRequireHostToolchain`.
+- **F2-3 (medium) — accepted, fixed.** `binfmtHandlerRegistered` was a
+  filename-presence check. It now reads each registration, requires the first
+  line to be exactly `enabled`, requires the `F` (fix_binary) flag that makes
+  emulated exec work inside a chroot, and matches the handler by name or
+  registration content (so WSL's `aarch64` entry is recognized alongside
+  `qemu-aarch64`). Injectable via `binfmtHandlerRegisteredIn` with fixture
+  tests for enabled, disabled, missing-F, unrelated-arch, and
+  missing-directory cases.
+
+Verification after fixes: `go build ./...` clean; `go test ./...` all green;
+CLI smoke re-run unchanged.

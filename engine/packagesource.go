@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -98,10 +99,21 @@ var goArchByPacmanArch = map[string]string{
 	"aarch64": "arm64",
 }
 
+// RequireHostToolchain fails loudly on hosts that cannot run the vendored
+// x86_64 Arch Linux build tooling (bash, pacman, pacstrap, arch-chroot).
+// Cross-arch *targets* are still supported: only the target chroot needs
+// emulation, never the host toolchain.
+func RequireHostToolchain() error {
+	if runtime.GOARCH != "amd64" {
+		return fmt.Errorf("StarForge vendors x86_64 Arch Linux build tools (bash, pacman, pacstrap), which cannot run on a %s host — build on an x86_64 host", runtime.GOARCH)
+	}
+	return nil
+}
+
 // RequireBinfmt fails loudly when the target arch differs from the build
-// host and no binfmt handler is registered. Build phases chroot into the
-// target rootfs (pacman-key, locale-gen, useradd, systemctl, bootctl), so
-// without qemu-user emulation the target's binaries fail to exec.
+// host and no usable binfmt handler is registered. Build phases chroot into
+// the target rootfs (pacman-key, locale-gen, useradd, systemctl, bootctl),
+// so without emulation the target's binaries fail to exec.
 func RequireBinfmt(arch string) error {
 	goarch := goArchByPacmanArch[arch]
 	if goarch == "" {
@@ -113,22 +125,66 @@ func RequireBinfmt(arch string) error {
 	if binfmtHandlerRegistered(arch) {
 		return nil
 	}
-	return fmt.Errorf("target arch %s cannot chroot on this %s host: binfmt emulation is not registered — install qemu-user with binfmt support (e.g. qemu-user-static) or build on a %s host", arch, runtime.GOARCH, arch)
+	return fmt.Errorf("target arch %s cannot chroot on this %s host: no enabled, chroot-capable binfmt handler for %s is registered — install qemu-user emulation (e.g. qemu-user-static, registered with the F flag)", arch, runtime.GOARCH, arch)
 }
 
-// binfmtHandlerRegistered reports whether a binfmt_misc handler exists for
-// the given pacman architecture (e.g. qemu-aarch64, qemu-x86_64).
+// binfmtHandlerRegistered reports whether an enabled, chroot-capable
+// binfmt_misc handler for the given pacman architecture is registered. The
+// handler must be enabled and carry the F flag (fix_binary), which is what
+// makes emulated exec work inside a chroot; the entry is matched by handler
+// name or registration content so host-specific names (e.g. WSL's "aarch64")
+// are recognized as well as the usual qemu-* names.
 func binfmtHandlerRegistered(arch string) bool {
-	entries, err := os.ReadDir("/proc/sys/fs/binfmt_misc")
+	return binfmtHandlerRegisteredIn("/proc/sys/fs/binfmt_misc", arch)
+}
+
+// binfmtHandlerRegisteredIn is binfmtHandlerRegistered against a given
+// binfmt_misc directory (injectable for tests).
+func binfmtHandlerRegisteredIn(dir, arch string) bool {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false
 	}
+
+	tokens := []string{strings.ToLower(arch)}
+	if goarch := goArchByPacmanArch[arch]; goarch != "" {
+		tokens = append(tokens, strings.ToLower(goarch))
+	}
+
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "qemu-"+arch) {
-			return true
+		if e.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		reg := string(data)
+		lines := strings.Split(reg, "\n")
+		if len(lines) == 0 || strings.TrimSpace(lines[0]) != "enabled" {
+			continue
+		}
+		if !strings.Contains(binfmtFlags(reg), "F") {
+			continue
+		}
+		haystack := strings.ToLower(e.Name() + "\n" + reg)
+		for _, token := range tokens {
+			if strings.Contains(haystack, token) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// binfmtFlags returns the flags value from a binfmt_misc registration.
+func binfmtFlags(reg string) string {
+	for _, line := range strings.Split(reg, "\n") {
+		if after, ok := strings.CutPrefix(line, "flags:"); ok {
+			return strings.TrimSpace(after)
+		}
+	}
+	return ""
 }
 
 // --- x86_64 Arch Linux ---
@@ -214,8 +270,11 @@ func (s alarmSource) MirrorURL() string {
 	}
 	return alarmMirrorURL
 }
-func (s alarmSource) ServerTemplate() string  { return s.MirrorURL() + "/$arch/$repo" }
-func (s alarmSource) Repos() []string         { return []string{"core", "extra"} }
+func (s alarmSource) ServerTemplate() string { return s.MirrorURL() + "/$arch/$repo" }
+
+// ALARM publishes core, extra, alarm (ARM enablement and board packages)
+// and aur, matching the stock Arch Linux ARM pacman.conf.
+func (s alarmSource) Repos() []string         { return []string{"core", "extra", "alarm", "aur"} }
 func (s alarmSource) KeyringPackage() string  { return "archlinuxarm-keyring" }
 func (s alarmSource) KeyringName() string     { return "archlinuxarm" }
 func (s alarmSource) ArchiveBaseURL() string  { return "" } // no versioned archive
