@@ -158,7 +158,7 @@ func TestResolvePartitionSizes_SingleGrow(t *testing.T) {
 func TestResolvePartitionSizes_MultipleGrow(t *testing.T) {
 	parts := []actions.PartitionDef{
 		{Name: "boot", Size: 256 << 20, Grow: false},
-		{Name: "root", Size: 0, Grow: true},   // 100% growable
+		{Name: "root", Size: 0, Grow: true},         // 100% growable
 		{Name: "data", Size: 256 << 20, Grow: true}, // 256M+ growable
 	}
 	diskSize := uint64(16 << 30) // 16G

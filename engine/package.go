@@ -791,6 +791,7 @@ func SavePartitions(parts []actions.PartitionDef, buildDir string) error {
 // BuildResult captures the subset of BuildContext that packaging needs.
 // Saved by Build so EnsurePackaged can avoid re-running Collect.
 type BuildResult struct {
+	Arch            string                      `json:"arch,omitempty"`
 	Partitions      []actions.PartitionDef      `json:"partitions"`
 	Ownerships      []actions.FileOwnershipOp   `json:"ownerships,omitempty"`
 	Permissions     []actions.FilePermissionOp  `json:"permissions,omitempty"`
@@ -819,6 +820,7 @@ func SaveBuildResult(ctx *actions.BuildContext, buildDir string) error {
 // with all fields populated (partitions, installer defs, ownership ops).
 func buildResultToContext(r *BuildResult) *actions.BuildContext {
 	return &actions.BuildContext{
+		Arch:            r.Arch,
 		Partitions:      r.Partitions,
 		FileOwnerships:  r.Ownerships,
 		FilePermissions: r.Permissions,

@@ -5,9 +5,9 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "starforge",
-	Short: "Declarative Arch Linux OS image builder",
-	Long:  "StarForge builds custom Arch Linux OS images from declarative layer-based recipes.",
+	Use:           "starforge",
+	Short:         "Declarative Arch Linux OS image builder",
+	Long:          "StarForge builds custom Arch Linux OS images from declarative layer-based recipes.",
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }

@@ -2,7 +2,10 @@ package engine
 
 import (
 	"archive/tar"
-	"encoding/json"
+	"bufio"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,76 +13,171 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/klauspost/compress/zstd"
+	"github.com/ulikunitz/xz"
 )
 
 // vendorPkg describes an Arch Linux package to vendor.
 type vendorPkg struct {
 	name   string
-	repo   string   // "core" or "extra"
-	arch   string   // "x86_64" or "any"
-	groups []string // e.g. []string{"build"}, []string{"run"}, []string{"build", "run"}
+	repo   string        // "core" or "extra"
+	arch   string        // "x86_64", "aarch64", or "any"
+	groups []string      // e.g. []string{"build"}, []string{"run"}, []string{"build", "run"}
+	source PackageSource // distro serving the package; nil = x86_64 Arch Linux
+	digest string        // pinned sha256 of the package file; empty = unpinned
+	url    string        // exact package file URL; empty = resolve dynamically
+}
+
+// resolvePkgSource returns the distro a vendored package is fetched from.
+// Static entries are host tooling served by x86_64 Arch Linux regardless of
+// the target arch; per-target entries (keyrings) set source explicitly.
+func (p vendorPkg) resolvePkgSource() PackageSource {
+	if p.source != nil {
+		return p.source
+	}
+	return archLinuxSource{}
 }
 
 // Arch packages to vendor. These are extracted into ~/.local/share/starforge/
 // providing usr/bin/ and usr/lib/ trees.
 var vendorPackages = []vendorPkg{
 	// Orchestration scripts (pacstrap, arch-chroot)
-	{"arch-install-scripts", "extra", "any", []string{"build"}},
+	{"arch-install-scripts", "extra", "any", []string{"build"}, nil, "", ""},
 	// Shell: bash is required by the orchestration scripts and host-side
 	// layer-run/layer-script steps. Vendor it so we never rely on the
 	// host system's /bin/bash.
-	{"bash", "core", "x86_64", []string{"build"}},
-	{"ncurses", "core", "x86_64", []string{"build"}}, // bash runtime dep
+	{"bash", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"ncurses", "core", "x86_64", []string{"build"}, nil, "", ""}, // bash runtime dep
 	// Package manager
-	{"pacman", "core", "x86_64", []string{"build"}},
-	{"pacman-mirrorlist", "core", "any", []string{"build"}},
+	{"pacman", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"pacman-mirrorlist", "core", "any", []string{"build"}, nil, "", ""},
 	// Pacman deps
-	{"gpgme", "core", "x86_64", []string{"build"}},
-	{"libassuan", "core", "x86_64", []string{"build"}},
-	{"libgpg-error", "core", "x86_64", []string{"build"}},
-	{"libarchive", "core", "x86_64", []string{"build"}},
-	{"curl", "core", "x86_64", []string{"build"}},
-	{"libseccomp", "core", "x86_64", []string{"build"}},
-	{"libnghttp2", "core", "x86_64", []string{"build"}},
-	{"libnghttp3", "core", "x86_64", []string{"build"}},
-	{"libidn2", "core", "x86_64", []string{"build"}},
-	{"libpsl", "core", "x86_64", []string{"build"}},
-	{"libssh2", "core", "x86_64", []string{"build"}},
-	{"brotli", "core", "x86_64", []string{"build"}},
-	{"openssl", "core", "x86_64", []string{"build"}},
+	{"gpgme", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libassuan", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libgpg-error", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libarchive", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"curl", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libseccomp", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libnghttp2", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libnghttp3", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libidn2", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libpsl", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libssh2", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"brotli", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"openssl", "core", "x86_64", []string{"build"}, nil, "", ""},
 	// GnuPG (for pacman-key)
-	{"gnupg", "core", "x86_64", []string{"build"}},
-	{"libgcrypt", "core", "x86_64", []string{"build"}},
-	{"libksba", "core", "x86_64", []string{"build"}},
-	{"npth", "core", "x86_64", []string{"build"}},
-	{"pinentry", "core", "x86_64", []string{"build"}},
-	{"gnutls", "core", "x86_64", []string{"build"}},
-	{"nettle", "core", "x86_64", []string{"build"}},
-	{"sqlite", "core", "x86_64", []string{"build"}},
-	{"readline", "core", "x86_64", []string{"build"}},
-	// Arch Linux keyring (for pacman-key --populate on non-Arch hosts)
-	{"archlinux-keyring", "core", "any", []string{"build"}},
+	{"gnupg", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libgcrypt", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libksba", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"npth", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"pinentry", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"gnutls", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"nettle", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"sqlite", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"readline", "core", "x86_64", []string{"build"}, nil, "", ""},
 	// Filesystem tools
-	{"e2fsprogs", "core", "x86_64", []string{"build"}},
-	{"dosfstools", "core", "x86_64", []string{"build"}},
-	{"zstd", "core", "x86_64", []string{"build"}},
+	{"e2fsprogs", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"dosfstools", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"zstd", "core", "x86_64", []string{"build"}, nil, "", ""},
 	// Partitioning
-	{"gptfdisk", "extra", "x86_64", []string{"build"}},
-	{"parted", "extra", "x86_64", []string{"build", "run"}},
+	{"gptfdisk", "extra", "x86_64", []string{"build"}, nil, "", ""},
+	{"parted", "extra", "x86_64", []string{"build", "run"}, nil, "", ""},
 	// Core system utilities: mount, umount, losetup, sfdisk, blockdev,
 	// findmnt, mkswap, lsblk. util-linux-libs (already below) provides
 	// the shared libraries; util-linux adds the binaries.
-	{"util-linux", "core", "x86_64", []string{"build"}},
-	{"libcap", "core", "x86_64", []string{"build"}}, // util-linux dep
-	{"pcre2", "core", "x86_64", []string{"build"}},  // util-linux dep
+	{"util-linux", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libcap", "core", "x86_64", []string{"build"}, nil, "", ""}, // util-linux dep
+	{"pcre2", "core", "x86_64", []string{"build"}, nil, "", ""},  // util-linux dep
 	// Shared library deps for above tools
-	{"util-linux-libs", "core", "x86_64", []string{"build"}},
-	{"popt", "core", "x86_64", []string{"build"}},
-	{"device-mapper", "core", "x86_64", []string{"build", "run"}},
+	{"util-linux-libs", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"popt", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"device-mapper", "core", "x86_64", []string{"build", "run"}, nil, "", ""},
 	// UEFI firmware for QEMU
-	{"edk2-ovmf", "extra", "any", []string{"run"}},
+	{"edk2-ovmf", "extra", "any", []string{"run"}, nil, "", ""},
+}
+
+// Target keyrings are vendored per build: the target distro's signing keys
+// must be present on the build host before pacstrap verifies packages.
+func keyringVendorPkg(src PackageSource) vendorPkg {
+	return vendorPkg{
+		name:   src.KeyringPackage(),
+		repo:   "core",
+		arch:   "any",
+		groups: []string{"build"},
+		source: src,
+		digest: src.KeyringPackageSHA256(),
+		url:    src.KeyringPackageURL(),
+	}
+}
+
+// keyringVendorCheck is the extracted keyring file the vendored
+// pacman-key --populate reads.
+func keyringVendorCheck(src PackageSource) vendorCheck {
+	return vendorCheck{
+		path:   fmt.Sprintf("usr/share/pacman/keyrings/%s.gpg", src.KeyringName()),
+		groups: []string{"build"},
+	}
+}
+
+// verifyPkgDigest checks a downloaded package archive against its pinned
+// sha256 digest.
+func verifyPkgDigest(pkgPath, want string) error {
+	f, err := os.Open(pkgPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	sum := sha256.New()
+	if _, err := io.Copy(sum, f); err != nil {
+		return err
+	}
+	got := hex.EncodeToString(sum.Sum(nil))
+	if got != want {
+		return fmt.Errorf("digest mismatch (got %s, want %s) — if the distro published a newer keyring, update the pinned KeyringPackageSHA256", got, want)
+	}
+	return nil
+}
+
+// extractKeyringPkg extracts a keyring package isolated from the shared
+// vendor tree and copies only usr/share/pacman/keyrings/ files into it.
+// The keyring is the trust root for all later signature verification, so a
+// tampered archive must not be able to overwrite vendored executables.
+func extractKeyringPkg(pkgPath, vendorDir string) error {
+	tmp, err := os.MkdirTemp("", "starforge-keyring-pkg-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+
+	if err := extractPkg(pkgPath, tmp); err != nil {
+		return err
+	}
+
+	srcDir := filepath.Join(tmp, "usr", "share", "pacman", "keyrings")
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return fmt.Errorf("keyring package missing usr/share/pacman/keyrings/: %w", err)
+	}
+	destDir := filepath.Join(vendorDir, "usr", "share", "pacman", "keyrings")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			return fmt.Errorf("keyring package contains unexpected entry %q", e.Name())
+		}
+		data, err := os.ReadFile(filepath.Join(srcDir, e.Name()))
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(destDir, e.Name()), data, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // vendorCheck describes a file whose presence indicates that a group's
@@ -112,12 +210,9 @@ var vendorChecks = []vendorCheck{
 	// Shared device-mapper + parted tools
 	{"usr/bin/partprobe", []string{"build", "run"}},
 	{"usr/bin/dmsetup", []string{"run"}},
-	// Keyring + firmware
-	{"usr/share/pacman/keyrings/archlinux.gpg", []string{"build"}},
+	// Firmware
 	{"usr/share/edk2/x64/OVMF_CODE.4m.fd", []string{"run"}},
 }
-
-const archMirror = "https://geo.mirror.pkgbuild.com"
 
 // VendorDir returns the path to the vendored dependencies directory.
 func VendorDir() string {
@@ -146,11 +241,26 @@ func VendorLibDir() string {
 }
 
 // EnsureDeps checks if vendored dependencies for the requested groups are
-// present and downloads them if not. Groups are "build" and "run".
-func EnsureDeps(groups ...string) error {
+// present and downloads them if not. Groups are "build" and "run". The
+// target arch selects which distro keyring is vendored for the build group
+// (host tooling is always x86_64 Arch Linux).
+func EnsureDeps(arch string, groups ...string) error {
+	src, err := PackageSourceFor(arch)
+	if err != nil {
+		return err
+	}
 	vendorDir := VendorDir()
 
-	if allGroupChecksPresent(vendorDir, groups) {
+	// The keyring package and its extracted-file check come from the
+	// target distro; all other vendor packages and checks are static.
+	pkgs := append([]vendorPkg(nil), vendorPackages...)
+	checks := append([]vendorCheck(nil), vendorChecks...)
+	if containsGroup(groups, "build") {
+		pkgs = append(pkgs, keyringVendorPkg(src))
+		checks = append(checks, keyringVendorCheck(src))
+	}
+
+	if allGroupChecksPresent(vendorDir, checks, groups) {
 		return nil
 	}
 
@@ -166,25 +276,32 @@ func EnsureDeps(groups ...string) error {
 	}
 
 	// Download and extract only packages matching the requested groups
-	for _, pkg := range vendorPackages {
+	for _, pkg := range pkgs {
 		if !matchesAnyGroup(pkg.groups, groups) {
 			continue
 		}
 
 		if err := out.RunWithSpinner(pkg.name, func() error {
-			pkgURL, err := resolvePackageURL(pkg)
-			if err != nil {
-				return fmt.Errorf("resolving %s: %w", pkg.name, err)
-			}
-
-			cachePath := filepath.Join(cacheDir, filepath.Base(pkgURL))
-			if _, err := os.Stat(cachePath); err != nil {
-				if err := downloadFile(pkgURL, cachePath); err != nil {
-					return fmt.Errorf("downloading %s: %w", pkg.name, err)
+			pkgURL := pkg.url
+			if pkgURL == "" {
+				var err error
+				pkgURL, err = pkg.resolvePkgSource().PackageFileURL(pkg.repo, pkg.arch, pkg.name)
+				if err != nil {
+					return fmt.Errorf("resolving %s: %w", pkg.name, err)
 				}
 			}
+			cachePath := filepath.Join(cacheDir, filepath.Base(pkgURL))
+			if err := fetchVendorPackage(pkgURL, cachePath, pkg.digest); err != nil {
+				return fmt.Errorf("%s: %w", pkg.name, err)
+			}
 
-			return extractPkgTarZst(cachePath, vendorDir)
+			// The keyring package is the trust root for every later
+			// verification, so it must not be able to overwrite vendored
+			// executables: extract it isolated and copy only keyring files.
+			if pkg.source != nil {
+				return extractKeyringPkg(cachePath, vendorDir)
+			}
+			return extractPkg(cachePath, vendorDir)
 		}); err != nil {
 			return err
 		}
@@ -198,7 +315,7 @@ func EnsureDeps(groups ...string) error {
 	}
 
 	// Verify only checks relevant to the requested groups
-	missing := checkGroupMissing(vendorDir, groups)
+	missing := checkGroupMissing(vendorDir, checks, groups)
 	if len(missing) > 0 {
 		return fmt.Errorf("vendoring incomplete, missing: %s", strings.Join(missing, ", "))
 	}
@@ -220,10 +337,10 @@ func containsGroup(groups []string, group string) bool {
 	return slices.Contains(groups, group)
 }
 
-// allGroupChecksPresent returns true if all vendorChecks matching the
-// requested groups are present on disk.
-func allGroupChecksPresent(vendorDir string, groups []string) bool {
-	for _, vc := range vendorChecks {
+// allGroupChecksPresent returns true if all checks matching the requested
+// groups are present on disk.
+func allGroupChecksPresent(vendorDir string, checks []vendorCheck, groups []string) bool {
+	for _, vc := range checks {
 		if !matchesAnyGroup(vc.groups, groups) {
 			continue
 		}
@@ -235,9 +352,9 @@ func allGroupChecksPresent(vendorDir string, groups []string) bool {
 }
 
 // checkGroupMissing returns a list of missing files for the requested groups.
-func checkGroupMissing(vendorDir string, groups []string) []string {
+func checkGroupMissing(vendorDir string, checks []vendorCheck, groups []string) []string {
 	var missing []string
-	for _, vc := range vendorChecks {
+	for _, vc := range checks {
 		if !matchesAnyGroup(vc.groups, groups) {
 			continue
 		}
@@ -291,38 +408,16 @@ func patchPacstrap(binDir string) error {
 	return nil
 }
 
-// archPkgInfo is the JSON response from the Arch Linux package API.
-type archPkgInfo struct {
-	Filename string `json:"filename"`
-}
-
-// resolvePackageURL queries the Arch Linux API to get the download URL for a package.
-func resolvePackageURL(pkg vendorPkg) (string, error) {
-	apiURL := fmt.Sprintf("https://archlinux.org/packages/%s/%s/%s/json/", pkg.repo, pkg.arch, pkg.name)
-
-	resp, err := http.Get(apiURL)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("API returned %d for %s", resp.StatusCode, pkg.name)
-	}
-
-	var info archPkgInfo
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return "", fmt.Errorf("parsing API response: %w", err)
-	}
-
-	return fmt.Sprintf("%s/%s/os/x86_64/%s", archMirror, pkg.repo, info.Filename), nil
-}
-
 // downloadFile downloads a URL to a local file.
 // If the download fails, any partially-written file is removed so that
 // a subsequent call does not mistake it for a valid cached download.
 func downloadFile(url, dest string) error {
-	resp, err := http.Get(url)
+	// Stage into a sibling temp file and rename only after a complete
+	// download, so a partial or oversized response never lands in the cache.
+	tmp := dest + ".part"
+	os.Remove(tmp)
+
+	resp, err := httpClient().Get(url)
 	if err != nil {
 		return err
 	}
@@ -332,36 +427,59 @@ func downloadFile(url, dest string) error {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	f, err := os.Create(dest)
+	f, err := os.Create(tmp)
 	if err != nil {
 		return err
 	}
 
-	_, copyErr := io.Copy(f, resp.Body)
+	_, copyErr := io.Copy(f, io.LimitReader(resp.Body, int64(maxPackageDownloadBytes)+1))
+	if copyErr == nil {
+		if info, statErr := f.Stat(); statErr == nil && info.Size() > int64(maxPackageDownloadBytes) {
+			copyErr = fmt.Errorf("package archive exceeds %d bytes", maxPackageDownloadBytes)
+		}
+	}
 	closeErr := f.Close()
 
 	if copyErr != nil {
-		os.Remove(dest) // delete partial file so it is not cached
+		os.Remove(tmp) // delete partial file so it is not cached
 		return copyErr
 	}
-	return closeErr
+	if closeErr != nil {
+		os.Remove(tmp)
+		return closeErr
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
-// extractPkgTarZst extracts an Arch Linux .pkg.tar.zst package into destDir.
-func extractPkgTarZst(pkgPath, destDir string) error {
-	f, err := os.Open(pkgPath)
+// maxPackageDownloadBytes bounds a vendored package download so a hostile or
+// broken mirror cannot exhaust disk (ALARM mirrors are plain HTTP). It is a
+// var so tests can lower it.
+var maxPackageDownloadBytes = 512 << 20
+
+// maxListingBytes bounds package-API and mirror-listing reads.
+const maxListingBytes = 16 << 20
+
+// httpClient returns the shared client used for package API, listing, and
+// download requests, with a timeout so a stalled connection fails the build
+// instead of hanging it.
+func httpClient() *http.Client {
+	return &http.Client{Timeout: 10 * time.Minute}
+}
+
+// extractPkg extracts a .pkg.tar.zst or .pkg.tar.xz package into destDir.
+// Arch Linux packages are zstd-compressed; Arch Linux ARM still ships xz.
+func extractPkg(pkgPath, destDir string) error {
+	r, closer, err := openPkgDecompressor(pkgPath)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer closer()
 
-	zr, err := zstd.NewReader(f)
-	if err != nil {
-		return fmt.Errorf("creating zstd reader: %w", err)
-	}
-	defer zr.Close()
-
-	tr := tar.NewReader(zr)
+	tr := tar.NewReader(r)
 
 	for {
 		header, err := tr.Next()
@@ -427,5 +545,63 @@ func extractPkgTarZst(pkgPath, destDir string) error {
 		}
 	}
 
+	return nil
+}
+
+// openPkgDecompressor sniffs the package compression from its magic bytes
+// and returns a tar-ready reader plus a cleanup func.
+func openPkgDecompressor(pkgPath string) (io.Reader, func(), error) {
+	f, err := os.Open(pkgPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Peek (not Read) so the header stays in the stream: xz.Reader expects
+	// to read the header itself.
+	br := bufio.NewReader(f)
+	magic, err := br.Peek(6)
+	if len(magic) < 4 {
+		f.Close()
+		return nil, nil, fmt.Errorf("reading %s: truncated or empty package (%w)", pkgPath, err)
+	}
+
+	switch {
+	case len(magic) >= 4 && bytes.Equal(magic[:4], []byte{0x28, 0xB5, 0x2F, 0xFD}): // zstd
+		zr, err := zstd.NewReader(br)
+		if err != nil {
+			f.Close()
+			return nil, nil, fmt.Errorf("creating zstd reader: %w", err)
+		}
+		return zr, func() { zr.Close(); f.Close() }, nil
+	case len(magic) >= 6 && bytes.Equal(magic[:6], []byte{0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00}): // xz
+		xr, err := xz.NewReader(br)
+		if err != nil {
+			f.Close()
+			return nil, nil, fmt.Errorf("creating xz reader: %w", err)
+		}
+		return xr, func() { f.Close() }, nil
+	default:
+		f.Close()
+		return nil, nil, fmt.Errorf("unsupported package compression in %s", pkgPath)
+	}
+}
+
+// fetchVendorPackage downloads a package into cachePath when it is not
+// cached, then verifies a pinned digest when one is given. A cache entry
+// that fails verification is evicted, so a poisoned or stale file cannot
+// wedge every later build.
+func fetchVendorPackage(pkgURL, cachePath, digest string) error {
+	if _, err := os.Stat(cachePath); err != nil {
+		if err := downloadFile(pkgURL, cachePath); err != nil {
+			return fmt.Errorf("downloading: %w", err)
+		}
+	}
+
+	if digest != "" {
+		if err := verifyPkgDigest(cachePath, digest); err != nil {
+			os.Remove(cachePath)
+			return err
+		}
+	}
 	return nil
 }

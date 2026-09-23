@@ -203,4 +203,3 @@ func cleanupLoops(dir string) {
 		run("losetup", "-d", loopDev)
 	}
 }
-

@@ -126,7 +126,6 @@ func TestBuildScriptPrelude_SortedKeys(t *testing.T) {
 	}
 }
 
-
 // --- varNameRe validation (sf_set output key validation) ---
 
 func TestVarNameRe_AcceptsValid(t *testing.T) {

@@ -21,8 +21,8 @@ type inspectModel struct {
 	ctx         *actions.BuildContext
 	target      string
 	sections    []section
-	cursor      int      // selected sidebar section
-	prevCursor  int      // tracks section changes for GotoTop
+	cursor      int // selected sidebar section
+	prevCursor  int // tracks section changes for GotoTop
 	showLayers  bool
 	searching   bool
 	searchInput textinput.Model
@@ -44,13 +44,13 @@ func newInspectModel(target string, ctx *actions.BuildContext, sections []sectio
 	ti.CharLimit = 80
 
 	return inspectModel{
-		ctx:        ctx,
-		target:     target,
-		sections:   sections,
-		cursor:     cursor,
-		prevCursor: -1, // force initial content load
+		ctx:         ctx,
+		target:      target,
+		sections:    sections,
+		cursor:      cursor,
+		prevCursor:  -1, // force initial content load
 		searchInput: ti,
-		cache:      make(map[string]string),
+		cache:       make(map[string]string),
 	}
 }
 

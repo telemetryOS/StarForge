@@ -25,9 +25,9 @@ executes it and returns.
 
 Use --overlay to create a named overlay with persistent changes across
 sessions. Without --overlay, changes are discarded on exit.`,
-	Args:              cobra.MinimumNArgs(1),
+	Args:               cobra.MinimumNArgs(1),
 	DisableFlagParsing: false,
-	RunE:              runChroot,
+	RunE:               runChroot,
 }
 
 func init() {

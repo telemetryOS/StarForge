@@ -244,7 +244,11 @@ func (b *Builder) EnsurePackaged(targetName string) (*actions.BuildContext, erro
 		cleanupLoops(buildDir)
 	}()
 
-	if err := EnsureDeps("build"); err != nil {
+	target, ok := b.project.Targets[targetName]
+	if !ok {
+		return nil, fmt.Errorf("target %q not found in project", targetName)
+	}
+	if err := EnsureDeps(target.Arch, "build"); err != nil {
 		return nil, fmt.Errorf("dependencies: %w", err)
 	}
 
@@ -301,9 +305,14 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 	ctx := actions.NewBuildContext()
 	ctx.DryRun = b.DryRun
 
+	src, err := PackageSourceFor(target.Arch)
+	if err != nil {
+		return nil, err
+	}
+	ctx.Arch = src.Arch()
+
 	cacheDir := filepath.Join(b.project.BuildDir(), "cache")
 	ctx.DownloadCacheDir = cacheDir
-
 	vars, err := b.initVars(target)
 	if err != nil {
 		return nil, err
@@ -346,6 +355,25 @@ func (b *Builder) Collect(target config.Target, verbose bool) (*actions.BuildCon
 	}
 
 	ctx.Packages = deduplicatePackages(ctx.Packages)
+
+	// Fail loudly before any network work when a distro without a versioned
+	// package archive (Arch Linux ARM) has pinned packages.
+	if src.ArchiveBaseURL() == "" {
+		var pinned []actions.Package
+		for _, pkg := range ctx.Packages {
+			if pkg.Version != "" {
+				pinned = append(pinned, pkg)
+			}
+		}
+		if len(pinned) > 0 {
+			names := make([]string, len(pinned))
+			for i, pkg := range pinned {
+				names[i] = pkg.String()
+			}
+			return nil, fmt.Errorf("pinned packages are not supported on arch %s (no package archive): %s",
+				src.Arch(), strings.Join(names, ", "))
+		}
+	}
 
 	if err := b.resolvePkgRels(ctx, verbose); err != nil {
 		return nil, err
@@ -581,7 +609,7 @@ func (b *Builder) resolvePkgRels(ctx *actions.BuildContext, verbose bool) error 
 		if pkg.Version == "" || strings.Contains(pkg.Version, "-") {
 			continue
 		}
-		resolved, err := resolveLatestPkgrel(pkg.Name, pkg.Version)
+		resolved, err := resolveLatestPkgrel(pkg.Name, pkg.Version, archLinuxSource{})
 		if err != nil {
 			return fmt.Errorf("resolving pkgrel for %s=%s: %w", pkg.Name, pkg.Version, err)
 		}
@@ -684,8 +712,18 @@ func (b *Builder) execute(ctx *actions.BuildContext, buildDir string, overlay *O
 		cleanupLoops(buildDir)
 	}()
 
+	// Fail loudly before any dependency download or filesystem work when the
+	// host cannot run the vendored x86_64 toolchain or lacks emulation for
+	// the target arch that the build phases chroot into.
+	if err := RequireHostToolchain(); err != nil {
+		return err
+	}
+	if err := RequireBinfmt(ctx.Arch); err != nil {
+		return err
+	}
+
 	// Ensure vendored dependencies are available
-	if err := EnsureDeps("build"); err != nil {
+	if err := EnsureDeps(ctx.Arch, "build"); err != nil {
 		return fmt.Errorf("dependencies: %w", err)
 	}
 

@@ -25,6 +25,9 @@ type Target struct {
 	Env        map[string]string `yaml:"env,omitempty"`
 	Layers     []string          `yaml:"layers"`
 	QEMU       *QEMUConfig       `yaml:"qemu,omitempty"`
+	// Arch is the target machine architecture: "x86_64" (default) for
+	// Arch Linux or "aarch64" for Arch Linux ARM.
+	Arch string `yaml:"arch,omitempty"`
 }
 
 // QEMUConfig holds QEMU virtual machine configuration for a target.
