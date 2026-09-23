@@ -5,6 +5,10 @@ import "github.com/telemetryos/starforge/config"
 // BuildContext accumulates all declarative state from the Collect phase.
 // Each action appends or replaces fields here; the Execute phase reads them.
 type BuildContext struct {
+	// Target machine architecture ("x86_64" or "aarch64"); selects the
+	// PackageSource used by the packages phase. Empty means x86_64.
+	Arch string
+
 	// System configuration (replace semantics — later layer wins)
 	Hostname string
 	Locale   string
@@ -25,14 +29,14 @@ type BuildContext struct {
 	Groups []GroupDef
 
 	// File operations (accumulate)
-	FileMkdirs      []FileMkdirOp
-	LayerCopies     []LayerCopyOp
-	FileCreates     []FileCreateOp
-	FileEdits       []FileEditOp
-	FileCopies      []FileCopyOp
-	FileMoves       []FileMoveOp
-	FileLinks       []FileLinkOp
-	FileDeletes     []FileDeleteOp
+	FileMkdirs  []FileMkdirOp
+	LayerCopies []LayerCopyOp
+	FileCreates []FileCreateOp
+	FileEdits   []FileEditOp
+	FileCopies  []FileCopyOp
+	FileMoves   []FileMoveOp
+	FileLinks   []FileLinkOp
+	FileDeletes []FileDeleteOp
 
 	// Permissions (accumulate)
 	FileOwnerships  []FileOwnershipOp
@@ -103,14 +107,14 @@ func NewBuildContext() *BuildContext {
 		Groups: []GroupDef{},
 
 		// File operations
-		FileMkdirs:      []FileMkdirOp{},
-		LayerCopies:     []LayerCopyOp{},
-		FileCreates:     []FileCreateOp{},
-		FileEdits:       []FileEditOp{},
-		FileCopies:      []FileCopyOp{},
-		FileMoves:       []FileMoveOp{},
-		FileLinks:       []FileLinkOp{},
-		FileDeletes:     []FileDeleteOp{},
+		FileMkdirs:  []FileMkdirOp{},
+		LayerCopies: []LayerCopyOp{},
+		FileCreates: []FileCreateOp{},
+		FileEdits:   []FileEditOp{},
+		FileCopies:  []FileCopyOp{},
+		FileMoves:   []FileMoveOp{},
+		FileLinks:   []FileLinkOp{},
+		FileDeletes: []FileDeleteOp{},
 
 		// Permissions
 		FileOwnerships:  []FileOwnershipOp{},

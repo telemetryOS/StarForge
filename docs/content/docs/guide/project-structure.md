@@ -61,6 +61,11 @@ Each target is a named build profile with an ordered list of layers and optional
 | `default_env` | map | No | Default values for environment variables referenced in `args`. Used when the env var is not set. |
 | `env` | map | No | Environment variables passed to `run` and `layer-run` scripts. Values support `${{ var }}` substitution against target `args`. |
 | `qemu` | object | No | QEMU configuration for `starforge run` (additional disks, memory, etc.). |
+| `arch` | string | No | Target machine architecture: `x86_64` (default, Arch Linux) or `aarch64` (Arch Linux ARM). Selects the mirror, repo layout, keyring, and pacman.conf used by the packages phase. |
+
+Note that pinned packages (`pacman-add` entries with a `name=version` value) require a versioned package archive; Arch Linux ARM has none, so a target with `arch: aarch64` must use unpinned packages only.
+
+Building a target whose `arch` differs from the build host requires binfmt emulation (qemu-user, e.g. `qemu-user-static` with binfmt registration), because build phases chroot into the target rootfs. The build fails with an explicit error when emulation is missing.
 
 Target `args` provide initial variable values that layers can reference via `${{ var_name }}` substitution and declare as required with `imports`. Arg values can be hardcoded strings or reference host environment variables:
 

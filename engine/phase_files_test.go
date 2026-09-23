@@ -177,7 +177,7 @@ func TestMountTable_SkipsEmptyMountPoint(t *testing.T) {
 	// (MountAll would fail trying to run the real mount command, but it should
 	// never even attempt to mount the empty-MountPoint entry.)
 	parts := []PartitionMount{
-		{Source: "/dev/invalid", MountPoint: ""},     // swap — must be skipped
+		{Source: "/dev/invalid", MountPoint: ""},      // swap — must be skipped
 		{Source: "/dev/also-invalid", MountPoint: ""}, // another no-mount
 	}
 

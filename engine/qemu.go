@@ -371,8 +371,9 @@ func findOVMF() (string, error) {
 // RunQEMU assembles partition images into a virtual disk via device mapper
 // and boots with QEMU.
 func RunQEMU(targetName, buildDir, projectDir string, parts []actions.PartitionDef, serial bool, overlayName, bootDisk string, qemuCfg *config.QEMUConfig) error {
-	// Vendor run dependencies (OVMF, dmsetup, sfdisk)
-	if err := EnsureDeps("run"); err != nil {
+	// Vendor run dependencies (OVMF, dmsetup, sfdisk). Host tooling only —
+	// no target keyring, so the arch stays the x86_64 default.
+	if err := EnsureDeps("x86_64", "run"); err != nil {
 		return fmt.Errorf("dependencies: %w", err)
 	}
 
@@ -674,4 +675,3 @@ func ensureQEMUDisks(buildDir string, disks []config.QEMUDisk) error {
 
 	return nil
 }
-

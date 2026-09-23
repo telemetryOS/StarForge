@@ -119,7 +119,10 @@ func HashPhase(phaseIndex int, ctx *actions.BuildContext) (string, error) {
 		fmt.Fprintf(h, "keymap=%s\n", ctx.Keymap)
 
 	case 1: // packages
-		// NOTE: unpinned packages pull "latest" from the Arch mirror, so
+		// The target arch selects mirrors/keyring, so it is hashed here:
+		// flipping arch invalidates phase 1 and everything after it.
+		fmt.Fprintf(h, "arch=%s\n", ctx.Arch)
+		// NOTE: unpinned packages pull "latest" from the distro mirror, so
 		// upstream repo updates can change phase 1 output without changing
 		// this hash. Bump CacheVersion (forces full clean) when that
 		// happens, or pin versions in pacman-add for stable caching.
