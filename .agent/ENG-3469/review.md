@@ -160,8 +160,12 @@ treated as review-closed. The fixes are symbolically committed on top of the
 reviewed head; the repository's review-closure helper is not invoked for a
 human decision.
 
-Exact next safe action: a person either accepts the post-`bc0833c` fixes as
-review-closed (recorded as
+On 2026-09-23 the user directed the PR handoff (`$pr`), superseding the
+"do not open a PR" hold recorded earlier the same day. The PR therefore opens
+with this gap disclosed rather than resolved: the post-`bc0833c` fixes are
+unreviewed by the adversary, and the PR review itself (human reviewer) is the
+closure path. Do not merge until a person accepts the post-`bc0833c` fixes as
+review-closed — recorded as
 `Human acceptance: <who> accepted the post-bc0833c fixes at <fix-SHA> as
-review-closed on <date>` in this file) or directs a further review cycle, which
-is recorded here with the reason. Until then, do not open a PR or merge.
+review-closed on <date>` in this file — or a review of the current head
+returns a pass verdict recorded here with its reviewed head.

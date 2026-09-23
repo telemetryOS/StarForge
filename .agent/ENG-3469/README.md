@@ -7,11 +7,11 @@ ARM — selected from a new `arch` field on the build target. x86_64 behavior is
 unchanged; aarch64 targets get ALARM mirrors, repo layout, keyring, and a
 generated pacman.conf with `Architecture = aarch64`.
 
-**Status:** In Progress — implementation complete and verified locally, but
-**review closure is UNRESOLVED and stopped for a person** (iteration-3 fixes
-landed after the last reviewed head; the three-iteration cap forbids a fourth
-adversary pass). See `review.md` → "Closure status".
-**PR:** none — do not open one until a person closes the review gap.
+**Status:** In Review — implementation complete, verified locally, and
+live-exercised on a real aarch64 build; review closure of the post-iteration-3
+fixes is with the PR reviewer (see `review.md` → Closure status). Do not merge
+without that closure.
+**PR:** <pending — filled on open>
 
 | Doc | What |
 | --- | --- |
@@ -21,20 +21,18 @@ adversary pass). See `review.md` → "Closure status".
 
 ## Next Agent Prompt
 
-Read `review.md` first: three adversary iterations ran (all `changes_requested`);
-every accepted finding is fixed in commits `0154cb7`, `bc0833c`, `762b2b6`, and
-the canonical gate (`go build ./...`, `go test ./...`) is green on the current
-tree with 40+ tests covering the new behavior.
+The PR is open for human review. `review.md` records three adversary
+iterations (all `changes_requested`, all findings fixed in `0154cb7`,
+`bc0833c`, `762b2b6`) and the closure gap: the iteration-3 fixes landed after
+the last reviewed head (`bc0833c`), so no adversary verdict covers the final
+tree. Merge closure needs a person — either the PR reviewer's own review of
+the current head, or an explicit `Human acceptance:` line recorded in
+`review.md`. Do not merge before that.
 
-The branch `mucahit/eng-3469` (worktree `~/.codex/worktrees/StarForge-ENG-3469`,
-integration base `master` @ 1b60fca) is **not** review-closed: the fixes for
-iteration 3's findings (`762b2b6`) are production changes after the last
-reviewed head (`bc0833c`) and no fourth adversary pass is permitted. Do not
-claim pass, do not open a PR, and do not merge until a person either accepts
-those fixes as review-closed (record the exact `Human acceptance:` line in
-`review.md`) or directs a further review cycle, recorded there with the reason.
+Live-build evidence: both targets built end-to-end in a privileged Arch
+container (aarch64 via ALARM, x86_64 as symmetry); note that a target's layer
+must declare its distro keyring package (`archlinuxarm-keyring` /
+`archlinux-keyring`) for the chroot populate — the docs note this. Logs and
+manifests live in `$TELEMETRYOS_ROOT/.testruns/exercise/starforge-eng3469/logs/`.
 
-Blockers/limits to carry forward: a full aarch64 pacstrap build was not run on
-this host (vendored x86_64 Arch binaries need GLIBC ≥ 2.38, which the dev host
-lacks) — see `implementation.md` for what was verified instead; ALARM mirrors
-are plain HTTP, which is why the keyring package is digest-pinned.
+Verification: `go build ./...` and `go test ./...` green on the current tree.
