@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -236,7 +235,7 @@ func (s archLinuxSource) PackageFileURL(repo, arch, name string) (string, error)
 	if apiBase == "" {
 		apiBase = archAPIURLBase
 	}
-	resp, err := http.Get(fmt.Sprintf("%s/packages/%s/%s/%s/json/", apiBase, repo, arch, name))
+	resp, err := httpClient().Get(fmt.Sprintf("%s/packages/%s/%s/%s/json/", apiBase, repo, arch, name))
 	if err != nil {
 		return "", err
 	}
@@ -304,7 +303,7 @@ func (s alarmSource) PackageFileURL(repo, pkgArch, name string) (string, error) 
 	targetArch := s.Arch()
 	listingURL := fmt.Sprintf("%s/%s/%s/", s.MirrorURL(), targetArch, repo)
 
-	resp, err := http.Get(listingURL)
+	resp, err := httpClient().Get(listingURL)
 	if err != nil {
 		return "", err
 	}
@@ -314,7 +313,7 @@ func (s alarmSource) PackageFileURL(repo, pkgArch, name string) (string, error) 
 		return "", fmt.Errorf("mirror listing returned %d for %s", resp.StatusCode, name)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxListingBytes))
 	if err != nil {
 		return "", fmt.Errorf("reading mirror listing: %w", err)
 	}

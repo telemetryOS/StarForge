@@ -451,6 +451,7 @@ func HashPackaging(manifest *Manifest, ctx *actions.BuildContext, project *confi
 // constructors so a missing field surfaces immediately.
 func contextToBuildResult(ctx *actions.BuildContext) BuildResult {
 	return BuildResult{
+		Arch:            ctx.Arch,
 		Partitions:      ctx.Partitions,
 		Ownerships:      ctx.FileOwnerships,
 		Permissions:     ctx.FilePermissions,

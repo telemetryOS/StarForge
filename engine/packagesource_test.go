@@ -577,3 +577,106 @@ func TestRequireHostToolchain(t *testing.T) {
 		t.Fatalf("non-amd64 host (%s) must fail loudly", runtime.GOARCH)
 	}
 }
+
+// --- verified fetch: digest eviction and size cap ---
+
+func TestFetchVendorPackage_EvictsPoisonedCacheEntry(t *testing.T) {
+	good := []byte("good package bytes")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(good)
+	}))
+	defer srv.Close()
+
+	cachePath := filepath.Join(t.TempDir(), "pkg.tar.xz")
+	os.WriteFile(cachePath, []byte("poisoned"), 0o644)
+
+	sum := sha256.Sum256(good)
+	want := hex.EncodeToString(sum[:])
+
+	// A poisoned cached file fails verification and is evicted.
+	err := fetchVendorPackage(srv.URL, cachePath, want)
+	if err == nil || !strings.Contains(err.Error(), "digest mismatch") {
+		t.Fatalf("expected digest mismatch, got %v", err)
+	}
+	if _, statErr := os.Stat(cachePath); !os.IsNotExist(statErr) {
+		t.Fatal("poisoned cache entry must be evicted")
+	}
+
+	// The next run re-downloads and succeeds.
+	if err := fetchVendorPackage(srv.URL, cachePath, want); err != nil {
+		t.Fatalf("re-fetch after eviction failed: %v", err)
+	}
+	got, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, good) {
+		t.Fatalf("cached bytes = %q", got)
+	}
+}
+
+func TestDownloadFile_RejectsOversizedResponse(t *testing.T) {
+	orig := maxPackageDownloadBytes
+	maxPackageDownloadBytes = 1024
+	defer func() { maxPackageDownloadBytes = orig }()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(bytes.Repeat([]byte("A"), 4096))
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "pkg.tar.xz")
+	if err := downloadFile(srv.URL, dest); err == nil {
+		t.Fatal("expected oversized download to fail")
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Fatal("oversized download must not be cached")
+	}
+	if _, err := os.Stat(dest + ".part"); !os.IsNotExist(err) {
+		t.Fatal("staging file must be removed")
+	}
+}
+
+func TestDownloadFile_StagesThenRenames(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("payload"))
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "pkg.tar.xz")
+	if err := downloadFile(srv.URL, dest); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "payload" {
+		t.Fatalf("downloaded content = %q", got)
+	}
+}
+
+// --- BuildResult carries the target arch ---
+
+func TestBuildResult_RoundTripsArch(t *testing.T) {
+	ctx := actions.NewBuildContext()
+	ctx.Arch = "aarch64"
+
+	mapped := contextToBuildResult(ctx)
+	restored := buildResultToContext(&mapped)
+	if restored.Arch != "aarch64" {
+		t.Fatalf("arch lost in BuildResult mapping: got %q", restored.Arch)
+	}
+
+	dir := t.TempDir()
+	if err := SaveBuildResult(ctx, dir); err != nil {
+		t.Fatal(err)
+	}
+	result, err := LoadBuildResult(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := buildResultToContext(result).Arch; got != "aarch64" {
+		t.Fatalf("arch lost in save/load round trip: got %q", got)
+	}
+}

@@ -119,3 +119,49 @@ Verdict: `changes_requested` — 2 high, 1 medium.
 
 Verification after fixes: `go build ./...` clean; `go test ./...` all green;
 CLI smoke re-run unchanged.
+
+## Adversary pass — iteration 3
+
+Reviewed head: `bc0833c` (integration base `origin/master` @ 1b60fca). Lane:
+Codex, read-only, `SWEEP=clean`, ELAPSED=514s.
+
+Verdict: `changes_requested` — 1 high, 2 medium.
+
+- **F3-1 (high) — accepted, fixed after the reviewed head.** Unbounded
+  `io.ReadAll` on the plain-HTTP ALARM listing and unbounded `downloadFile`
+  streaming, plus a digest-mismatching cache entry that stayed on disk and
+  blocked every later build. Fixes: `maxListingBytes` caps both listing
+  readers; `maxPackageDownloadBytes` caps downloads; `downloadFile` stages to
+  `<dest>.part` and renames only after a complete, size-checked response;
+  `fetchVendorPackage` verifies the pinned digest and evicts a mismatching
+  cache entry so the next run re-downloads; all package/listing requests use
+  a shared client with a 10-minute timeout. Tests: poisoned-entry eviction and
+  re-download, oversized response rejected with no cached file, stage-then-
+  rename.
+- **F3-2 (medium) — accepted, fixed after the reviewed head.** `BuildResult`
+  lost `Arch`, so `EnsurePackaged` returned a reconstructed context claiming
+  x86_64. Fix: `BuildResult.Arch` added and mapped in both
+  `contextToBuildResult` and `buildResultToContext` (the cache cross-check
+  test covers the pair). Test: mapping and save/load round trip.
+- **F3-3 (medium) — accepted, fixed after the reviewed head.**
+  `RequireHostToolchain`/`RequireBinfmt` ran after `EnsureDeps`, so download
+  or network errors could mask the unsupported-host error. Both preflights
+  now run before any dependency download.
+
+Verification after these fixes: `go build ./...` clean; `go test ./...` all
+green; CLI smoke unchanged.
+
+### Closure status: UNRESOLVED — stopped for a person
+
+The iteration-3 fixes are production changes that landed after the reviewed
+head (`bc0833c`), and the three-iteration cap forbids a fourth adversary pass,
+so no verdict covers them. Readiness is invalidated: the branch must not be
+treated as review-closed. The fixes are symbolically committed on top of the
+reviewed head; the repository's review-closure helper is not invoked for a
+human decision.
+
+Exact next safe action: a person either accepts the post-`bc0833c` fixes as
+review-closed (recorded as
+`Human acceptance: <who> accepted the post-bc0833c fixes at <fix-SHA> as
+review-closed on <date>` in this file) or directs a further review cycle, which
+is recorded here with the reason. Until then, do not open a PR or merge.

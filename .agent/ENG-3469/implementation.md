@@ -4,26 +4,36 @@
 
 - **`engine/packagesource.go` (new)** — `PackageSource` interface (Arch,
   PacmanArchitecture, MirrorURL, ServerTemplate, Repos, KeyringPackage,
-  KeyringName, ArchiveBaseURL, ArchiveArches, PackageFileURL, PacmanConf) with
-  `archLinuxSource` (x86_64, `Architecture = auto`, `{mirror}/$repo/os/$arch`,
-  archlinux.org JSON API, archive.archlinux.org) and `alarmSource` (aarch64,
-  `Architecture = aarch64`, `{mirror}/$arch/$repo`, mirror directory-listing
-  resolution, no archive). URL fields are injectable for tests.
+  KeyringName, KeyringPackageSHA256, ArchiveBaseURL, ArchiveArches,
+  PackageFileURL, PacmanConf) with `archLinuxSource` (x86_64,
+  `Architecture = auto`, `{mirror}/$repo/os/$arch`, archlinux.org JSON API,
+  archive.archlinux.org) and `alarmSource` (aarch64, `Architecture = aarch64`,
+  `{mirror}/$arch/$repo`, repos `core, extra, alarm, aur`, mirror
+  directory-listing resolution, digest-pinned keyring, no archive). URL fields
+  are injectable for tests. Also holds `RequireHostToolchain` and
+  `RequireBinfmt` preflights.
 - **`config/project.go`** — `Target.Arch` yaml field (`arch: aarch64`).
 - **`actions/context.go`** — `BuildContext.Arch`; Collect normalizes it
   (empty → x86_64).
 - **`engine/builder.go`** — Collect resolves the source, stores `ctx.Arch`,
-  and rejects pinned packages on archive-less distros before any network work;
-  EnsureDeps callers pass the target arch.
+  rejects pinned packages on archive-less distros before any network work;
+  EnsureDeps callers pass the target arch; `execute` runs the host/binfmt
+  preflights before any dependency download.
 - **`engine/cache.go`** — phase-1 hash includes `arch=` so flipping arch
   invalidates phase 1..8 (InvalidateFrom cascades).
 - **`engine/phase_packages.go`** — pacman.conf, mirrorlist, host
   `pacman-key --populate`, chroot `--populate`, and archive installs all read
   the source; `installFromArchive` fails loudly when the distro has no archive.
 - **`engine/deps.go`** — `EnsureDeps(arch, groups...)`; keyring vendor package
-  and check file derived from the source; vendorPkg gains a `source` field
-  (nil = x86_64 Arch host tooling); `extractPkg` sniffs zstd/xz magic bytes
+  and check file derived from the source; vendorPkg gains `source` and
+  `digest` fields (nil source = x86_64 Arch host tooling); keyring extraction is
+  confined to `usr/share/pacman/keyrings/` (`extractKeyringPkg`);
+  `fetchVendorPackage` verifies pinned digests and evicts mismatching cache
+  entries; `downloadFile` stages to `<dest>.part` and renames only after a
+  complete, size-bounded response; `extractPkg` sniffs zstd/xz magic bytes
   (ALARM ships .pkg.tar.xz) via `github.com/ulikunitz/xz`.
+- **`engine/package.go` / `engine/cache.go`** — `BuildResult.Arch` persisted and
+  restored so `EnsurePackaged` returns a correctly typed context.
 - **`engine/qemu.go`** — run-group vendoring passes `x86_64` (host tooling,
   no target keyring).
 - **`docs/content/docs/guide/project-structure.md`** — documents `arch` and

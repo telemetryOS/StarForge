@@ -179,7 +179,7 @@ func installFromArchive(rootfs string, pkg actions.Package, src PackageSource) e
 func resolveLatestPkgrel(name, version string, src PackageSource) (string, error) {
 	dirURL := fmt.Sprintf("%s/%s/%s/", src.ArchiveBaseURL(), string(name[0]), name)
 	archAlternation := strings.Join(src.ArchiveArches(), "|")
-	resp, err := http.Get(dirURL)
+	resp, err := httpClient().Get(dirURL)
 	if err != nil {
 		return "", fmt.Errorf("fetching archive listing for %s: %w", name, err)
 	}
@@ -189,11 +189,10 @@ func resolveLatestPkgrel(name, version string, src PackageSource) (string, error
 		return "", fmt.Errorf("archive listing for %s returned HTTP %d", name, resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxListingBytes))
 	if err != nil {
 		return "", fmt.Errorf("reading archive listing for %s: %w", name, err)
 	}
-
 	// Match filenames like: name-version-pkgrel-arch.pkg.tar.zst
 	// in the HTML directory listing href attributes.
 	pattern := regexp.MustCompile(

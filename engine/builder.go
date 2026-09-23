@@ -712,19 +712,19 @@ func (b *Builder) execute(ctx *actions.BuildContext, buildDir string, overlay *O
 		cleanupLoops(buildDir)
 	}()
 
-	// Ensure vendored dependencies are available
-	if err := EnsureDeps(ctx.Arch, "build"); err != nil {
-		return fmt.Errorf("dependencies: %w", err)
-	}
-
-	// Build phases chroot into the target rootfs; fail loudly before any
-	// filesystem work when the build host cannot run the vendored x86_64
-	// toolchain or lacks emulation for the target arch.
+	// Fail loudly before any dependency download or filesystem work when the
+	// host cannot run the vendored x86_64 toolchain or lacks emulation for
+	// the target arch that the build phases chroot into.
 	if err := RequireHostToolchain(); err != nil {
 		return err
 	}
 	if err := RequireBinfmt(ctx.Arch); err != nil {
 		return err
+	}
+
+	// Ensure vendored dependencies are available
+	if err := EnsureDeps(ctx.Arch, "build"); err != nil {
+		return fmt.Errorf("dependencies: %w", err)
 	}
 
 	// Initialize overlay directories

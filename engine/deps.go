@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/klauspost/compress/zstd"
 	"github.com/ulikunitz/xz"
@@ -283,20 +284,9 @@ func EnsureDeps(arch string, groups ...string) error {
 			if err != nil {
 				return fmt.Errorf("resolving %s: %w", pkg.name, err)
 			}
-
 			cachePath := filepath.Join(cacheDir, filepath.Base(pkgURL))
-			if _, err := os.Stat(cachePath); err != nil {
-				if err := downloadFile(pkgURL, cachePath); err != nil {
-					return fmt.Errorf("downloading %s: %w", pkg.name, err)
-				}
-			}
-
-			// Distros whose transport is not authenticated (ALARM geo
-			// mirror is plain HTTP) pin the trust anchor's digest.
-			if pkg.digest != "" {
-				if err := verifyPkgDigest(cachePath, pkg.digest); err != nil {
-					return fmt.Errorf("verifying %s: %w", pkg.name, err)
-				}
+			if err := fetchVendorPackage(pkgURL, cachePath, pkg.digest); err != nil {
+				return fmt.Errorf("%s: %w", pkg.name, err)
 			}
 
 			// The keyring package is the trust root for every later
@@ -416,7 +406,12 @@ func patchPacstrap(binDir string) error {
 // If the download fails, any partially-written file is removed so that
 // a subsequent call does not mistake it for a valid cached download.
 func downloadFile(url, dest string) error {
-	resp, err := http.Get(url)
+	// Stage into a sibling temp file and rename only after a complete
+	// download, so a partial or oversized response never lands in the cache.
+	tmp := dest + ".part"
+	os.Remove(tmp)
+
+	resp, err := httpClient().Get(url)
 	if err != nil {
 		return err
 	}
@@ -426,19 +421,47 @@ func downloadFile(url, dest string) error {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	f, err := os.Create(dest)
+	f, err := os.Create(tmp)
 	if err != nil {
 		return err
 	}
 
-	_, copyErr := io.Copy(f, resp.Body)
+	_, copyErr := io.Copy(f, io.LimitReader(resp.Body, int64(maxPackageDownloadBytes)+1))
+	if copyErr == nil {
+		if info, statErr := f.Stat(); statErr == nil && info.Size() > int64(maxPackageDownloadBytes) {
+			copyErr = fmt.Errorf("package archive exceeds %d bytes", maxPackageDownloadBytes)
+		}
+	}
 	closeErr := f.Close()
 
 	if copyErr != nil {
-		os.Remove(dest) // delete partial file so it is not cached
+		os.Remove(tmp) // delete partial file so it is not cached
 		return copyErr
 	}
-	return closeErr
+	if closeErr != nil {
+		os.Remove(tmp)
+		return closeErr
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// maxPackageDownloadBytes bounds a vendored package download so a hostile or
+// broken mirror cannot exhaust disk (ALARM mirrors are plain HTTP). It is a
+// var so tests can lower it.
+var maxPackageDownloadBytes = 512 << 20
+
+// maxListingBytes bounds package-API and mirror-listing reads.
+const maxListingBytes = 16 << 20
+
+// httpClient returns the shared client used for package API, listing, and
+// download requests, with a timeout so a stalled connection fails the build
+// instead of hanging it.
+func httpClient() *http.Client {
+	return &http.Client{Timeout: 10 * time.Minute}
 }
 
 // extractPkg extracts a .pkg.tar.zst or .pkg.tar.xz package into destDir.
@@ -555,4 +578,24 @@ func openPkgDecompressor(pkgPath string) (io.Reader, func(), error) {
 		f.Close()
 		return nil, nil, fmt.Errorf("unsupported package compression in %s", pkgPath)
 	}
+}
+
+// fetchVendorPackage downloads a package into cachePath when it is not
+// cached, then verifies a pinned digest when one is given. A cache entry
+// that fails verification is evicted, so a poisoned or stale file cannot
+// wedge every later build.
+func fetchVendorPackage(pkgURL, cachePath, digest string) error {
+	if _, err := os.Stat(cachePath); err != nil {
+		if err := downloadFile(pkgURL, cachePath); err != nil {
+			return fmt.Errorf("downloading: %w", err)
+		}
+	}
+
+	if digest != "" {
+		if err := verifyPkgDigest(cachePath, digest); err != nil {
+			os.Remove(cachePath)
+			return err
+		}
+	}
+	return nil
 }
