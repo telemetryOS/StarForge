@@ -58,7 +58,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		defer output.Close()
-		return engine.RunQEMU(targetName, buildDir, proj.Dir, nil, runSerial, runOverlay, runBootDisk, target.QEMU)
+		return engine.RunQEMU(targetName, buildDir, proj.Dir, nil, runSerial, runOverlay, runBootDisk, target.QEMU, target.Arch)
 	}
 
 	os.MkdirAll(buildDir, 0o755)
@@ -87,5 +87,5 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	// Bubbletea is done — QEMU runs with direct terminal access.
 	// out.* methods still work (fall back to fmt.Println).
-	return engine.RunQEMU(targetName, buildDir, proj.Dir, ctx.Partitions, runSerial, runOverlay, runBootDisk, target.QEMU)
+	return engine.RunQEMU(targetName, buildDir, proj.Dir, ctx.Partitions, runSerial, runOverlay, runBootDisk, target.QEMU, ctx.Arch)
 }

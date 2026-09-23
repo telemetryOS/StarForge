@@ -27,6 +27,7 @@ type vendorPkg struct {
 	groups []string      // e.g. []string{"build"}, []string{"run"}, []string{"build", "run"}
 	source PackageSource // distro serving the package; nil = x86_64 Arch Linux
 	digest string        // pinned sha256 of the package file; empty = unpinned
+	url    string        // exact package file URL; empty = resolve dynamically
 }
 
 // resolvePkgSource returns the distro a vendored package is fetched from.
@@ -43,58 +44,58 @@ func (p vendorPkg) resolvePkgSource() PackageSource {
 // providing usr/bin/ and usr/lib/ trees.
 var vendorPackages = []vendorPkg{
 	// Orchestration scripts (pacstrap, arch-chroot)
-	{"arch-install-scripts", "extra", "any", []string{"build"}, nil, ""},
+	{"arch-install-scripts", "extra", "any", []string{"build"}, nil, "", ""},
 	// Shell: bash is required by the orchestration scripts and host-side
 	// layer-run/layer-script steps. Vendor it so we never rely on the
 	// host system's /bin/bash.
-	{"bash", "core", "x86_64", []string{"build"}, nil, ""},
-	{"ncurses", "core", "x86_64", []string{"build"}, nil, ""}, // bash runtime dep
+	{"bash", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"ncurses", "core", "x86_64", []string{"build"}, nil, "", ""}, // bash runtime dep
 	// Package manager
-	{"pacman", "core", "x86_64", []string{"build"}, nil, ""},
-	{"pacman-mirrorlist", "core", "any", []string{"build"}, nil, ""},
+	{"pacman", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"pacman-mirrorlist", "core", "any", []string{"build"}, nil, "", ""},
 	// Pacman deps
-	{"gpgme", "core", "x86_64", []string{"build"}, nil, ""},
-	{"libassuan", "core", "x86_64", []string{"build"}, nil, ""},
-	{"libgpg-error", "core", "x86_64", []string{"build"}, nil, ""},
-	{"libarchive", "core", "x86_64", []string{"build"}, nil, ""},
-	{"curl", "core", "x86_64", []string{"build"}, nil, ""},
-	{"libseccomp", "core", "x86_64", []string{"build"}, nil, ""},
-	{"libnghttp2", "core", "x86_64", []string{"build"}, nil, ""},
-	{"libnghttp3", "core", "x86_64", []string{"build"}, nil, ""},
-	{"libidn2", "core", "x86_64", []string{"build"}, nil, ""},
-	{"libpsl", "core", "x86_64", []string{"build"}, nil, ""},
-	{"libssh2", "core", "x86_64", []string{"build"}, nil, ""},
-	{"brotli", "core", "x86_64", []string{"build"}, nil, ""},
-	{"openssl", "core", "x86_64", []string{"build"}, nil, ""},
+	{"gpgme", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libassuan", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libgpg-error", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libarchive", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"curl", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libseccomp", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libnghttp2", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libnghttp3", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libidn2", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libpsl", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libssh2", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"brotli", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"openssl", "core", "x86_64", []string{"build"}, nil, "", ""},
 	// GnuPG (for pacman-key)
-	{"gnupg", "core", "x86_64", []string{"build"}, nil, ""},
-	{"libgcrypt", "core", "x86_64", []string{"build"}, nil, ""},
-	{"libksba", "core", "x86_64", []string{"build"}, nil, ""},
-	{"npth", "core", "x86_64", []string{"build"}, nil, ""},
-	{"pinentry", "core", "x86_64", []string{"build"}, nil, ""},
-	{"gnutls", "core", "x86_64", []string{"build"}, nil, ""},
-	{"nettle", "core", "x86_64", []string{"build"}, nil, ""},
-	{"sqlite", "core", "x86_64", []string{"build"}, nil, ""},
-	{"readline", "core", "x86_64", []string{"build"}, nil, ""},
+	{"gnupg", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libgcrypt", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libksba", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"npth", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"pinentry", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"gnutls", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"nettle", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"sqlite", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"readline", "core", "x86_64", []string{"build"}, nil, "", ""},
 	// Filesystem tools
-	{"e2fsprogs", "core", "x86_64", []string{"build"}, nil, ""},
-	{"dosfstools", "core", "x86_64", []string{"build"}, nil, ""},
-	{"zstd", "core", "x86_64", []string{"build"}, nil, ""},
+	{"e2fsprogs", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"dosfstools", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"zstd", "core", "x86_64", []string{"build"}, nil, "", ""},
 	// Partitioning
-	{"gptfdisk", "extra", "x86_64", []string{"build"}, nil, ""},
-	{"parted", "extra", "x86_64", []string{"build", "run"}, nil, ""},
+	{"gptfdisk", "extra", "x86_64", []string{"build"}, nil, "", ""},
+	{"parted", "extra", "x86_64", []string{"build", "run"}, nil, "", ""},
 	// Core system utilities: mount, umount, losetup, sfdisk, blockdev,
 	// findmnt, mkswap, lsblk. util-linux-libs (already below) provides
 	// the shared libraries; util-linux adds the binaries.
-	{"util-linux", "core", "x86_64", []string{"build"}, nil, ""},
-	{"libcap", "core", "x86_64", []string{"build"}, nil, ""}, // util-linux dep
-	{"pcre2", "core", "x86_64", []string{"build"}, nil, ""},  // util-linux dep
+	{"util-linux", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"libcap", "core", "x86_64", []string{"build"}, nil, "", ""}, // util-linux dep
+	{"pcre2", "core", "x86_64", []string{"build"}, nil, "", ""},  // util-linux dep
 	// Shared library deps for above tools
-	{"util-linux-libs", "core", "x86_64", []string{"build"}, nil, ""},
-	{"popt", "core", "x86_64", []string{"build"}, nil, ""},
-	{"device-mapper", "core", "x86_64", []string{"build", "run"}, nil, ""},
+	{"util-linux-libs", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"popt", "core", "x86_64", []string{"build"}, nil, "", ""},
+	{"device-mapper", "core", "x86_64", []string{"build", "run"}, nil, "", ""},
 	// UEFI firmware for QEMU
-	{"edk2-ovmf", "extra", "any", []string{"run"}, nil, ""},
+	{"edk2-ovmf", "extra", "any", []string{"run"}, nil, "", ""},
 }
 
 // Target keyrings are vendored per build: the target distro's signing keys
@@ -107,6 +108,7 @@ func keyringVendorPkg(src PackageSource) vendorPkg {
 		groups: []string{"build"},
 		source: src,
 		digest: src.KeyringPackageSHA256(),
+		url:    src.KeyringPackageURL(),
 	}
 }
 
@@ -280,9 +282,13 @@ func EnsureDeps(arch string, groups ...string) error {
 		}
 
 		if err := out.RunWithSpinner(pkg.name, func() error {
-			pkgURL, err := pkg.resolvePkgSource().PackageFileURL(pkg.repo, pkg.arch, pkg.name)
-			if err != nil {
-				return fmt.Errorf("resolving %s: %w", pkg.name, err)
+			pkgURL := pkg.url
+			if pkgURL == "" {
+				var err error
+				pkgURL, err = pkg.resolvePkgSource().PackageFileURL(pkg.repo, pkg.arch, pkg.name)
+				if err != nil {
+					return fmt.Errorf("resolving %s: %w", pkg.name, err)
+				}
 			}
 			cachePath := filepath.Join(cacheDir, filepath.Base(pkgURL))
 			if err := fetchVendorPackage(pkgURL, cachePath, pkg.digest); err != nil {

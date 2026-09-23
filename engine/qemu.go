@@ -370,7 +370,20 @@ func findOVMF() (string, error) {
 
 // RunQEMU assembles partition images into a virtual disk via device mapper
 // and boots with QEMU.
-func RunQEMU(targetName, buildDir, projectDir string, parts []actions.PartitionDef, serial bool, overlayName, bootDisk string, qemuCfg *config.QEMUConfig) error {
+func RunQEMU(targetName, buildDir, projectDir string, parts []actions.PartitionDef, serial bool, overlayName, bootDisk string, qemuCfg *config.QEMUConfig, arch string) error {
+	src, err := PackageSourceFor(arch) // normalizes empty to x86_64
+	if err != nil {
+		return err
+	}
+	arch = src.Arch()
+
+	// Only x86_64 images are supported under QEMU: qemu-system-x86_64 with
+	// OVMF firmware is hardcoded below, and running it against an aarch64
+	// disk would stall the boot with no clear error. Fail loudly instead.
+	if arch != "x86_64" {
+		return fmt.Errorf("QEMU run is not supported for arch %s yet (needs qemu-system-aarch64 with AAVMF firmware)", arch)
+	}
+
 	// Vendor run dependencies (OVMF, dmsetup, sfdisk). Host tooling only —
 	// no target keyring, so the arch stays the x86_64 default.
 	if err := EnsureDeps("x86_64", "run"); err != nil {

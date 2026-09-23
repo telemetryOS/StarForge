@@ -169,3 +169,28 @@ review-closed — recorded as
 `Human acceptance: <who> accepted the post-bc0833c fixes at <fix-SHA> as
 review-closed on <date>` in this file — or a review of the current head
 returns a pass verdict recorded here with its reviewed head.
+## CodeRabbit PR review pass
+
+Reviewed head: `dcb29f30` (PR #3 head). Reviewer of record for this pass:
+CodeRabbit (the PR review lane, complementing the three capped adversary
+iterations; it does not by itself satisfy the human-acceptance closure rule
+recorded above). Verdict: `changes_requested`, 2 current inline findings.
+
+- **C1 (major, stability) — accepted, fixed.** The ALARM keyring digest pin
+  conflicted with newest-version listing resolution: when ALARM publishes a
+  newer keyring, the pinned digest would fail every build until the pin was
+  bumped. Fix: the interface gained `KeyringPackageURL()`; `alarmSource` pins
+  the exact file URL (the digest-pinned filename) so pin and fetched file
+  cannot drift; `keyringVendorPkg` carries it and `EnsureDeps` prefers it over
+  dynamic resolution. x86_64 stays on dynamic TLS-verified resolution. Test:
+  `TestKeyringVendorPkg_PinnedURLDrift`.
+- **C2 (minor, functional) — accepted, fixed.** `RunQEMU` hardcodes
+  `qemu-system-x86_64` with OVMF, so `starforge run` on an aarch64 target
+  would stall silently. It now takes the target arch and fails loudly for
+  non-x86_64 targets before any dependency work (ARM QEMU support remains out
+  of scope, documented). Tests: `TestRunQEMU_RejectsNonX86Targets`.
+
+Verification after fixes: `go build ./...` clean; `go vet` clean; `go test
+./...` all green. Head moved past `dcb29f30`; awaiting the fresh review of the
+new head. Closure status above is unchanged: human review of the current head
+remains the merge gate.

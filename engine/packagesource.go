@@ -74,6 +74,11 @@ type PackageSource interface {
 	// (x86_64 packages are fetched over TLS and unpacked as today).
 	KeyringPackageSHA256() string
 
+	// KeyringPackageURL is the exact URL of the pinned keyring package
+	// file, used instead of newest-version resolution so the digest pin and
+	// the fetched file cannot drift apart. Empty = resolve dynamically.
+	KeyringPackageURL() string
+
 	// PacmanConf writes a temporary pacman.conf with the given cache and
 	// GPG directories, generated from this source's repositories.
 	PacmanConf(cacheDir, gpgDir string) (string, error)
@@ -217,6 +222,7 @@ func (s archLinuxSource) ArchiveBaseURL() string {
 	return archArchiveURL
 }
 func (s archLinuxSource) ArchiveArches() []string      { return []string{"x86_64", "any"} }
+func (s archLinuxSource) KeyringPackageURL() string    { return "" } // floating latest via package API
 func (s archLinuxSource) KeyringPackageSHA256() string { return "" } // TLS transport, floating latest
 func (s archLinuxSource) PacmanConf(cacheDir, gpgDir string) (string, error) {
 	return writePacmanConf(s, cacheDir, gpgDir)
@@ -279,10 +285,17 @@ func (s alarmSource) KeyringName() string     { return "archlinuxarm" }
 func (s alarmSource) ArchiveBaseURL() string  { return "" } // no versioned archive
 func (s alarmSource) ArchiveArches() []string { return nil }
 
+// KeyringPackageURL pins the exact keyring file so the digest pin and the
+// fetched file cannot drift: newest-version resolution would download a newer
+// keyring than the pinned digest and fail every build until the pin is bumped.
+func (s alarmSource) KeyringPackageURL() string {
+	return s.MirrorURL() + "/aarch64/core/archlinuxarm-keyring-20240419-2-any.pkg.tar.xz"
+}
+
 // KeyringPackageSHA256 pins the vendored archlinuxarm-keyring package: the
 // ALARM geo mirror is plain HTTP (its HTTPS host has a certificate mismatch),
-// so the trust anchor must be digest-pinned. If the distro publishes a newer
-// keyring, bump the expected filename resolution and this digest together.
+// so the trust anchor must be digest-pinned. When the distro publishes a newer
+// keyring, bump this digest and KeyringPackageURL together.
 func (s alarmSource) KeyringPackageSHA256() string {
 	return "3cb36869edfe413672a6e932cc55d7f8386e1a9d3b38663cfb3bc6fe0d146e21" // archlinuxarm-keyring-20240419-2-any.pkg.tar.xz
 }

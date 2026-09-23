@@ -680,3 +680,18 @@ func TestBuildResult_RoundTripsArch(t *testing.T) {
 		t.Fatalf("arch lost in save/load round trip: got %q", got)
 	}
 }
+
+func TestKeyringVendorPkg_PinnedURLDrift(t *testing.T) {
+	alarmPkg := keyringVendorPkg(alarmSource{})
+	if alarmPkg.url == "" {
+		t.Fatal("ALARM keyring must pin its exact file URL")
+	}
+	if !strings.HasSuffix(alarmPkg.url, "/aarch64/core/archlinuxarm-keyring-20240419-2-any.pkg.tar.xz") {
+		t.Fatalf("pinned keyring URL must match the digest-pinned file, got %q", alarmPkg.url)
+	}
+
+	archPkg := keyringVendorPkg(archLinuxSource{})
+	if archPkg.url != "" {
+		t.Fatalf("x86_64 keyring stays on dynamic resolution, got %q", archPkg.url)
+	}
+}
