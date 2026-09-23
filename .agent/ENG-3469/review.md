@@ -194,3 +194,16 @@ Verification after fixes: `go build ./...` clean; `go vet` clean; `go test
 ./...` all green. Head moved past `dcb29f30`; awaiting the fresh review of the
 new head. Closure status above is unchanged: human review of the current head
 remains the merge gate.
+
+### Fresh automated pass on the fixed head
+
+Reviewed head: `3571df8` — CodeRabbit verdict `APPROVED` (empty body, no new
+inline findings). The two threads from the previous pass (pinned keyring URL,
+RunQEMU arch gate) are resolved on GitHub; their anchors still land on the new
+diff but both claims are addressed by `e9171cf` with regression tests
+(`TestKeyringVendorPkg_PinnedURLDrift`, `TestRunQEMU_RejectsNonX86Targets`).
+No PR-side CI exists (only a docs workflow; no check runs on the branch), so
+the CI condition is vacuous.
+
+Closure status above still governs merging: a person accepts the
+post-`bc0833c` adversary fixes or reviews the current head themselves.
